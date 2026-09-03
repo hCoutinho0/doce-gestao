@@ -30,6 +30,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   session: { strategy: 'jwt' },
   pages: { signIn: '/login' },
+  // Required off Vercel/localhost — Auth.js otherwise refuses to trust the
+  // Host header it sees behind Azure Static Web Apps' proxy and fails
+  // every request with a generic "server configuration" error.
+  trustHost: true,
   callbacks: {
     jwt({ token, profile }) {
       if (profile) {
