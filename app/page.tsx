@@ -123,7 +123,7 @@ type FormSubmit = {
 
 export default function Home() {
   const [view, setView] = useState<View>('dashboard');
-  const [orders, setOrders] = useStoredState('doce-orders', initialOrders);
+  const [orders, setOrders] = useServerFetchedState('doce-orders', initialOrders);
   const [stock, setStock] = useStoredState('doce-stock-v2', initialStock);
   const [finance, setFinance] = useStoredState('doce-finance', initialFinance);
   const [menuItems, setMenuItems] = useStoredState('doce-menu', initialMenu);
@@ -363,6 +363,33 @@ function useStoredState<T>(
       body: JSON.stringify({ value: state }),
     });
   }, [key, state, loaded]);
+
+  return [state, setState];
+}
+
+// Orders are touched from two independent places — the admin panel and the
+// public cardápio — so a full-array PUT of a stale in-memory snapshot from
+// here can silently erase whatever the other side wrote in between (that's
+// exactly how two real customer orders were lost). This variant only ever
+// reads; every mutation goes through /api/orders instead, which reads the
+// current database state and writes back just its own change.
+function useServerFetchedState<T>(key: string, initial: T): [T, (value: T | ((old: T) => T)) => void] {
+  const [state, setState] = useState<T>(initial);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch(`/api/data/${key}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { value: T } | null) => {
+        if (cancelled) return;
+        if (data?.value !== null && data?.value !== undefined) {
+          setState(data.value);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [key]);
 
   return [state, setState];
 }
@@ -799,36 +826,39 @@ function Orders({
   orders: Order[];
   setOrders: (v: Order[] | ((o: Order[]) => Order[])) => void;
 }) {
-  const add = (e: FormSubmit) => {
+  const add = async (e: FormSubmit) => {
     e.preventDefault();
-    const data = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const data = new FormData(form);
     const value = Number(fieldValue(data, 'value').replace(',', '.'));
-    setOrders((old) => [
-      {
-        id: `#${1049 + old.length}`,
+    const response = await fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         customer: fieldValue(data, 'customer'),
         item: fieldValue(data, 'item'),
         date: fieldValue(data, 'date'),
         value,
         status: 'Novo',
-      },
-      ...old,
-    ]);
-    e.currentTarget.reset();
+      }),
+    });
+    if (!response.ok) return;
+    const { order } = (await response.json()) as { order: Order };
+    setOrders((old) => [order, ...old]);
+    form.reset();
   };
-  const advance = (id: string) => {
+  const advance = async (id: string) => {
     const flow = ['Novo', 'Produção', 'Pronto', 'Entrega', 'Concluído'];
-    setOrders((old) =>
-      old.map((o) =>
-        o.id === id
-          ? {
-              ...o,
-              status:
-                flow[Math.min(flow.length - 1, flow.indexOf(o.status) + 1)],
-            }
-          : o,
-      ),
-    );
+    const current = orders.find((o) => o.id === id);
+    if (!current) return;
+    const status = flow[Math.min(flow.length - 1, flow.indexOf(current.status) + 1)];
+    const response = await fetch(`/api/orders/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (!response.ok) return;
+    setOrders((old) => old.map((o) => (o.id === id ? { ...o, status } : o)));
   };
   return (
     <>
@@ -887,7 +917,14 @@ function Orders({
         <OrderTable
           orders={orders}
           onStatus={advance}
-          onDelete={(id) => setOrders((old) => old.filter((o) => o.id !== id))}
+          onDelete={(id) => {
+            void fetch(`/api/orders/${encodeURIComponent(id)}`, {
+              method: 'DELETE',
+            }).then((response) => {
+              if (!response.ok) return;
+              setOrders((old) => old.filter((o) => o.id !== id));
+            });
+          }}
         />
       </Panel>
     </>
