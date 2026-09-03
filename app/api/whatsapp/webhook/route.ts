@@ -79,7 +79,7 @@ async function handleMessage(from: string, text: string) {
 
   await replyTo(
     from,
-    `Olá! 👋 Para fazer um pedido, acesse nosso cardápio: ${CARDAPIO_URL}/cardapio\n\nPara acompanhar um pedido já feito, envie o número dele (ex.: 2001).`,
+    `Olá! 👋 Para fazer um pedido, acesse nosso cardápio: ${CARDAPIO_URL}/\n\nPara acompanhar um pedido já feito, envie o número dele (ex.: 2001).`,
   );
 }
 

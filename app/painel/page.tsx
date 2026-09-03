@@ -1721,7 +1721,7 @@ function DigitalMenu({
         subtitle="Crie manualmente cada edição semanal, escolha os produtos e compartilhe com clientes."
         action={
           <Link
-            href="/cardapio"
+            href="/"
             target="_blank"
             className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border bg-background px-2.5 text-sm font-medium transition hover:bg-muted"
           >

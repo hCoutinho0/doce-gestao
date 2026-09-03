@@ -11,7 +11,7 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!isLoading && session) window.location.replace('/');
+    if (!isLoading && session) window.location.replace('/painel');
   }, [isLoading, session]);
 
   return (
@@ -83,7 +83,7 @@ export default function LoginPage() {
             className="mt-8 h-11 w-full rounded-xl"
             onClick={() => {
               setSubmitting(true);
-              void signIn('microsoft-entra-id', { redirectTo: '/' });
+              void signIn('microsoft-entra-id', { redirectTo: '/painel' });
             }}
           >
             {submitting ? (

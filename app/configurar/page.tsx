@@ -110,7 +110,7 @@ export default function SetupPage() {
     })
       .then((response) => {
         if (!response.ok) throw new Error('save_failed');
-        window.location.replace('/');
+        window.location.replace('/painel');
       })
       .catch(() => {
         setSaving(false);

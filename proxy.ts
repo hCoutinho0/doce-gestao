@@ -4,8 +4,8 @@ import { NextResponse } from 'next/server';
 // Server-side gate: unlike the old prototype, whether someone reaches the
 // internal panel is decided here, from the signed session cookie NextAuth
 // sets after a real Entra ID sign-in — not from anything readable or
-// writable in the browser. /cardapio and its checkout API stay public,
-// since customers order without an account.
+// writable in the browser. The site root (public cardápio) and its
+// checkout API stay public, since customers order without an account.
 export default auth((req) => {
   const isLoggedIn = Boolean(req.auth);
   if (!isLoggedIn) {
@@ -15,5 +15,5 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ['/', '/configurar/:path*'],
+  matcher: ['/painel/:path*', '/configurar/:path*'],
 };

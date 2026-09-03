@@ -58,9 +58,9 @@ export async function POST(request: Request) {
           currency_id: 'BRL',
         })),
         back_urls: {
-          success: `${origin}/cardapio?pedido=${encodeURIComponent(body.orderId)}&status=aprovado`,
-          pending: `${origin}/cardapio?pedido=${encodeURIComponent(body.orderId)}&status=pendente`,
-          failure: `${origin}/cardapio?pedido=${encodeURIComponent(body.orderId)}&status=recusado`,
+          success: `${origin}/?pedido=${encodeURIComponent(body.orderId)}&status=aprovado`,
+          pending: `${origin}/?pedido=${encodeURIComponent(body.orderId)}&status=pendente`,
+          failure: `${origin}/?pedido=${encodeURIComponent(body.orderId)}&status=recusado`,
         },
         auto_return: 'approved',
         notification_url: `${origin}/api/checkout/webhook`,

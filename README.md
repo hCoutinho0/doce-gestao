@@ -35,7 +35,8 @@ copy .env.example .env.local
 npm run dev
 ```
 
-Abra `http://localhost:3000`.
+Abra `http://localhost:3000` para o cardápio público, ou
+`http://localhost:3000/painel` para o painel administrativo (pede login).
 
 ### Configurar o login (Microsoft Entra ID)
 
@@ -70,12 +71,15 @@ Sem essas variáveis, o cardápio público continua funcionando, mas o botão
   GitHub Actions — repositório em
   [github.com/hCoutinho0/doce-gestao](https://github.com/hCoutinho0/doce-gestao)).
 
-- Painel interno (`/`, `/configurar`): protegido por Entra ID de verdade.
-  Pedidos, estoque, financeiro, cardápio e fidelidade agora ficam salvos no
-  **Azure Cosmos DB** (`lib/cosmos.ts`, `app/api/data/[key]`), num container
-  `app-state` com um documento por domínio — duas pessoas em computadores
-  diferentes veem os mesmos dados.
-- Cardápio público (`/cardapio`): sem login. Lê o cardápio publicado e a
+- Painel interno (`/painel`, `/configurar`): protegido por Entra ID de
+  verdade. Pedidos, estoque, financeiro, cardápio e fidelidade agora ficam
+  salvos no **Azure Cosmos DB** (`lib/cosmos.ts`, `app/api/data/[key]`),
+  num container `app-state` com um documento por domínio — duas pessoas em
+  computadores diferentes veem os mesmos dados.
+- Cardápio público (`/`, com `/cardapio` redirecionando para lá): sem
+  login — o cardápio fica na raiz do site para que um domínio próprio
+  (ex.: `lavilyconfeitaria.com.br`) abra direto na vitrine para os
+  clientes. Lê o cardápio publicado e a
   marca da confeitaria do Cosmos DB (`GET /api/data/doce-menu`,
   `.../doce-bakery-profile`) e cria pedidos por um endpoint público
   específico (`POST /api/orders`) que só permite adicionar um pedido, nunca
