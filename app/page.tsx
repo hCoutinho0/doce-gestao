@@ -972,7 +972,7 @@ function Stock({
             />
           </Field>
           <div className="flex items-end">
-            <Button className="h-10 w-full rounded-xl">
+            <Button type="submit" className="h-10 w-full rounded-xl">
               <Plus /> Adicionar
             </Button>
           </div>
@@ -1203,7 +1203,7 @@ function Pricing({ stock }: { stock: StockItem[] }) {
                 />
               </Field>
               <div className="flex items-end">
-                <Button className="h-10">
+                <Button type="submit" className="h-10">
                   <Plus /> Adicionar
                 </Button>
               </div>
@@ -1286,7 +1286,7 @@ function Pricing({ stock }: { stock: StockItem[] }) {
                 />
               </Field>
               <div className="flex items-end">
-                <Button className="h-10">
+                <Button type="submit" className="h-10">
                   <Plus /> Adicionar gasto
                 </Button>
               </div>
@@ -1505,7 +1505,7 @@ function Finance({
             />
           </Field>
           <div className="flex items-end">
-            <Button className="h-10 w-full rounded-xl">
+            <Button type="submit" className="h-10 w-full rounded-xl">
               <Plus /> Lançar
             </Button>
           </div>
@@ -1696,7 +1696,7 @@ function DigitalMenu({
             <input name="emoji" className={inputClass} placeholder="🧁" />
           </Field>
           <div className="flex items-end">
-            <Button className="h-10" disabled={uploadingPhoto}>
+            <Button type="submit" className="h-10" disabled={uploadingPhoto}>
               <Plus /> Adicionar produto
             </Button>
           </div>
@@ -1830,7 +1830,7 @@ function Customers({
             <input name="phone" className={inputClass} placeholder="(11) 90000-0000" />
           </Field>
           <div className="flex items-end">
-            <Button className="h-10 w-full">
+            <Button type="submit" className="h-10 w-full">
               <Plus /> Cadastrar cliente
             </Button>
           </div>
