@@ -27,6 +27,7 @@ type MenuItem = {
   price: number;
   available: boolean;
   emoji: string;
+  photoUrl?: string;
 };
 type Cart = Record<number, number>;
 type PaymentMethod =
@@ -320,9 +321,20 @@ export default function CardapioPage() {
                 key={item.id}
                 className="flex flex-col rounded-2xl border bg-card p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
               >
-                <span className="grid size-12 place-items-center rounded-2xl bg-secondary text-3xl">
-                  {item.emoji}
-                </span>
+                {item.photoUrl ? (
+                  <Image
+                    src={item.photoUrl}
+                    alt={item.name}
+                    width={48}
+                    height={48}
+                    unoptimized
+                    className="size-12 rounded-2xl object-cover"
+                  />
+                ) : (
+                  <span className="grid size-12 place-items-center rounded-2xl bg-secondary text-3xl">
+                    {item.emoji}
+                  </span>
+                )}
                 <div className="mt-4 flex-1">
                   <p className="font-heading text-lg font-bold">{item.name}</p>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">

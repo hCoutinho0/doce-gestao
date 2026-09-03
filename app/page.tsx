@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ComponentProps } from 'react';
 import Link from 'next/link';
 import {
   ArrowDownRight,
@@ -74,6 +74,7 @@ type MenuItem = {
   price: number;
   available: boolean;
   emoji: string;
+  photoUrl?: string;
 };
 type LoyaltyItem = { id: number; name: string; phone: string; stamps: number };
 
@@ -1697,6 +1698,33 @@ function DigitalMenu({
     'doce-menu-week',
     'Semana de 2 a 8 de setembro',
   );
+  const [pendingPhoto, setPendingPhoto] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState('');
+  const uploadProductPhoto: NonNullable<
+    ComponentProps<'input'>['onChange']
+  > = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) {
+      setPhotoError('Escolha uma imagem de até 4 MB.');
+      return;
+    }
+    setPhotoError('');
+    setUploadingPhoto(true);
+    const body = new FormData();
+    body.append('file', file);
+    fetch('/api/upload', { method: 'POST', body })
+      .then((response) => {
+        if (!response.ok) throw new Error('upload_failed');
+        return response.json() as Promise<{ url: string }>;
+      })
+      .then(({ url }) => setPendingPhoto(url))
+      .catch(() =>
+        setPhotoError('Não foi possível enviar a foto. Tente novamente.'),
+      )
+      .finally(() => setUploadingPhoto(false));
+  };
   const addProduct = (e: FormSubmit) => {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
@@ -1708,10 +1736,12 @@ function DigitalMenu({
         category: fieldValue(data, 'category'),
         price: Number(fieldValue(data, 'price')),
         emoji: fieldValue(data, 'emoji') || '🧁',
+        photoUrl: pendingPhoto || undefined,
         available: true,
       },
     ]);
     e.currentTarget.reset();
+    setPendingPhoto('');
   };
   return (
     <>
@@ -1778,9 +1808,33 @@ function DigitalMenu({
             <input name="emoji" className={inputClass} placeholder="🧁" />
           </Field>
           <div className="flex items-end">
-            <Button className="h-10">
+            <Button className="h-10" disabled={uploadingPhoto}>
               <Plus /> Adicionar produto
             </Button>
+          </div>
+          <div className="md:col-span-5">
+            <Field label="Foto do produto (opcional)">
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={uploadProductPhoto}
+                disabled={uploadingPhoto}
+                className={inputClass}
+              />
+            </Field>
+            {uploadingPhoto && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Enviando foto...
+              </p>
+            )}
+            {photoError && (
+              <p className="mt-1 text-xs text-destructive">{photoError}</p>
+            )}
+            {pendingPhoto && !uploadingPhoto && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Foto pronta — será usada no próximo produto adicionado.
+              </p>
+            )}
           </div>
         </form>
       </Panel>
@@ -1792,9 +1846,20 @@ function DigitalMenu({
         <div className="divide-y">
           {items.map((item) => (
             <div key={item.id} className="flex items-center gap-4 px-5 py-4">
-              <span className="grid size-11 place-items-center rounded-xl bg-secondary text-2xl">
-                {item.emoji}
-              </span>
+              {item.photoUrl ? (
+                <Image
+                  src={item.photoUrl}
+                  alt={item.name}
+                  width={44}
+                  height={44}
+                  unoptimized
+                  className="size-11 shrink-0 rounded-xl object-cover"
+                />
+              ) : (
+                <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-secondary text-2xl">
+                  {item.emoji}
+                </span>
+              )}
               <div className="flex-1">
                 <p className="font-semibold">{item.name}</p>
                 <p className="text-xs text-muted-foreground">

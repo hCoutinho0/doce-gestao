@@ -48,6 +48,7 @@ export default function SetupPage() {
   const [step, setStep] = useState(1);
   const [profile, setProfile] = useState(initialProfile);
   const [logoError, setLogoError] = useState('');
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
   const { session, isLoading: sessionLoading } = useUserSession();
@@ -65,16 +66,24 @@ export default function SetupPage() {
   ) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (file.size > 1024 * 1024) {
-      setLogoError('Escolha uma imagem de até 1 MB.');
+    if (file.size > 4 * 1024 * 1024) {
+      setLogoError('Escolha uma imagem de até 4 MB.');
       return;
     }
     setLogoError('');
-    const reader = new FileReader();
-    reader.addEventListener('load', () => {
-      if (typeof reader.result === 'string') setField('logo', reader.result);
-    });
-    reader.readAsDataURL(file);
+    setUploadingLogo(true);
+    const body = new FormData();
+    body.append('file', file);
+    fetch('/api/upload', { method: 'POST', body })
+      .then((response) => {
+        if (!response.ok) throw new Error('upload_failed');
+        return response.json() as Promise<{ url: string }>;
+      })
+      .then(({ url }) => setField('logo', url))
+      .catch(() =>
+        setLogoError('Não foi possível enviar a imagem. Tente novamente.'),
+      )
+      .finally(() => setUploadingLogo(false));
   };
 
   const canContinue =
@@ -279,10 +288,10 @@ export default function SetupPage() {
                       <Upload className="size-5 text-primary" />
                       <span>
                         <span className="block text-sm font-semibold">
-                          Selecionar uma imagem
+                          {uploadingLogo ? 'Enviando...' : 'Selecionar uma imagem'}
                         </span>
                         <span className="text-xs text-muted-foreground">
-                          PNG, JPG ou WebP de até 1 MB
+                          PNG, JPG ou WebP de até 4 MB
                         </span>
                       </span>
                     </label>
@@ -291,6 +300,7 @@ export default function SetupPage() {
                       type="file"
                       accept="image/png,image/jpeg,image/webp"
                       onChange={readLogo}
+                      disabled={uploadingLogo}
                       className="sr-only"
                     />
                     {logoError && (
