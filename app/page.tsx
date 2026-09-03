@@ -432,6 +432,7 @@ export default function Home() {
                 todaySales={todaySales}
                 profit={profit}
                 setView={setView}
+                firstName={session.name.trim().split(/\s+/)[0] || 'por aí'}
               />
             )}
             {view === 'orders' && (
@@ -623,6 +624,7 @@ function Dashboard({
   todaySales,
   profit,
   setView,
+  firstName,
 }: {
   orders: Order[];
   lowStock: StockItem[];
@@ -630,6 +632,7 @@ function Dashboard({
   todaySales: number;
   profit: number;
   setView: (v: View) => void;
+  firstName: string;
 }) {
   const entries = finance
     .filter((item) => item.type === 'Entrada')
@@ -637,10 +640,12 @@ function Dashboard({
   const expenses = finance
     .filter((item) => item.type === 'Saída')
     .reduce((sum, item) => sum + item.value, 0);
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite';
   return (
     <div className="space-y-7">
       <PageHeading
-        title="Bom dia, Gabi!"
+        title={`${greeting}, ${firstName}!`}
         subtitle={`Sua confeitaria está com ${orders.length} pedidos ativos hoje.`}
         action={
           <Button
