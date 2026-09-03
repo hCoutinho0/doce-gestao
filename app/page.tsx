@@ -104,6 +104,18 @@ const fieldValue = (data: FormData, name: string) => {
   const value = data.get(name);
   return typeof value === 'string' ? value : '';
 };
+const MONTHS_PT = [
+  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
+];
+const formatWeekRange = (startIso: string, endIso: string) => {
+  const start = new Date(`${startIso}T00:00:00`);
+  const end = new Date(`${endIso}T00:00:00`);
+  if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
+    return `Semana de ${start.getDate()} a ${end.getDate()} de ${MONTHS_PT[start.getMonth()]}`;
+  }
+  return `Semana de ${start.getDate()} de ${MONTHS_PT[start.getMonth()]} a ${end.getDate()} de ${MONTHS_PT[end.getMonth()]}`;
+};
 type FormSubmit = {
   preventDefault: () => void;
   currentTarget: HTMLFormElement;
@@ -287,7 +299,11 @@ export default function Home() {
               <DigitalMenu items={menuItems} setItems={setMenuItems} />
             )}
             {view === 'customers' && (
-              <Customers loyalty={loyalty} orders={orders} />
+              <Customers
+                loyalty={loyalty}
+                orders={orders}
+                setLoyalty={setLoyalty}
+              />
             )}
             {view === 'loyalty' && (
               <Loyalty items={loyalty} setItems={setLoyalty} />
@@ -1547,10 +1563,13 @@ function DigitalMenu({
   items: MenuItem[];
   setItems: (v: MenuItem[] | ((o: MenuItem[]) => MenuItem[])) => void;
 }) {
-  const [weekTitle, setWeekTitle] = useStoredState(
-    'doce-menu-week',
-    'Semana de 2 a 8 de setembro',
-  );
+  const [weekTitle, setWeekTitle] = useStoredState('doce-menu-week', '');
+  const [weekStart, setWeekStart] = useStoredState('doce-menu-week-start', '');
+  const [weekEnd, setWeekEnd] = useStoredState('doce-menu-week-end', '');
+
+  useEffect(() => {
+    if (weekStart && weekEnd) setWeekTitle(formatWeekRange(weekStart, weekEnd));
+  }, [weekStart, weekEnd, setWeekTitle]);
   const [pendingPhoto, setPendingPhoto] = useState('');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoError, setPhotoError] = useState('');
@@ -1617,14 +1636,30 @@ function DigitalMenu({
           <p className="mt-1 text-xs text-muted-foreground">
             O título aparece imediatamente no cardápio enviado aos clientes.
           </p>
-          <Field label="Período ou nome da edição">
-            <input
-              value={weekTitle}
-              onChange={(e) => setWeekTitle(e.target.value)}
-              className={`${inputClass} mt-4`}
-              placeholder="Ex.: Semana das Tortas • 9 a 15/09"
-            />
-          </Field>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <Field label="Início da edição">
+              <input
+                type="date"
+                value={weekStart}
+                onChange={(e) => setWeekStart(e.target.value)}
+                className={inputClass}
+              />
+            </Field>
+            <Field label="Fim da edição">
+              <input
+                type="date"
+                value={weekEnd}
+                min={weekStart || undefined}
+                onChange={(e) => setWeekEnd(e.target.value)}
+                className={inputClass}
+              />
+            </Field>
+          </div>
+          {weekTitle && (
+            <p className="mt-3 text-xs font-semibold text-primary">
+              {weekTitle}
+            </p>
+          )}
         </Panel>
       </div>
       <Panel className="mb-5 p-5">
@@ -1758,16 +1793,49 @@ function DigitalMenu({
 function Customers({
   loyalty,
   orders,
+  setLoyalty,
 }: {
   loyalty: LoyaltyItem[];
   orders: Order[];
+  setLoyalty: (v: LoyaltyItem[] | ((o: LoyaltyItem[]) => LoyaltyItem[])) => void;
 }) {
+  const addClient = (e: FormSubmit) => {
+    e.preventDefault();
+    const data = new FormData(e.currentTarget);
+    const name = fieldValue(data, 'name').trim();
+    if (!name) return;
+    setLoyalty((old) => [
+      ...old,
+      { id: Date.now(), name, phone: fieldValue(data, 'phone'), stamps: 0 },
+    ]);
+    e.currentTarget.reset();
+  };
   return (
     <>
       <PageHeading
         title="Clientes"
         subtitle="Visão rápida do relacionamento e histórico de compras."
       />
+      <Panel className="mb-5 p-5">
+        <form onSubmit={addClient} className="grid gap-3 md:grid-cols-[1.4fr_1fr_auto]">
+          <Field label="Nome ou apelido">
+            <input
+              required
+              name="name"
+              className={inputClass}
+              placeholder="Ex.: Mariana Alves"
+            />
+          </Field>
+          <Field label="WhatsApp (opcional)">
+            <input name="phone" className={inputClass} placeholder="(11) 90000-0000" />
+          </Field>
+          <div className="flex items-end">
+            <Button className="h-10 w-full">
+              <Plus /> Cadastrar cliente
+            </Button>
+          </div>
+        </form>
+      </Panel>
       {loyalty.length === 0 && (
         <Panel className="p-10 text-center text-sm text-muted-foreground">
           Nenhum cliente cadastrado ainda.

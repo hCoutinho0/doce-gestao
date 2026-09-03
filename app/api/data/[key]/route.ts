@@ -10,6 +10,8 @@ const ALLOWED_KEYS = new Set([
   'doce-finance',
   'doce-menu',
   'doce-menu-week',
+  'doce-menu-week-start',
+  'doce-menu-week-end',
   'doce-loyalty',
   'doce-bakery-profile',
 ]);

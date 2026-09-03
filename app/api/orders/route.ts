@@ -10,7 +10,30 @@ type Order = {
   status: string;
 };
 
+type Customer = {
+  id: number;
+  name: string;
+  phone: string;
+  stamps: number;
+};
+
 const ORDERS_KEY = 'doce-orders';
+const CUSTOMERS_KEY = 'doce-loyalty';
+
+// A first-time customer becomes a client record automatically — matched by
+// name (trimmed, case-insensitive) so repeat orders don't create
+// duplicates. Stamps are left untouched here; the admin still awards those
+// by hand in the Fidelidade tab.
+async function ensureCustomer(name: string, phone: string) {
+  const customers = ((await readState<Customer[]>(CUSTOMERS_KEY)) ??
+    []) as Customer[];
+  const exists = customers.some(
+    (c) => c.name.trim().toLowerCase() === name.toLowerCase(),
+  );
+  if (exists) return;
+  const customer: Customer = { id: Date.now(), name, phone, stamps: 0 };
+  await writeState(CUSTOMERS_KEY, [...customers, customer]);
+}
 
 // Deliberately separate from PUT /api/data/doce-orders: a customer placing
 // an order from the public cardápio may only append a new order, never
@@ -23,6 +46,7 @@ export async function POST(request: Request) {
 
   const body = (await request.json()) as {
     customer?: string;
+    phone?: string;
     item?: string;
     date?: string;
     value?: number;
@@ -49,6 +73,7 @@ export async function POST(request: Request) {
     status: body.status?.trim() || 'Novo',
   };
   await writeState(ORDERS_KEY, [order, ...existing]);
+  await ensureCustomer(order.customer, body.phone?.trim() ?? '');
 
   return NextResponse.json({ order });
 }

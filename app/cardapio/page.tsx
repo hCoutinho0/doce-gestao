@@ -53,6 +53,7 @@ export default function CardapioPage() {
   const [cart, setCart] = useState<Cart>({});
   const [category, setCategory] = useState('Todos');
   const [customer, setCustomer] = useState('');
+  const [phone, setPhone] = useState('');
   const [deliveryDate, setDeliveryDate] = useState('');
   const [deliveryTime, setDeliveryTime] = useState('');
   const [notes, setNotes] = useState('');
@@ -130,6 +131,7 @@ export default function CardapioPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         customer: customer.trim(),
+        phone: phone.trim(),
         item: details,
         date: formattedDate,
         value: total,
@@ -143,6 +145,7 @@ export default function CardapioPage() {
   const resetForm = () => {
     setCart({});
     setCustomer('');
+    setPhone('');
     setDeliveryDate('');
     setDeliveryTime('');
     setNotes('');
@@ -287,11 +290,11 @@ export default function CardapioPage() {
               Nenhum produto publicado nesta semana ainda. Volte em breve!
             </div>
           )}
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="divide-y rounded-2xl border bg-card">
             {visible.map((item) => (
               <article
                 key={item.id}
-                className="flex flex-col rounded-2xl border bg-card p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                className="flex items-center gap-4 p-4 sm:p-5"
               >
                 {item.photoUrl ? (
                   <Image
@@ -300,29 +303,28 @@ export default function CardapioPage() {
                     width={48}
                     height={48}
                     unoptimized
-                    className="size-12 rounded-2xl object-cover"
+                    className="size-12 shrink-0 rounded-2xl object-cover"
                   />
                 ) : (
-                  <span className="grid size-12 place-items-center rounded-2xl bg-secondary text-3xl">
+                  <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-secondary text-3xl">
                     {item.emoji}
                   </span>
                 )}
-                <div className="mt-4 flex-1">
-                  <p className="font-heading text-lg font-bold">{item.name}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    {item.category} • feito sob encomenda com ingredientes
-                    selecionados
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-heading text-base font-bold sm:text-lg">
+                    {item.name}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {item.category}
+                  </p>
+                  <p className="mt-1 font-heading text-base font-bold text-primary sm:hidden">
+                    {money(item.price)}
                   </p>
                 </div>
-                <div className="mt-5 flex items-end justify-between gap-3">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                      a partir de
-                    </p>
-                    <p className="font-heading text-xl font-bold text-primary">
-                      {money(item.price)}
-                    </p>
-                  </div>
+                <p className="hidden shrink-0 font-heading text-lg font-bold text-primary sm:block">
+                  {money(item.price)}
+                </p>
+                <div className="shrink-0">
                   {cart[item.id] ? (
                     <div className="flex items-center gap-1 rounded-xl border p-1">
                       <Button
@@ -345,8 +347,12 @@ export default function CardapioPage() {
                       </Button>
                     </div>
                   ) : (
-                    <Button onClick={() => changeQuantity(item.id, 1)}>
-                      <Plus /> Adicionar
+                    <Button
+                      size="icon-sm"
+                      onClick={() => changeQuantity(item.id, 1)}
+                      aria-label={`Adicionar ${item.name}`}
+                    >
+                      <Plus />
                     </Button>
                   )}
                 </div>
@@ -435,6 +441,15 @@ export default function CardapioPage() {
                       onChange={(e) => setCustomer(e.target.value)}
                       className="h-10 rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
                       placeholder="Nome para o pedido"
+                    />
+                  </label>
+                  <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
+                    WhatsApp (opcional)
+                    <input
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      className="h-10 rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+                      placeholder="(11) 90000-0000"
                     />
                   </label>
                   <div className="grid grid-cols-2 gap-2">
