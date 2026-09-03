@@ -1,0 +1,102 @@
+# Doce Gestão
+
+App de gestão para confeitaria: pedidos, estoque, ficha técnica, financeiro,
+cardápio digital com pagamento online e cartão fidelidade.
+
+## O que mudou nesta fase (correção de segurança)
+
+Uma auditoria encontrou quatro falhas críticas no protótipo original, todas
+já corrigidas no código:
+
+1. **Login com senha fixa no bundle** — removido. O painel interno agora
+   autentica de verdade contra o **Microsoft Entra ID** (`auth.ts`,
+   `middleware.ts`).
+2. **Sessão falsificável via `localStorage`** — removida. A sessão é um
+   cookie assinado pelo NextAuth; o navegador não consegue mais fabricar um
+   acesso de administradora editando o armazenamento local.
+3. **Login "Google/Apple" simulado** — removido. Existe um único fluxo de
+   login real, "Entrar com a Microsoft".
+4. **Captura direta de número/CVV de cartão** — removida do cardápio
+   público. O pagamento online (Pix, crédito e débito) agora é processado
+   pelo **Mercado Pago Checkout Pro**: o cliente digita os dados do cartão
+   na página hospedada do Mercado Pago, nunca no nosso servidor ou app.
+
+Isso exige que o app rode em um servidor Node real (para as rotas de API e o
+middleware de auth) — por isso a base de build trocou de `vinext` +
+Cloudflare Workers (proprietária do scaffold original, não roda no Azure)
+para **Next.js padrão**. As páginas e componentes já eram Next.js puro por
+baixo, então nada de UI foi reescrito, só a ferramenta de build/execução.
+
+## Rodar localmente
+
+```powershell
+npm install
+copy .env.example .env.local
+npm run dev
+```
+
+Abra `http://localhost:3000`.
+
+### Configurar o login (Microsoft Entra ID)
+
+1. No [Azure Portal](https://portal.azure.com), vá em **Microsoft Entra ID
+   → App registrations → New registration**.
+2. Redirect URI (Web): `http://localhost:3000/api/auth/callback/microsoft-entra-id`
+   (e depois a URL de produção).
+3. Em **App roles**, crie dois papéis com value `admin` e `production`.
+4. Em **Enterprise applications → (seu app) → Users and groups**, atribua
+   cada funcionária ao papel correto.
+5. Copie Tenant ID, Client ID e (em **Certificates & secrets**) um Client
+   Secret para `.env.local`.
+
+Sem essas variáveis configuradas, a tela de login funciona mas o
+`signIn` falha — não há mais nenhuma credencial de demonstração.
+
+### Configurar o pagamento (Mercado Pago)
+
+1. Crie uma conta em [mercadopago.com.br/developers](https://www.mercadopago.com.br/developers).
+2. Em **Suas integrações → Credenciais**, copie o Access Token (produção ou
+   teste) para `MERCADOPAGO_ACCESS_TOKEN`.
+3. Configure a notificação de webhook para `https://SEU-DOMINIO/api/checkout/webhook`
+   e copie a chave secreta para `MERCADOPAGO_WEBHOOK_SECRET`.
+
+Sem essas variáveis, o cardápio público continua funcionando, mas o botão
+"Ir para pagamento" retorna erro em vez de redirecionar.
+
+## Estado atual (Fase 2 concluída — persistência real)
+
+- Painel interno (`/`, `/configurar`): protegido por Entra ID de verdade.
+  Pedidos, estoque, financeiro, cardápio e fidelidade agora ficam salvos no
+  **Azure Cosmos DB** (`lib/cosmos.ts`, `app/api/data/[key]`), num container
+  `app-state` com um documento por domínio — duas pessoas em computadores
+  diferentes veem os mesmos dados.
+- Cardápio público (`/cardapio`): sem login. Lê o cardápio publicado e a
+  marca da confeitaria do Cosmos DB (`GET /api/data/doce-menu`,
+  `.../doce-bakery-profile`) e cria pedidos por um endpoint público
+  específico (`POST /api/orders`) que só permite adicionar um pedido, nunca
+  ler ou sobrescrever os pedidos de outra pessoa. Pagamento online passa
+  pelo Mercado Pago; o webhook (`app/api/checkout/webhook`) atualiza o
+  status do pedido automaticamente quando o pagamento é aprovado.
+- Sem as variáveis `AZURE_COSMOS_ENDPOINT`/`AZURE_COSMOS_KEY` configuradas,
+  o app continua funcionando com dados de exemplo em memória (não persiste
+  entre recarregamentos) em vez de travar — útil para rodar localmente sem
+  Azure.
+
+### Configurar o Cosmos DB
+
+1. Crie uma conta **Azure Cosmos DB for NoSQL** no Azure Portal.
+2. Copie o **URI** e a **Primary Key** (em "Keys") para `AZURE_COSMOS_ENDPOINT`
+   e `AZURE_COSMOS_KEY` em `.env.local`.
+3. O banco de dados (`doce-gestao`) e o container (`app-state`) são criados
+   automaticamente na primeira chamada, se ainda não existirem.
+
+## Próxima etapa (Fase 3 — Azure)
+
+- **Azure Blob Storage**: fotos do cardápio e logotipo da confeitaria (hoje
+  guardadas como base64 dentro do próprio documento do Cosmos DB).
+- **Azure Static Web Apps / App Service**: hospedagem de produção.
+- **Funções serverless**: webhook do WhatsApp.
+- Apps **iOS/Android**: empacotar a mesma interface web (ex.: Capacitor) ou
+  avaliar app nativo, a definir conforme o prazo de lançamento.
+
+As variáveis esperadas estão documentadas em `.env.example`.
