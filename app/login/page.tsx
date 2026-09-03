@@ -16,9 +16,9 @@ export default function LoginPage() {
 
   return (
     <main className="grid min-h-screen bg-background lg:grid-cols-[minmax(380px,0.9fr)_minmax(520px,1.1fr)]">
-      <section className="relative hidden overflow-hidden bg-[#3e1b61] p-12 text-white lg:flex lg:flex-col">
-        <div className="absolute -left-24 top-1/4 size-80 rounded-full bg-[#a871e8]/25 blur-3xl" />
-        <div className="absolute -right-20 bottom-12 size-72 rounded-full bg-[#e6b8f2]/20 blur-3xl" />
+      <section className="relative hidden overflow-hidden bg-[#611b3a] p-12 text-white lg:flex lg:flex-col">
+        <div className="absolute -left-24 top-1/4 size-80 rounded-full bg-[#e8a0c0]/25 blur-3xl" />
+        <div className="absolute -right-20 bottom-12 size-72 rounded-full bg-[#f2c6de]/20 blur-3xl" />
         <div className="relative flex items-center gap-3">
           <span className="grid size-11 place-items-center rounded-2xl bg-white/15 backdrop-blur">
             <CakeSlice className="size-6" />
@@ -29,7 +29,7 @@ export default function LoginPage() {
           </div>
         </div>
         <div className="relative my-auto max-w-lg">
-          <p className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-[#dfc4ff]">
+          <p className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-[#f7cbe0]">
             Sua confeitaria sob controle
           </p>
           <h1 className="font-heading text-4xl font-bold leading-tight xl:text-5xl">
@@ -46,7 +46,7 @@ export default function LoginPage() {
               'Cardápio público independente para seus clientes',
             ].map((item) => (
               <p key={item} className="flex items-center gap-3">
-                <CheckCircle2 className="size-5 text-[#d9b4ff]" /> {item}
+                <CheckCircle2 className="size-5 text-[#f5bcd8]" /> {item}
               </p>
             ))}
           </div>

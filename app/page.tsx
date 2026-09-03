@@ -27,11 +27,12 @@ import {
   Trash2,
   Users,
   WalletCards,
+  X,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { BAKERY_KEY, type BakeryProfile } from '@/lib/bakery';
-import { useUserSession, signOut } from '@/lib/auth';
+import { useUserSession, signOut, type UserSession } from '@/lib/auth';
 
 type View =
   | 'dashboard'
@@ -123,6 +124,7 @@ type FormSubmit = {
 
 export default function Home() {
   const [view, setView] = useState<View>('dashboard');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [orders, setOrders] = useServerFetchedState('doce-orders', initialOrders);
   const [stock, setStock] = useStoredState('doce-stock-v2', initialStock);
   const [finance, setFinance] = useStoredState('doce-finance', initialFinance);
@@ -170,48 +172,49 @@ export default function Home() {
     );
   }
 
+  const sidebarProps = {
+    bakery,
+    visibleNavItems,
+    view,
+    orders,
+    session,
+    onNavigate: (target: View) => {
+      setView(target);
+      setMobileNavOpen(false);
+    },
+  };
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="mx-auto grid min-h-screen max-w-[1680px] lg:grid-cols-[256px_minmax(0,1fr)]">
         <aside className="hidden border-r border-sidebar-border bg-sidebar px-4 py-6 lg:flex lg:flex-col">
-          <Brand bakery={bakery} />
-          <nav aria-label="Navegação principal" className="space-y-1">
-            {visibleNavItems.map(({ label, icon: Icon, view: target }) => (
-              <button
-                key={label}
-                onClick={() => setView(target)}
-                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors ${view === target ? 'bg-primary text-primary-foreground shadow-sm' : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'}`}
-              >
-                <Icon className="size-[18px]" />
-                <span>{label}</span>
-                {target === 'orders' && orders.length ? (
-                  <span className="ml-auto rounded-full bg-[#dec7ff] px-2 py-0.5 text-[11px] font-bold text-[#492477]">
-                    {orders.length}
-                  </span>
-                ) : null}
-              </button>
-            ))}
-          </nav>
-          {session.role === 'admin' && (
-            <button
-              onClick={() => setView('whatsapp')}
-              className={`mt-auto rounded-2xl border p-4 text-left transition ${view === 'whatsapp' ? 'border-primary bg-primary/10' : 'border-[#ddcff0] bg-[#faf7ff] hover:border-primary/40'}`}
-            >
-              <div className="mb-3 grid size-9 place-items-center rounded-xl bg-[#eadcff] text-[#63369a]">
-                <MessageCircleMore className="size-5" />
-              </div>
-              <p className="text-sm font-semibold text-[#352047]">
-                WhatsApp conectado
-              </p>
-              <p className="mt-1 text-xs leading-relaxed text-[#735e82]">
-                Veja o fluxo planejado do bot de pedidos.
-              </p>
-              <span className="mt-3 flex items-center gap-1 text-xs font-bold text-[#7040a3]">
-                Ver automações <ChevronRight className="size-3" />
-              </span>
-            </button>
-          )}
+          <SidebarNav {...sidebarProps} />
         </aside>
+        {mobileNavOpen && (
+          <div className="fixed inset-0 z-40 lg:hidden">
+            <button
+              aria-label="Fechar menu"
+              className="absolute inset-0 bg-foreground/30 backdrop-blur-sm"
+              onClick={() => setMobileNavOpen(false)}
+            />
+            <div className="absolute inset-y-0 left-0 flex w-[280px] flex-col bg-sidebar px-4 py-6 shadow-xl">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wide text-sidebar-foreground/50">
+                  Menu
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Fechar menu"
+                  onClick={() => setMobileNavOpen(false)}
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+              <SidebarNav {...sidebarProps} />
+            </div>
+          </div>
+        )}
 
         <section className="min-w-0">
           <header className="sticky top-0 z-20 flex h-[72px] items-center gap-3 border-b bg-background/90 px-4 backdrop-blur-xl sm:px-7">
@@ -220,6 +223,7 @@ export default function Home() {
               size="icon"
               className="lg:hidden"
               aria-label="Abrir menu"
+              onClick={() => setMobileNavOpen(true)}
             >
               <Menu />
             </Button>
@@ -240,7 +244,7 @@ export default function Home() {
                 sincronizados
               </Badge>
               <div className="flex items-center gap-3 rounded-xl p-1 text-left">
-                <div className="grid size-9 place-items-center rounded-full bg-[#e5d4fa] text-sm font-bold text-[#5b2e8c]">
+                <div className="grid size-9 place-items-center rounded-full bg-[#f6d9e6] text-sm font-bold text-[#8c2e5c]">
                   {session.initials}
                 </div>
                 <div className="hidden sm:block">
@@ -392,6 +396,64 @@ function useServerFetchedState<T>(key: string, initial: T): [T, (value: T | ((ol
   }, [key]);
 
   return [state, setState];
+}
+
+function SidebarNav({
+  bakery,
+  visibleNavItems,
+  view,
+  orders,
+  session,
+  onNavigate,
+}: {
+  bakery: BakeryProfile | null;
+  visibleNavItems: { label: string; icon: typeof LayoutDashboard; view: View }[];
+  view: View;
+  orders: Order[];
+  session: UserSession;
+  onNavigate: (target: View) => void;
+}) {
+  return (
+    <>
+      <Brand bakery={bakery} />
+      <nav aria-label="Navegação principal" className="space-y-1">
+        {visibleNavItems.map(({ label, icon: Icon, view: target }) => (
+          <button
+            key={label}
+            onClick={() => onNavigate(target)}
+            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors ${view === target ? 'bg-sidebar-accent text-primary' : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground'}`}
+          >
+            <Icon className="size-[18px]" />
+            <span>{label}</span>
+            {target === 'orders' && orders.length ? (
+              <span className="ml-auto rounded-full bg-[#f3c9dd] px-2 py-0.5 text-[11px] font-bold text-[#772450]">
+                {orders.length}
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </nav>
+      {session.role === 'admin' && (
+        <button
+          onClick={() => onNavigate('whatsapp')}
+          className={`mt-auto rounded-2xl border p-4 text-left transition ${view === 'whatsapp' ? 'border-primary bg-primary/10' : 'border-[#f2cfe0] bg-[#fdf4f6] hover:border-primary/40'}`}
+        >
+          <div className="mb-3 grid size-9 place-items-center rounded-xl bg-[#f9dde8] text-[#9a3665]">
+            <MessageCircleMore className="size-5" />
+          </div>
+          <p className="text-sm font-semibold text-[#47202f]">
+            WhatsApp conectado
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-[#8a6070]">
+            Veja o fluxo planejado do bot de pedidos.
+          </p>
+          <span className="mt-3 flex items-center gap-1 text-xs font-bold text-[#a34070]">
+            Ver automações <ChevronRight className="size-3" />
+          </span>
+        </button>
+      )}
+    </>
+  );
 }
 
 function Brand({ bakery }: { bakery: BakeryProfile | null }) {
@@ -738,10 +800,10 @@ function PanelTitle({
 }
 function StatusBadge({ status }: { status: string }) {
   const style: Record<string, string> = {
-    Novo: 'bg-[#eef1ff] text-[#535f9f]',
+    Novo: 'bg-[#fbeef2] text-[#9f5378]',
     Produção: 'bg-[#fff4d9] text-[#8b6412]',
     Pronto: 'bg-[#e9f7ef] text-[#277447]',
-    Entrega: 'bg-[#f8eefa] text-[#82468e]',
+    Entrega: 'bg-[#fdf0f5] text-[#b8446f]',
     Concluído: 'bg-muted text-muted-foreground',
   };
   return (
@@ -1386,7 +1448,7 @@ function Pricing({ stock }: { stock: StockItem[] }) {
             </p>
           </Panel>
           <Panel className="overflow-hidden">
-            <div className="bg-gradient-to-br from-primary to-[#8b5bc4] p-6 text-primary-foreground">
+            <div className="bg-gradient-to-br from-primary to-[#c65a82] p-6 text-primary-foreground">
               <p className="text-sm opacity-80">Preço sugerido por unidade</p>
               <p className="mt-2 font-heading text-4xl font-bold">
                 {money(unitPrice)}
@@ -1940,7 +2002,7 @@ function Loyalty({
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {items.map((client) => (
           <Panel key={client.id} className="overflow-hidden">
-            <div className="bg-gradient-to-br from-[#4f237c] to-[#9a63ce] p-5 text-white">
+            <div className="bg-gradient-to-br from-[#7c2350] to-[#d97a97] p-5 text-white">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-white/70">Cartão fidelidade</p>
@@ -2030,7 +2092,7 @@ function WhatsApp() {
           <div className="divide-y">
             {commands.map(([title, detail], i) => (
               <div key={title} className="flex gap-4 p-5">
-                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#eee5fb] text-sm font-bold text-[#61358f]">
+                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#fbe6ee] text-sm font-bold text-[#8f3560]">
                   {i + 1}
                 </span>
                 <div>
@@ -2042,7 +2104,7 @@ function WhatsApp() {
           </div>
         </Panel>
         <Panel className="p-6">
-          <span className="grid size-12 place-items-center rounded-2xl bg-[#e9dcfa] text-[#66359a]">
+          <span className="grid size-12 place-items-center rounded-2xl bg-[#f8dde9] text-[#9a3568]">
             <MessageCircleMore />
           </span>
           <h2 className="mt-5 font-heading text-xl font-bold">
