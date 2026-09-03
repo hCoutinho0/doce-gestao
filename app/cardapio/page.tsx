@@ -44,40 +44,7 @@ type SavedOrder = {
   status: string;
 };
 
-const fallbackItems: MenuItem[] = [
-  {
-    id: 1,
-    name: 'Bolo Red Velvet',
-    category: 'Bolos',
-    price: 148,
-    available: true,
-    emoji: '🍰',
-  },
-  {
-    id: 2,
-    name: 'Torta de limão',
-    category: 'Tortas',
-    price: 92,
-    available: true,
-    emoji: '🥧',
-  },
-  {
-    id: 3,
-    name: 'Caixa 12 brigadeiros',
-    category: 'Docinhos',
-    price: 72,
-    available: true,
-    emoji: '🍫',
-  },
-  {
-    id: 4,
-    name: 'Kit festa pequeno',
-    category: 'Kits',
-    price: 219,
-    available: false,
-    emoji: '🎉',
-  },
-];
+const fallbackItems: MenuItem[] = [];
 const money = (value: number) =>
   value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -265,7 +232,7 @@ export default function CardapioPage() {
           </span>
           <div>
             <p className="font-heading text-lg font-bold leading-none">
-              {bakery?.name || 'Ateliê da Gabi'}
+              {bakery?.name || 'Confeitaria'}
             </p>
             <p className="text-[11px] text-muted-foreground">
               Doces artesanais • {weekTitle}
@@ -315,6 +282,11 @@ export default function CardapioPage() {
               </button>
             ))}
           </div>
+          {visible.length === 0 && (
+            <div className="rounded-2xl border border-dashed p-10 text-center text-sm text-muted-foreground">
+              Nenhum produto publicado nesta semana ainda. Volte em breve!
+            </div>
+          )}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {visible.map((item) => (
               <article

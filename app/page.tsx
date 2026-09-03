@@ -78,174 +78,14 @@ type MenuItem = {
 };
 type LoyaltyItem = { id: number; name: string; phone: string; stamps: number };
 
-const initialOrders: Order[] = [
-  {
-    id: '#1048',
-    customer: 'Mariana Alves',
-    item: 'Bolo Red Velvet',
-    date: 'Hoje, 10:30',
-    value: 148,
-    status: 'Produção',
-  },
-  {
-    id: '#1047',
-    customer: 'Bruno Lima',
-    item: 'Caixa 12 brigadeiros',
-    date: 'Hoje, 11:15',
-    value: 72,
-    status: 'Novo',
-  },
-  {
-    id: '#1046',
-    customer: 'Cláudia Nunes',
-    item: 'Kit festa pequeno',
-    date: 'Hoje, 14:00',
-    value: 219,
-    status: 'Pronto',
-  },
-  {
-    id: '#1045',
-    customer: 'Ana Beatriz',
-    item: 'Torta de limão',
-    date: 'Hoje, 16:30',
-    value: 92,
-    status: 'Entrega',
-  },
-];
-const initialStock: StockItem[] = [
-  {
-    id: 1,
-    name: 'Chocolate 50%',
-    qty: 1.2,
-    unit: 'kg',
-    min: 3,
-    cost: 42,
-    category: 'Ingrediente',
-  },
-  {
-    id: 2,
-    name: 'Leite condensado',
-    qty: 6,
-    unit: 'un',
-    min: 12,
-    cost: 7.5,
-    category: 'Ingrediente',
-  },
-  {
-    id: 3,
-    name: 'Creme de leite',
-    qty: 4,
-    unit: 'un',
-    min: 10,
-    cost: 4.8,
-    category: 'Ingrediente',
-  },
-  {
-    id: 4,
-    name: 'Farinha de trigo',
-    qty: 8,
-    unit: 'kg',
-    min: 5,
-    cost: 6.2,
-    category: 'Ingrediente',
-  },
-  {
-    id: 5,
-    name: 'Açúcar refinado',
-    qty: 10,
-    unit: 'kg',
-    min: 4,
-    cost: 4.9,
-    category: 'Ingrediente',
-  },
-  {
-    id: 6,
-    name: 'Caixa para bolo 25 cm',
-    qty: 18,
-    unit: 'un',
-    min: 10,
-    cost: 6.5,
-    category: 'Embalagem',
-  },
-  {
-    id: 7,
-    name: 'Caixa para 12 doces',
-    qty: 24,
-    unit: 'un',
-    min: 15,
-    cost: 3.9,
-    category: 'Embalagem',
-  },
-];
-const initialFinance: FinanceItem[] = [
-  {
-    id: 1,
-    description: 'Pedidos do dia',
-    type: 'Entrada',
-    value: 1284,
-    date: '02/09/2026',
-  },
-  {
-    id: 2,
-    description: 'Compra de embalagens',
-    type: 'Saída',
-    value: 186.5,
-    date: '02/09/2026',
-  },
-  {
-    id: 3,
-    description: 'Ingredientes atacado',
-    type: 'Saída',
-    value: 342.8,
-    date: '01/09/2026',
-  },
-  {
-    id: 4,
-    description: 'Encomendas via Pix',
-    type: 'Entrada',
-    value: 680,
-    date: '01/09/2026',
-  },
-];
-const initialMenu: MenuItem[] = [
-  {
-    id: 1,
-    name: 'Bolo Red Velvet',
-    category: 'Bolos',
-    price: 148,
-    available: true,
-    emoji: '🍰',
-  },
-  {
-    id: 2,
-    name: 'Torta de limão',
-    category: 'Tortas',
-    price: 92,
-    available: true,
-    emoji: '🥧',
-  },
-  {
-    id: 3,
-    name: 'Caixa 12 brigadeiros',
-    category: 'Docinhos',
-    price: 72,
-    available: true,
-    emoji: '🍫',
-  },
-  {
-    id: 4,
-    name: 'Kit festa pequeno',
-    category: 'Kits',
-    price: 219,
-    available: false,
-    emoji: '🎉',
-  },
-];
-const initialLoyalty: LoyaltyItem[] = [
-  { id: 1, name: 'Mariana Alves', phone: '(11) 98812-4401', stamps: 8 },
-  { id: 2, name: 'Ana Beatriz', phone: '(11) 97124-1890', stamps: 5 },
-  { id: 3, name: 'Cláudia Nunes', phone: '(11) 98177-8200', stamps: 10 },
-];
+// Real confeitarias start with none of this — orders, stock, finance,
+// cardápio and clientes all begin empty and fill up from what the admin
+// and their customers actually do, not from sample rows.
+const initialOrders: Order[] = [];
+const initialStock: StockItem[] = [];
+const initialFinance: FinanceItem[] = [];
+const initialMenu: MenuItem[] = [];
+const initialLoyalty: LoyaltyItem[] = [];
 
 const navItems: { label: string; icon: typeof LayoutDashboard; view: View }[] =
   [
@@ -1122,6 +962,11 @@ function Stock({
           </div>
         </form>
       </Panel>
+      {stock.length === 0 && (
+        <Panel className="p-10 text-center text-sm text-muted-foreground">
+          Nenhum item cadastrado ainda.
+        </Panel>
+      )}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {stock.map((item) => {
           const low = item.qty < item.min;
@@ -1653,6 +1498,9 @@ function Finance({
       <Panel className="overflow-hidden">
         <PanelTitle title="Movimentações" subtitle="Histórico de caixa" />
         <div className="divide-y">
+          {items.length === 0 && (
+            <Empty label="Nenhum lançamento cadastrado." />
+          )}
           {items.map((item) => (
             <div key={item.id} className="flex items-center gap-4 px-5 py-4">
               <span
@@ -1849,6 +1697,9 @@ function DigitalMenu({
           subtitle="Publique, oculte ou remova manualmente os itens desta semana"
         />
         <div className="divide-y">
+          {items.length === 0 && (
+            <Empty label="Nenhum produto cadastrado nesta edição ainda." />
+          )}
           {items.map((item) => (
             <div key={item.id} className="flex items-center gap-4 px-5 py-4">
               {item.photoUrl ? (
@@ -1917,6 +1768,11 @@ function Customers({
         title="Clientes"
         subtitle="Visão rápida do relacionamento e histórico de compras."
       />
+      {loyalty.length === 0 && (
+        <Panel className="p-10 text-center text-sm text-muted-foreground">
+          Nenhum cliente cadastrado ainda.
+        </Panel>
+      )}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {loyalty.map((client) => {
           const clientOrders = orders.filter((o) => o.customer === client.name);
@@ -1971,6 +1827,11 @@ function Loyalty({
         title="Fidelidade e descontos"
         subtitle="A cada compra, um selo. Com 10 selos, o cliente ganha 15% de desconto."
       />
+      {items.length === 0 && (
+        <Panel className="p-10 text-center text-sm text-muted-foreground">
+          Nenhum cliente cadastrado ainda.
+        </Panel>
+      )}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {items.map((client) => (
           <Panel key={client.id} className="overflow-hidden">
