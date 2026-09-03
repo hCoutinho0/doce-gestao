@@ -63,7 +63,12 @@ Sem essas variáveis configuradas, a tela de login funciona mas o
 Sem essas variáveis, o cardápio público continua funcionando, mas o botão
 "Ir para pagamento" retorna erro em vez de redirecionar.
 
-## Estado atual (Fase 2 concluída — persistência real)
+## Estado atual
+
+- **Em produção**: https://red-pebble-025f56f0f.3.azurestaticapps.net
+  (Azure Static Web Apps, deploy automático a cada push em `main` via
+  GitHub Actions — repositório em
+  [github.com/hCoutinho0/doce-gestao](https://github.com/hCoutinho0/doce-gestao)).
 
 - Painel interno (`/`, `/configurar`): protegido por Entra ID de verdade.
   Pedidos, estoque, financeiro, cardápio e fidelidade agora ficam salvos no
@@ -90,13 +95,46 @@ Sem essas variáveis, o cardápio público continua funcionando, mas o botão
 3. O banco de dados (`doce-gestao`) e o container (`app-state`) são criados
    automaticamente na primeira chamada, se ainda não existirem.
 
-## Próxima etapa (Fase 3 — Azure)
+### Configurar as fotos (Azure Blob Storage)
 
-- **Azure Blob Storage**: fotos do cardápio e logotipo da confeitaria (hoje
-  guardadas como base64 dentro do próprio documento do Cosmos DB).
-- **Azure Static Web Apps / App Service**: hospedagem de produção.
-- **Funções serverless**: webhook do WhatsApp.
-- Apps **iOS/Android**: empacotar a mesma interface web (ex.: Capacitor) ou
+1. Crie uma **Storage Account** (StorageV2) no Azure Portal, com acesso
+   público a blobs habilitado.
+2. Copie a **Connection string** (em "Access keys") para
+   `AZURE_STORAGE_CONNECTION_STRING`.
+3. O container (`cardapio-media` por padrão, ajustável em
+   `AZURE_STORAGE_CONTAINER`) é criado automaticamente no primeiro upload.
+
+Sem essa variável, o upload de logotipo e fotos de produto retorna erro em
+vez de travar o resto do app.
+
+### Configurar o bot do WhatsApp (Meta WhatsApp Cloud API)
+
+O webhook (`app/api/whatsapp/webhook`) já está pronto no código — hoje ele
+responde ao cliente com o link do cardápio e consulta o status de um pedido
+pelo número (ex.: cliente manda "2001"). Falta só a conta na Meta:
+
+1. Crie um app em [developers.facebook.com](https://developers.facebook.com/apps)
+   → tipo "Business" → adicione o produto **WhatsApp**.
+2. Na aba WhatsApp → **API Setup**, copie o **Temporary access token** (ou
+   gere um permanente depois, associando a um System User) para
+   `WHATSAPP_ACCESS_TOKEN`, e o **Phone number ID** para
+   `WHATSAPP_PHONE_NUMBER_ID`.
+3. Em **App settings → Basic**, copie o **App Secret** para
+   `WHATSAPP_APP_SECRET` (usado para validar que as mensagens vêm mesmo da
+   Meta).
+4. Escolha um valor qualquer para `WHATSAPP_VERIFY_TOKEN` (uma senha
+   inventada por você).
+5. Em WhatsApp → **Configuration**, configure o webhook:
+   - Callback URL: `https://SEU-DOMINIO/api/whatsapp/webhook`
+   - Verify token: o mesmo valor de `WHATSAPP_VERIFY_TOKEN`
+   - Inscreva-se no campo `messages`.
+6. Para atender clientes de verdade (não só números de teste), a Meta exige
+   **verificação da empresa** (Business Verification) — processo à parte,
+   que pode levar de horas a dias.
+
+## Próxima etapa (Fase 3 — restante)
+
+- **iOS/Android**: empacotar a mesma interface web (ex.: Capacitor) ou
   avaliar app nativo, a definir conforme o prazo de lançamento.
 
 As variáveis esperadas estão documentadas em `.env.example`.

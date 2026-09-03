@@ -2041,27 +2041,25 @@ function Loyalty({
 function WhatsApp() {
   const commands = [
     [
-      'Novo pedido',
-      'Cliente envia “quero pedir” e o bot apresenta o cardápio.',
+      'Qualquer mensagem',
+      'O bot responde com o link do cardápio público para o cliente pedir.',
     ],
-    ['Acompanhar', 'Cliente consulta o status pelo número do pedido.'],
     [
-      'Atualizar status',
-      'Equipe usa comando protegido para avançar a produção.',
+      'Número do pedido (ex.: 2001)',
+      'O bot consulta o Cosmos DB e responde com status, entrega e valor.',
     ],
-    ['Cancelar', 'Cancelamento confirma antes de excluir e registra o motivo.'],
   ];
   return (
     <>
       <PageHeading
         title="Bot de pedidos no WhatsApp"
-        subtitle="Fluxo preparado para integrar a API oficial do WhatsApp após o protótipo."
+        subtitle="Webhook implementado — falta só conectar a conta da Meta."
       />
       <div className="grid gap-5 lg:grid-cols-[1fr_.8fr]">
         <Panel className="overflow-hidden">
           <PanelTitle
-            title="Automações planejadas"
-            subtitle="Tudo refletido na aba Pedidos"
+            title="O que o bot já faz"
+            subtitle="app/api/whatsapp/webhook"
           />
           <div className="divide-y">
             {commands.map(([title, detail], i) => (
@@ -2082,20 +2080,19 @@ function WhatsApp() {
             <MessageCircleMore />
           </span>
           <h2 className="mt-5 font-heading text-xl font-bold">
-            Próxima etapa da integração
+            Falta conectar a conta
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            Usaremos a API oficial da Meta ou um provedor homologado. O webhook
-            receberá mensagens, validará o usuário e gravará os pedidos no banco
-            online, mantendo os computadores sincronizados.
+            Crie um app em developers.facebook.com com o produto WhatsApp e
+            preencha as variáveis WHATSAPP_* — o passo a passo está no
+            README.md.
           </p>
           <div className="mt-5 space-y-2 text-sm">
-            <Step done label="Fluxo e comandos definidos" />
-            <Step label="Criar banco e autenticação" />
-            <Step label="Conectar WhatsApp Business" />
-            <Step label="Publicar webhook seguro" />
+            <Step done label="Webhook e comandos implementados" />
+            <Step done label="Conectado ao banco de pedidos" />
+            <Step label="Criar app na Meta e obter credenciais" />
+            <Step label="Verificação da empresa (Meta)" />
           </div>
-          <Button className="mt-6 w-full">Configurar integração</Button>
         </Panel>
       </div>
     </>
