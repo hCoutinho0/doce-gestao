@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { signIn } from 'next-auth/react';
 import {
   CakeSlice,
-  Globe,
   CheckCircle2,
   KeyRound,
   LoaderCircle,
@@ -13,6 +12,7 @@ import {
   Mail,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { GoogleIcon, MicrosoftIcon } from '@/components/brand-icons';
 import { useUserSession } from '@/lib/auth';
 
 type FormSubmit = {
@@ -125,7 +125,7 @@ export default function LoginPage() {
               {submittingProvider === 'google' ? (
                 <LoaderCircle className="animate-spin" />
               ) : (
-                <Globe />
+                <GoogleIcon className="size-4" />
               )}
               Entrar com o Google
             </Button>
@@ -142,7 +142,7 @@ export default function LoginPage() {
               {submittingProvider === 'microsoft-entra-id' ? (
                 <LoaderCircle className="animate-spin" />
               ) : (
-                <LogIn />
+                <MicrosoftIcon className="size-4" />
               )}
               Entrar com a Microsoft
             </Button>

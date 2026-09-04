@@ -10,10 +10,8 @@ import {
   Building2,
   CakeSlice,
   Check,
-  Globe,
   IdCard,
   LoaderCircle,
-  LogIn,
   Mail,
   MapPin,
   Palette,
@@ -24,6 +22,7 @@ import {
   UsersRound,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { GoogleIcon, MicrosoftIcon } from '@/components/brand-icons';
 import { Label } from '@/components/ui/label';
 import {
   NativeSelect,
@@ -277,7 +276,7 @@ export default function CadastroPage() {
                   className="h-11 w-full rounded-xl"
                   onClick={() => void signIn('google', { redirectTo: '/cadastro' })}
                 >
-                  <Globe /> Continuar com o Google
+                  <GoogleIcon className="size-4" /> Continuar com o Google
                 </Button>
                 <Button
                   type="button"
@@ -287,7 +286,7 @@ export default function CadastroPage() {
                     void signIn('microsoft-entra-id', { redirectTo: '/cadastro' })
                   }
                 >
-                  <LogIn /> Continuar com a Microsoft
+                  <MicrosoftIcon className="size-4" /> Continuar com a Microsoft
                 </Button>
                 <div className="flex items-center gap-3 pt-2 text-xs text-muted-foreground">
                   <span className="h-px flex-1 bg-border" />

@@ -63,7 +63,15 @@ export async function GET(
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
   const value = await readState(bakeryId, key);
-  return NextResponse.json({ value });
+  // The same URL can legitimately answer with a different confeitaria's
+  // data depending on the session cookie and the X-Panel-Request header —
+  // neither of which a shared cache (browser, CDN) necessarily keys on. A
+  // cached response here would risk serving one confeitaria's data to
+  // another, so every response is explicitly marked as never cacheable.
+  return NextResponse.json(
+    { value },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
 }
 
 export async function PUT(
