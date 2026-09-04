@@ -22,6 +22,7 @@ import {
   CakeSlice,
   Check,
   ChevronLeft,
+  ClipboardList,
   ChevronRight,
   CircleDollarSign,
   Clock3,
@@ -61,6 +62,7 @@ type View =
   | 'pricing'
   | 'finance'
   | 'menu'
+  | 'products'
   | 'customers'
   | 'loyalty'
   | 'team'
@@ -72,12 +74,15 @@ type Order = {
   phone?: string;
   items?: OrderItem[];
   item: string;
+  notes?: string;
   orderDate?: string;
   deliveryDate?: string;
   deliveryTime?: string;
   date: string;
   value: number;
   status: string;
+  stampsAwarded?: boolean;
+  financeLogged?: boolean;
 };
 const ORDER_STATUSES = ['Novo', 'Produção', 'Pronto', 'Entrega', 'Concluído'];
 type StockItem = {
@@ -185,6 +190,23 @@ type MenuItem = {
   weight?: { value: number; unit: 'kg' | 'g' | 'l' };
 };
 
+// A past weekly edition, archived when the admin starts a new one — the
+// live edition itself stays in doce-menu/doce-menu-week* exactly as
+// before, so the public cardápio and order pricing don't need to change.
+type MenuEdition = {
+  id: string;
+  weekTitle: string;
+  weekStart: string;
+  weekEnd: string;
+  items: MenuItem[];
+  archivedAt: string;
+};
+
+// A simple named product + flavor, independent of the weekly cardápio —
+// meant for things like custom cakes that aren't part of a given week's
+// published menu but still need to show up when building a pedido.
+type Product = { id: number; name: string; flavor: string };
+
 type RecipeLine = { id: number; stockId: number; quantity: number };
 type HiddenCost = { id: number; name: string; percentage: number };
 type ProductRecipe = {
@@ -221,6 +243,7 @@ const navItems: { label: string; icon: typeof LayoutDashboard; view: View }[] =
     { label: 'Precificação', icon: BadgeDollarSign, view: 'pricing' },
     { label: 'Financeiro', icon: CircleDollarSign, view: 'finance' },
     { label: 'Cardápio', icon: CakeSlice, view: 'menu' },
+    { label: 'Produtos', icon: ClipboardList, view: 'products' },
     { label: 'Clientes', icon: Users, view: 'customers' },
     { label: 'Fidelidade', icon: Gift, view: 'loyalty' },
     { label: 'Equipe', icon: UserPlus, view: 'team' },
@@ -255,6 +278,14 @@ export default function Home() {
   const [stock, setStock] = useStoredState('doce-stock-v2', initialStock);
   const [finance, setFinance] = useStoredState('doce-finance', initialFinance);
   const [menuItems, setMenuItems] = useStoredState('doce-menu', initialMenu);
+  const [menuEditions, setMenuEditions] = useStoredState<MenuEdition[]>(
+    'doce-menu-editions',
+    [],
+  );
+  const [products, setProducts] = useStoredState<Product[]>(
+    'doce-products',
+    [],
+  );
   const [loyalty, setLoyalty] = useStoredState('doce-loyalty', initialLoyalty);
   const [recipes, setRecipes] = useStoredState<ProductRecipe[]>(
     'doce-pricing',
@@ -428,7 +459,11 @@ export default function Home() {
                 orders={orders}
                 setOrders={setOrders}
                 menuItems={menuItems}
+                menuEditions={menuEditions}
+                products={products}
                 customers={loyalty}
+                setFinance={setFinance}
+                setLoyalty={setLoyalty}
               />
             )}
             {view === 'stock' && <Stock stock={stock} setStock={setStock} />}
@@ -444,7 +479,15 @@ export default function Home() {
               <Finance items={finance} setItems={setFinance} />
             )}
             {view === 'menu' && (
-              <DigitalMenu items={menuItems} setItems={setMenuItems} />
+              <DigitalMenu
+                items={menuItems}
+                setItems={setMenuItems}
+                editions={menuEditions}
+                setEditions={setMenuEditions}
+              />
+            )}
+            {view === 'products' && (
+              <ProductsCatalog items={products} setItems={setProducts} />
             )}
             {view === 'customers' && (
               <Customers
@@ -1011,6 +1054,11 @@ function OrderTable({
               <td className="px-3 py-3.5">
                 <p className="font-medium">{order.customer}</p>
                 <p className="text-xs text-muted-foreground">{order.item}</p>
+                {order.notes && (
+                  <p className="mt-0.5 text-xs italic text-muted-foreground">
+                    {order.notes}
+                  </p>
+                )}
               </td>
               <td className="px-3 py-3.5">
                 <span
@@ -1069,12 +1117,20 @@ function Orders({
   orders,
   setOrders,
   menuItems,
+  menuEditions,
+  products,
   customers,
+  setFinance,
+  setLoyalty,
 }: {
   orders: Order[];
   setOrders: (v: Order[] | ((o: Order[]) => Order[])) => void;
   menuItems: MenuItem[];
+  menuEditions: MenuEdition[];
+  products: Product[];
   customers: LoyaltyItem[];
+  setFinance: (v: FinanceItem[] | ((o: FinanceItem[]) => FinanceItem[])) => void;
+  setLoyalty: (v: LoyaltyItem[] | ((o: LoyaltyItem[]) => LoyaltyItem[])) => void;
 }) {
   const [customerChoice, setCustomerChoice] = useState('');
   const [newName, setNewName] = useState('');
@@ -1085,8 +1141,24 @@ function Orders({
   );
   const [deliveryDate, setDeliveryDate] = useState('');
   const [deliveryTime, setDeliveryTime] = useState('');
+  const [notes, setNotes] = useState('');
   const [quantities, setQuantities] = useState<Record<number, number>>({});
+  const [productQuantities, setProductQuantities] = useState<
+    Record<number, number>
+  >({});
+  const [productPrices, setProductPrices] = useState<Record<number, string>>(
+    {},
+  );
   const [submitting, setSubmitting] = useState(false);
+  // 0 = a edição ao vivo (menuItems); 1, 2... = doce-menu-editions[n - 1],
+  // uma semana arquivada — útil pra lançar um pedido retroativo com os
+  // itens/preços que valiam naquela época.
+  const [editionIndex, setEditionIndex] = useState(0);
+  const [monthView, setMonthView] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [liveWeekTitle] = useStoredState('doce-menu-week', '');
 
   const salesStats = useMemo(() => {
     const now = new Date();
@@ -1100,14 +1172,36 @@ function Orders({
     };
   }, [orders]);
 
-  const available = menuItems.filter((item) => item.available);
+  const viewedEdition =
+    editionIndex > 0 ? menuEditions[editionIndex - 1] : undefined;
+  const available = (viewedEdition ? viewedEdition.items : menuItems).filter(
+    (item) => viewedEdition || item.available,
+  );
+  const weekLabel = viewedEdition
+    ? viewedEdition.weekTitle ||
+      (viewedEdition.weekStart && viewedEdition.weekEnd
+        ? formatWeekRange(viewedEdition.weekStart, viewedEdition.weekEnd)
+        : 'Edição arquivada')
+    : liveWeekTitle || 'Semana atual';
+
   const cartItems = available
     .filter((item) => quantities[item.id] > 0)
     .map((item) => ({ ...item, quantity: quantities[item.id] }));
-  const total = cartItems.reduce(
-    (sum, item) => sum + item.price * item.quantity,
-    0,
-  );
+  const productCartItems = products
+    .filter(
+      (product) =>
+        (productQuantities[product.id] ?? 0) > 0 &&
+        Number(productPrices[product.id]) > 0,
+    )
+    .map((product) => ({
+      id: product.id,
+      name: `${product.name} - ${product.flavor}`,
+      price: Number(productPrices[product.id]),
+      quantity: productQuantities[product.id],
+    }));
+  const total =
+    cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0) +
+    productCartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const customerName =
     customerChoice === NEW_CUSTOMER
       ? newName.trim()
@@ -1118,18 +1212,33 @@ function Orders({
     Boolean(orderDate) &&
     Boolean(deliveryDate) &&
     Boolean(deliveryTime) &&
-    cartItems.length > 0;
+    cartItems.length + productCartItems.length > 0;
 
   const changeQuantity = (id: number, delta: number) =>
     setQuantities((old) => ({
       ...old,
       [id]: Math.max(0, (old[id] ?? 0) + delta),
     }));
+  const changeProductQuantity = (id: number, delta: number) =>
+    setProductQuantities((old) => ({
+      ...old,
+      [id]: Math.max(0, (old[id] ?? 0) + delta),
+    }));
+
+  const monthOrders = useMemo(
+    () => orders.filter((o) => o.orderDate && isSameMonth(o.orderDate, monthView)),
+    [orders, monthView],
+  );
+  const monthLabel = monthView
+    .toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+    .replace(/^\w/, (c) => c.toUpperCase());
+  const changeMonthView = (delta: number) =>
+    setMonthView((old) => new Date(old.getFullYear(), old.getMonth() + delta, 1));
 
   const add = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
-    const description = cartItems
+    const description = [...cartItems, ...productCartItems]
       .map((item) => `${item.quantity}× ${item.name}`)
       .join(', ');
     const formattedDate = `${deliveryDate.split('-').reverse().join('/')} às ${deliveryTime}`;
@@ -1141,18 +1250,26 @@ function Orders({
         phone: customerChoice === NEW_CUSTOMER ? newPhone.trim() : undefined,
         birthday:
           customerChoice === NEW_CUSTOMER ? newBirthday : undefined,
-        items: cartItems.map((item) => ({
-          name: item.name,
-          quantity: item.quantity,
-          unitPrice: item.price,
-        })),
+        items: [
+          ...cartItems.map((item) => ({
+            name: item.name,
+            quantity: item.quantity,
+          })),
+          ...productCartItems.map((item) => ({
+            name: item.name,
+            quantity: item.quantity,
+            unitPrice: item.price,
+          })),
+        ],
         item: description,
+        notes: notes.trim() || undefined,
         orderDate,
         deliveryDate,
         deliveryTime,
         date: formattedDate,
         value: total,
         status: 'Novo',
+        editionId: viewedEdition?.id,
       }),
     });
     setSubmitting(false);
@@ -1166,7 +1283,10 @@ function Orders({
     setOrderDate(new Date().toISOString().slice(0, 10));
     setDeliveryDate('');
     setDeliveryTime('');
+    setNotes('');
     setQuantities({});
+    setProductQuantities({});
+    setProductPrices({});
   };
   const changeStatus = async (id: string, status: string) => {
     const response = await fetch(`/api/orders/${encodeURIComponent(id)}`, {
@@ -1175,7 +1295,30 @@ function Orders({
       body: JSON.stringify({ status }),
     });
     if (!response.ok) return;
-    setOrders((old) => old.map((o) => (o.id === id ? { ...o, status } : o)));
+    const data = (await response.json()) as {
+      order: Order;
+      financeItem?: FinanceItem;
+      customer?: LoyaltyItem;
+    };
+    setOrders((old) => old.map((o) => (o.id === id ? data.order : o)));
+    if (data.financeItem) {
+      const entry = data.financeItem;
+      setFinance((old) => [entry, ...old]);
+    }
+    if (data.customer) {
+      const updatedCustomer = data.customer;
+      // Upsert, not a plain map — this component's local `loyalty` snapshot
+      // was fetched once at mount, so a customer created by an order placed
+      // afterwards (the common case: new customer's first order) won't be
+      // in it yet. A `.map` that never matches still produces a "changed"
+      // array reference, which would PUT that stale, customer-less list
+      // back and erase the customer server-side just created.
+      setLoyalty((old) =>
+        old.some((c) => c.id === updatedCustomer.id)
+          ? old.map((c) => (c.id === updatedCustomer.id ? updatedCustomer : c))
+          : [...old, updatedCustomer],
+      );
+    }
   };
   return (
     <>
@@ -1313,55 +1456,159 @@ function Orders({
                 />
               </Field>
             </div>
+            <Field label="Observações (opcional)">
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className={`${inputClass} h-20 resize-none py-2`}
+                placeholder="Sabor, decoração, restrições..."
+              />
+            </Field>
           </div>
-          <div>
-            <p className="mb-2 text-xs font-semibold text-muted-foreground">
-              Produtos da semana
-            </p>
-            {available.length === 0 ? (
-              <p className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
-                Nenhum produto publicado no cardápio desta semana.
-              </p>
-            ) : (
-              <div className="max-h-60 space-y-1.5 overflow-y-auto rounded-xl border p-2">
-                {available.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-muted/40"
+          <div className="space-y-4">
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold text-muted-foreground">
+                  Produtos da semana
+                </p>
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    aria-label="Semana anterior"
+                    onClick={() =>
+                      setEditionIndex((i) => Math.min(menuEditions.length, i + 1))
+                    }
+                    disabled={editionIndex >= menuEditions.length}
                   >
-                    <span className="flex-1 truncate text-sm">
-                      {item.name}{' '}
-                      <span className="text-xs text-muted-foreground">
-                        {money(item.price)}
-                      </span>
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        type="button"
-                        size="icon-sm"
-                        variant="ghost"
-                        onClick={() => changeQuantity(item.id, -1)}
-                        aria-label={`Diminuir ${item.name}`}
-                      >
-                        <Minus />
-                      </Button>
-                      <span className="w-5 text-center text-sm font-semibold">
-                        {quantities[item.id] ?? 0}
-                      </span>
-                      <Button
-                        type="button"
-                        size="icon-sm"
-                        variant="ghost"
-                        onClick={() => changeQuantity(item.id, 1)}
-                        aria-label={`Aumentar ${item.name}`}
-                      >
-                        <Plus />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                    <ChevronLeft />
+                  </Button>
+                  <span className="w-28 truncate text-center text-[11px] text-muted-foreground">
+                    {weekLabel}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    aria-label="Próxima semana"
+                    onClick={() => setEditionIndex((i) => Math.max(0, i - 1))}
+                    disabled={editionIndex === 0}
+                  >
+                    <ChevronRight />
+                  </Button>
+                </div>
               </div>
-            )}
+              {available.length === 0 ? (
+                <p className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
+                  Nenhum produto publicado no cardápio desta semana.
+                </p>
+              ) : (
+                <div className="max-h-60 space-y-1.5 overflow-y-auto rounded-xl border p-2">
+                  {available.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-muted/40"
+                    >
+                      <span className="flex-1 truncate text-sm">
+                        {item.name}{' '}
+                        <span className="text-xs text-muted-foreground">
+                          {money(item.price)}
+                        </span>
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => changeQuantity(item.id, -1)}
+                          aria-label={`Diminuir ${item.name}`}
+                        >
+                          <Minus />
+                        </Button>
+                        <span className="w-5 text-center text-sm font-semibold">
+                          {quantities[item.id] ?? 0}
+                        </span>
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => changeQuantity(item.id, 1)}
+                          aria-label={`Aumentar ${item.name}`}
+                        >
+                          <Plus />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-semibold text-muted-foreground">
+                Produtos cadastrados
+              </p>
+              {products.length === 0 ? (
+                <p className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
+                  Nenhum produto cadastrado ainda. Cadastre em &ldquo;Produtos&rdquo;.
+                </p>
+              ) : (
+                <div className="max-h-60 space-y-1.5 overflow-y-auto rounded-xl border p-2">
+                  {products.map((product) => (
+                    <div
+                      key={product.id}
+                      className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/40"
+                    >
+                      <span className="flex-1 truncate text-sm">
+                        {product.name}{' '}
+                        <span className="text-xs text-muted-foreground">
+                          {product.flavor}
+                        </span>
+                      </span>
+                      {(productQuantities[product.id] ?? 0) > 0 && (
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={productPrices[product.id] ?? ''}
+                          onChange={(e) =>
+                            setProductPrices((old) => ({
+                              ...old,
+                              [product.id]: e.target.value,
+                            }))
+                          }
+                          placeholder="Preço"
+                          className="h-8 w-20 rounded-lg border bg-background px-2 text-xs outline-none focus:border-primary"
+                        />
+                      )}
+                      <div className="flex items-center gap-1">
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => changeProductQuantity(product.id, -1)}
+                          aria-label={`Diminuir ${product.name}`}
+                        >
+                          <Minus />
+                        </Button>
+                        <span className="w-5 text-center text-sm font-semibold">
+                          {productQuantities[product.id] ?? 0}
+                        </span>
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => changeProductQuantity(product.id, 1)}
+                          aria-label={`Aumentar ${product.name}`}
+                        >
+                          <Plus />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
         <div className="mt-4 flex items-center justify-between border-t pt-4">
@@ -1380,13 +1627,32 @@ function Orders({
           </Button>
         </div>
       </Panel>
+      <div className="mb-5 flex items-center justify-center gap-3">
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label="Mês anterior"
+          onClick={() => changeMonthView(-1)}
+        >
+          <ChevronLeft />
+        </Button>
+        <p className="w-44 text-center font-heading font-bold">{monthLabel}</p>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label="Próximo mês"
+          onClick={() => changeMonthView(1)}
+        >
+          <ChevronRight />
+        </Button>
+      </div>
       <Panel className="overflow-hidden">
         <PanelTitle
-          title={`${orders.length} pedidos`}
-          subtitle="Escolha o status na lista de cada pedido"
+          title={`${monthOrders.length} pedidos`}
+          subtitle={`Pedidos de ${monthLabel.toLowerCase()}`}
         />
         <OrderTable
-          orders={orders}
+          orders={monthOrders}
           onStatus={changeStatus}
           onDelete={(id) => {
             void fetch(`/api/orders/${encodeURIComponent(id)}`, {
@@ -2496,13 +2762,57 @@ function Finance({
 function DigitalMenu({
   items,
   setItems,
+  editions,
+  setEditions,
 }: {
   items: MenuItem[];
   setItems: (v: MenuItem[] | ((o: MenuItem[]) => MenuItem[])) => void;
+  editions: MenuEdition[];
+  setEditions: (v: MenuEdition[] | ((o: MenuEdition[]) => MenuEdition[])) => void;
 }) {
   const [weekTitle, setWeekTitle] = useStoredState('doce-menu-week', '');
   const [weekStart, setWeekStart] = useStoredState('doce-menu-week-start', '');
   const [weekEnd, setWeekEnd] = useStoredState('doce-menu-week-end', '');
+  // 0 = a edição ao vivo (doce-menu / doce-menu-week*, o que já existia);
+  // 1, 2... = editions[n - 1], uma edição arquivada — as setinhas navegam
+  // entre elas, e "reabrir" uma arquivada permite editar os itens dela sem
+  // afetar o que está publicado no cardápio público.
+  const [editionIndex, setEditionIndex] = useState(0);
+  const archivedEdition = editionIndex > 0 ? editions[editionIndex - 1] : undefined;
+  const viewedItems = archivedEdition ? archivedEdition.items : items;
+  const updateViewedItems = (
+    updater: (old: MenuItem[]) => MenuItem[],
+  ) => {
+    if (!archivedEdition) {
+      setItems(updater);
+      return;
+    }
+    setEditions((old) =>
+      old.map((edition) =>
+        edition.id === archivedEdition.id
+          ? { ...edition, items: updater(edition.items) }
+          : edition,
+      ),
+    );
+  };
+  const archiveCurrentEdition = () => {
+    setEditions((old) => [
+      {
+        id: Date.now().toString(),
+        weekTitle,
+        weekStart,
+        weekEnd,
+        items,
+        archivedAt: new Date().toISOString(),
+      },
+      ...old,
+    ]);
+    setItems([]);
+    setWeekTitle('');
+    setWeekStart('');
+    setWeekEnd('');
+    setEditionIndex(0);
+  };
 
   useEffect(() => {
     if (weekStart && weekEnd) setWeekTitle(formatWeekRange(weekStart, weekEnd));
@@ -2538,7 +2848,7 @@ function DigitalMenu({
     e.preventDefault();
     const data = new FormData(e.currentTarget);
     const weightValue = Number(fieldValue(data, 'weightValue'));
-    setItems((old) => [
+    updateViewedItems((old) => [
       ...old,
       {
         id: Date.now(),
@@ -2578,33 +2888,77 @@ function DigitalMenu({
       />
       <div className="mb-5 grid gap-5">
         <Panel className="p-5">
-          <h2 className="font-heading text-lg font-bold">Edição da semana</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            O título aparece imediatamente no cardápio enviado aos clientes.
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="font-heading text-lg font-bold">
+                {archivedEdition ? 'Edição arquivada' : 'Edição da semana'}
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {archivedEdition
+                  ? 'Reabra e edite os produtos desta semana passada — não afeta o cardápio publicado.'
+                  : 'O título aparece imediatamente no cardápio enviado aos clientes.'}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                aria-label="Semana anterior"
+                onClick={() =>
+                  setEditionIndex((i) => Math.min(editions.length, i + 1))
+                }
+                disabled={editionIndex >= editions.length}
+              >
+                <ChevronLeft />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                aria-label="Próxima semana"
+                onClick={() => setEditionIndex((i) => Math.max(0, i - 1))}
+                disabled={editionIndex === 0}
+              >
+                <ChevronRight />
+              </Button>
+            </div>
+          </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <Field label="Início da edição">
               <input
                 type="date"
-                value={weekStart}
+                value={archivedEdition ? archivedEdition.weekStart : weekStart}
                 onChange={(e) => setWeekStart(e.target.value)}
+                disabled={Boolean(archivedEdition)}
                 className={inputClass}
               />
             </Field>
             <Field label="Fim da edição">
               <input
                 type="date"
-                value={weekEnd}
+                value={archivedEdition ? archivedEdition.weekEnd : weekEnd}
                 min={weekStart || undefined}
                 onChange={(e) => setWeekEnd(e.target.value)}
+                disabled={Boolean(archivedEdition)}
                 className={inputClass}
               />
             </Field>
           </div>
-          {weekTitle && (
+          {(archivedEdition ? archivedEdition.weekTitle : weekTitle) && (
             <p className="mt-3 text-xs font-semibold text-primary">
-              {weekTitle}
+              {archivedEdition ? archivedEdition.weekTitle : weekTitle}
             </p>
+          )}
+          {!archivedEdition && (
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-4"
+              onClick={archiveCurrentEdition}
+            >
+              Nova edição
+            </Button>
           )}
         </Panel>
       </div>
@@ -2699,10 +3053,10 @@ function DigitalMenu({
           subtitle="Publique, oculte ou remova manualmente os itens desta semana"
         />
         <div className="divide-y">
-          {items.length === 0 && (
+          {viewedItems.length === 0 && (
             <Empty label="Nenhum produto cadastrado nesta edição ainda." />
           )}
-          {items.map((item) => (
+          {viewedItems.map((item) => (
             <div key={item.id} className="flex items-center gap-4 px-5 py-4">
               {item.photoUrl ? (
                 <Image
@@ -2731,7 +3085,7 @@ function DigitalMenu({
               <Button
                 variant={item.available ? 'outline' : 'default'}
                 onClick={() =>
-                  setItems((old) =>
+                  updateViewedItems((old) =>
                     old.map((x) =>
                       x.id === item.id ? { ...x, available: !x.available } : x,
                     ),
@@ -2745,7 +3099,87 @@ function DigitalMenu({
                 size="icon-sm"
                 aria-label={`Excluir ${item.name}`}
                 onClick={() =>
-                  setItems((old) => old.filter((x) => x.id !== item.id))
+                  updateViewedItems((old) => old.filter((x) => x.id !== item.id))
+                }
+              >
+                <Trash2 />
+              </Button>
+            </div>
+          ))}
+        </div>
+      </Panel>
+    </>
+  );
+}
+
+function ProductsCatalog({
+  items,
+  setItems,
+}: {
+  items: Product[];
+  setItems: (v: Product[] | ((o: Product[]) => Product[])) => void;
+}) {
+  const add = (e: FormSubmit) => {
+    e.preventDefault();
+    const data = new FormData(e.currentTarget);
+    const name = fieldValue(data, 'name').trim();
+    const flavor = fieldValue(data, 'flavor').trim();
+    if (!name || !flavor) return;
+    setItems((old) => [...old, { id: Date.now(), name, flavor }]);
+    e.currentTarget.reset();
+  };
+  return (
+    <>
+      <PageHeading
+        title="Produtos"
+        subtitle="Cadastre produtos com sabor para usar rapidamente na hora de montar um pedido."
+      />
+      <Panel className="mb-5 p-5">
+        <form onSubmit={add} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+          <Field label="Nome do produto">
+            <input
+              required
+              name="name"
+              className={inputClass}
+              placeholder="Ex.: Bolo de aniversário"
+            />
+          </Field>
+          <Field label="Sabor">
+            <input
+              required
+              name="flavor"
+              className={inputClass}
+              placeholder="Ex.: Ninho com Nutella"
+            />
+          </Field>
+          <div className="flex items-end">
+            <Button type="submit" className="h-10 w-full sm:w-auto">
+              <Plus /> Cadastrar
+            </Button>
+          </div>
+        </form>
+      </Panel>
+      <Panel className="overflow-hidden">
+        <PanelTitle
+          title={`${items.length} produtos`}
+          subtitle="Aparecem em Pedidos, na seção Produtos cadastrados"
+        />
+        <div className="divide-y">
+          {items.length === 0 && (
+            <Empty label="Nenhum produto cadastrado ainda." />
+          )}
+          {items.map((product) => (
+            <div key={product.id} className="flex items-center gap-4 px-5 py-4">
+              <div className="flex-1">
+                <p className="font-semibold">{product.name}</p>
+                <p className="text-xs text-muted-foreground">{product.flavor}</p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Excluir ${product.name}`}
+                onClick={() =>
+                  setItems((old) => old.filter((x) => x.id !== product.id))
                 }
               >
                 <Trash2 />

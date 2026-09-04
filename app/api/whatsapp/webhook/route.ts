@@ -57,7 +57,9 @@ async function replyTo(from: string, text: string) {
 
 async function handleMessage(from: string, text: string) {
   const normalized = text.trim().toLowerCase();
-  const orderMatch = normalized.match(/(\d{3,})/);
+  // Order numbers now start at 01 (previously always 4+ digits from
+  // #2001), so any digit sequence counts as a candidate order number.
+  const orderMatch = normalized.match(/(\d+)/);
 
   if (orderMatch && isCosmosConfigured()) {
     const code = `#${orderMatch[1]}`;
