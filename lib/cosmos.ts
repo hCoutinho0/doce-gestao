@@ -39,11 +39,22 @@ export function getAppStateContainer(): Promise<Container> {
 
 export async function readState<T>(key: string): Promise<T | null> {
   const container = await getAppStateContainer();
-  const { resource } = await container
-    .item(key, key)
-    .read<{ id: string; value: T }>()
-    .catch(() => ({ resource: undefined }));
-  return resource?.value ?? null;
+  // Only a genuine "this document doesn't exist" (404) means null — every
+  // caller does `readState(...) ?? []` and then writes that result back, so
+  // treating a transient error (timeout, throttling, cold start) the same
+  // as "empty" would silently overwrite real data with nothing. That's
+  // exactly how a customer's order was wiped in production: a read hiccup
+  // right after a deploy came back as null, and the next write persisted
+  // an empty array over the real one.
+  try {
+    const { resource } = await container
+      .item(key, key)
+      .read<{ id: string; value: T }>();
+    return resource?.value ?? null;
+  } catch (error) {
+    if ((error as { code?: number }).code === 404) return null;
+    throw error;
+  }
 }
 
 export async function writeState<T>(key: string, value: T): Promise<void> {
