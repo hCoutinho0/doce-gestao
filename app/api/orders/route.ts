@@ -8,6 +8,7 @@ type Order = {
   phone?: string;
   items?: OrderItem[];
   item: string;
+  orderDate?: string;
   deliveryDate?: string;
   deliveryTime?: string;
   date: string;
@@ -111,6 +112,7 @@ export async function POST(request: Request) {
     phone?: string;
     items?: { name: string; quantity: number }[];
     item?: string;
+    orderDate?: string;
     deliveryDate?: string;
     deliveryTime?: string;
     date?: string;
@@ -155,6 +157,7 @@ export async function POST(request: Request) {
     customer: body.customer.trim(),
     ...(items ? { items } : {}),
     item: itemSummary,
+    orderDate: body.orderDate?.trim() || new Date().toISOString().slice(0, 10),
     ...(body.deliveryDate ? { deliveryDate: body.deliveryDate } : {}),
     ...(body.deliveryTime ? { deliveryTime: body.deliveryTime } : {}),
     date: body.date.trim(),

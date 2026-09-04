@@ -68,6 +68,7 @@ type Order = {
   phone?: string;
   items?: OrderItem[];
   item: string;
+  orderDate?: string;
   deliveryDate?: string;
   deliveryTime?: string;
   date: string;
@@ -986,7 +987,14 @@ function OrderTable({
         <tbody className="divide-y">
           {orders.map((order) => (
             <tr key={order.id} className="hover:bg-muted/30">
-              <td className="px-5 py-3.5 font-semibold">{order.id}</td>
+              <td className="px-5 py-3.5">
+                <p className="font-semibold">{order.id}</p>
+                {order.orderDate && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {formatIsoDate(order.orderDate)}
+                  </p>
+                )}
+              </td>
               <td className="px-3 py-3.5">
                 <p className="font-medium">{order.customer}</p>
                 <p className="text-xs text-muted-foreground">{order.item}</p>
@@ -1059,6 +1067,9 @@ function Orders({
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [newBirthday, setNewBirthday] = useState('');
+  const [orderDate, setOrderDate] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
   const [deliveryDate, setDeliveryDate] = useState('');
   const [deliveryTime, setDeliveryTime] = useState('');
   const [quantities, setQuantities] = useState<Record<number, number>>({});
@@ -1091,6 +1102,7 @@ function Orders({
   const canSubmit =
     Boolean(customerName) &&
     (customerChoice !== NEW_CUSTOMER || Boolean(newBirthday)) &&
+    Boolean(orderDate) &&
     Boolean(deliveryDate) &&
     Boolean(deliveryTime) &&
     cartItems.length > 0;
@@ -1122,6 +1134,7 @@ function Orders({
           unitPrice: item.price,
         })),
         item: description,
+        orderDate,
         deliveryDate,
         deliveryTime,
         date: formattedDate,
@@ -1137,6 +1150,7 @@ function Orders({
     setNewName('');
     setNewPhone('');
     setNewBirthday('');
+    setOrderDate(new Date().toISOString().slice(0, 10));
     setDeliveryDate('');
     setDeliveryTime('');
     setQuantities({});
@@ -1257,6 +1271,17 @@ function Orders({
                 </Field>
               </div>
             )}
+            <Field label="Data do pedido">
+              <input
+                type="date"
+                value={orderDate}
+                onChange={(e) => setOrderDate(e.target.value)}
+                className={inputClass}
+              />
+            </Field>
+            <p className="-mt-2 text-[11px] text-muted-foreground">
+              Mude para uma data passada ao lançar um pedido retroativo.
+            </p>
             <div className="grid grid-cols-2 gap-2">
               <Field label="Data da entrega">
                 <input
@@ -2739,9 +2764,9 @@ function favoriteProductOf(orders: Order[], customerName: string): string {
   return best;
 }
 
-function formatBirthday(birthday?: string): string {
-  if (!birthday) return 'Sem data cadastrada';
-  const [year, month, day] = birthday.split('-');
+function formatIsoDate(date?: string, fallback = 'Sem data cadastrada'): string {
+  if (!date) return fallback;
+  const [year, month, day] = date.split('-');
   return `${day}/${month}/${year}`;
 }
 
@@ -2918,7 +2943,7 @@ function Customers({
                       {client.phone || 'Sem WhatsApp'}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      🎂 {formatBirthday(client.birthday)}
+                      🎂 {formatIsoDate(client.birthday)}
                     </p>
                   </div>
                 </div>
