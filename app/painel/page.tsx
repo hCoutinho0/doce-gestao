@@ -1,14 +1,27 @@
 'use client';
 
 import Image from 'next/image';
-import { useEffect, useRef, useState, type ComponentProps } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import Link from 'next/link';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  XAxis,
+} from 'recharts';
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from '@/components/ui/chart';
 import {
   ArrowDownRight,
   ArrowUpRight,
   BadgeDollarSign,
   CakeSlice,
   Check,
+  ChevronLeft,
   ChevronRight,
   CircleDollarSign,
   Clock3,
@@ -74,9 +87,53 @@ type FinanceItem = {
   id: number;
   description: string;
   type: 'Entrada' | 'Saída';
+  category?: string;
   value: number;
   date: string;
 };
+
+const FINANCE_CATEGORIES: Record<'Entrada' | 'Saída', string[]> = {
+  Entrada: ['Vendas', 'Investimentos'],
+  Saída: [
+    'Insumos',
+    'Embalagens',
+    'Equipamentos',
+    'Impostos',
+    'Contas',
+    'Imprevistos',
+    'Prolabore',
+  ],
+};
+
+// Older lançamentos stored the date as a pre-formatted pt-BR string
+// (04/09/2026); new ones store ISO (yyyy-mm-dd) from a date input so month
+// navigation can filter reliably. Accept both so nothing already saved
+// breaks.
+function parseFinanceDate(date: string): Date | null {
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  const br = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(date);
+  if (br) return new Date(Number(br[3]), Number(br[2]) - 1, Number(br[1]));
+  return null;
+}
+
+function formatFinanceDate(date: string): string {
+  const parsed = parseFinanceDate(date);
+  return parsed ? parsed.toLocaleDateString('pt-BR') : date;
+}
+
+function isSameMonth(date: string, reference: Date): boolean {
+  const parsed = parseFinanceDate(date);
+  return (
+    !!parsed &&
+    parsed.getFullYear() === reference.getFullYear() &&
+    parsed.getMonth() === reference.getMonth()
+  );
+}
+
+function monthKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
 type MenuItem = {
   id: number;
   name: string;
@@ -1719,6 +1776,11 @@ function CalcLine({ label, value }: { label: string; value: string }) {
   );
 }
 
+const financeChartConfig = {
+  entradas: { label: 'Entradas', color: 'var(--chart-4)' },
+  saidas: { label: 'Saídas', color: 'var(--destructive)' },
+} satisfies ChartConfig;
+
 function Finance({
   items,
   setItems,
@@ -1726,63 +1788,174 @@ function Finance({
   items: FinanceItem[];
   setItems: (v: FinanceItem[] | ((o: FinanceItem[]) => FinanceItem[])) => void;
 }) {
-  const entries = items
+  const [viewDate, setViewDate] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [type, setType] = useState<'Entrada' | 'Saída'>('Entrada');
+
+  const monthItems = useMemo(
+    () => items.filter((item) => isSameMonth(item.date, viewDate)),
+    [items, viewDate],
+  );
+  const entries = monthItems
       .filter((x) => x.type === 'Entrada')
       .reduce((s, x) => s + x.value, 0),
-    expenses = items
+    expenses = monthItems
       .filter((x) => x.type === 'Saída')
       .reduce((s, x) => s + x.value, 0);
+
+  const chartData = useMemo(() => {
+    const byMonth = new Map<
+      string,
+      { key: string; date: Date; entradas: number; saidas: number }
+    >();
+    for (const item of items) {
+      const parsed = parseFinanceDate(item.date);
+      if (!parsed) continue;
+      const key = monthKey(parsed);
+      const bucket = byMonth.get(key) ?? {
+        key,
+        date: new Date(parsed.getFullYear(), parsed.getMonth(), 1),
+        entradas: 0,
+        saidas: 0,
+      };
+      if (item.type === 'Entrada') bucket.entradas += item.value;
+      else bucket.saidas += item.value;
+      byMonth.set(key, bucket);
+    }
+    return Array.from(byMonth.values())
+      .sort((a, b) => a.date.getTime() - b.date.getTime())
+      .slice(-6)
+      .map((bucket) => ({
+        month: bucket.date
+          .toLocaleDateString('pt-BR', { month: 'short' })
+          .replace('.', ''),
+        entradas: bucket.entradas,
+        saidas: bucket.saidas,
+      }));
+  }, [items]);
+
   const add = (e: FormSubmit) => {
     e.preventDefault();
     const d = new FormData(e.currentTarget);
+    const date = fieldValue(d, 'date') || new Date().toISOString().slice(0, 10);
     setItems((old) => [
       {
         id: Date.now(),
         description: fieldValue(d, 'description'),
         type: fieldValue(d, 'type') as 'Entrada' | 'Saída',
+        category: fieldValue(d, 'category'),
         value: Number(fieldValue(d, 'value')),
-        date: new Date().toLocaleDateString('pt-BR'),
+        date,
       },
       ...old,
     ]);
     e.currentTarget.reset();
+    setType('Entrada');
   };
+
+  const monthLabel = viewDate
+    .toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+    .replace(/^\w/, (c) => c.toUpperCase());
+  const changeMonth = (delta: number) =>
+    setViewDate((old) => new Date(old.getFullYear(), old.getMonth() + delta, 1));
+
   return (
     <>
       <PageHeading
         title="Financeiro"
         subtitle="Registre entradas e saídas para saber o resultado real da confeitaria."
       />
+      <div className="mb-5 flex items-center justify-center gap-3">
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label="Mês anterior"
+          onClick={() => changeMonth(-1)}
+        >
+          <ChevronLeft />
+        </Button>
+        <p className="w-44 text-center font-heading font-bold">{monthLabel}</p>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label="Próximo mês"
+          onClick={() => changeMonth(1)}
+        >
+          <ChevronRight />
+        </Button>
+      </div>
       <section className="mb-5 grid gap-4 sm:grid-cols-3">
         <MetricCard
           icon={ArrowUpRight}
           label="Entradas"
           value={money(entries)}
-          detail="No período"
+          detail="No mês"
           positive
         />
         <MetricCard
           icon={ArrowDownRight}
           label="Saídas"
           value={money(expenses)}
-          detail="No período"
+          detail="No mês"
         />
         <MetricCard
           icon={WalletCards}
           label="Saldo"
           value={money(entries - expenses)}
-          detail="Resultado registrado"
+          detail="Resultado do mês"
         />
       </section>
+      {chartData.length > 0 && (
+        <Panel className="mb-5 p-5">
+          <PanelTitle
+            title="Entradas x saídas"
+            subtitle="Últimos meses com lançamentos"
+          />
+          <ChartContainer config={financeChartConfig} className="mt-4 h-56 w-full">
+            <BarChart data={chartData}>
+              <CartesianGrid vertical={false} />
+              <XAxis
+                dataKey="month"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+              />
+              <ChartTooltip
+                content={
+                  <ChartTooltipContent
+                    formatter={(value) => money(Number(value))}
+                  />
+                }
+              />
+              <Bar dataKey="entradas" fill="var(--color-entradas)" radius={4} />
+              <Bar dataKey="saidas" fill="var(--color-saidas)" radius={4} />
+            </BarChart>
+          </ChartContainer>
+        </Panel>
+      )}
       <Panel className="mb-5 p-5">
-        <form onSubmit={add} className="grid gap-3 md:grid-cols-4">
+        <form onSubmit={add} className="grid gap-3 md:grid-cols-5">
           <Field label="Descrição">
             <input required name="description" className={inputClass} />
           </Field>
           <Field label="Tipo">
-            <select name="type" className={inputClass}>
+            <select
+              name="type"
+              value={type}
+              onChange={(e) => setType(e.target.value as 'Entrada' | 'Saída')}
+              className={inputClass}
+            >
               <option>Entrada</option>
               <option>Saída</option>
+            </select>
+          </Field>
+          <Field label="Categoria">
+            <select required name="category" className={inputClass}>
+              {FINANCE_CATEGORIES[type].map((option) => (
+                <option key={option}>{option}</option>
+              ))}
             </select>
           </Field>
           <Field label="Valor">
@@ -1794,23 +1967,34 @@ function Finance({
               className={inputClass}
             />
           </Field>
-          <div className="flex items-end">
-            <Button type="submit" className="h-10 w-full rounded-xl">
+          <Field label="Data">
+            <input
+              name="date"
+              type="date"
+              defaultValue={new Date().toISOString().slice(0, 10)}
+              className={inputClass}
+            />
+          </Field>
+          <div className="flex items-end md:col-span-5">
+            <Button type="submit" className="h-10 w-full rounded-xl md:w-auto">
               <Plus /> Lançar
             </Button>
           </div>
         </form>
       </Panel>
       <Panel className="overflow-hidden">
-        <PanelTitle title="Movimentações" subtitle="Histórico de caixa" />
+        <PanelTitle
+          title="Movimentações"
+          subtitle={`Lançamentos de ${monthLabel.toLowerCase()}`}
+        />
         <div className="divide-y">
-          {items.length === 0 && (
-            <Empty label="Nenhum lançamento cadastrado." />
+          {monthItems.length === 0 && (
+            <Empty label="Nenhum lançamento neste mês." />
           )}
-          {items.map((item) => (
+          {monthItems.map((item) => (
             <div key={item.id} className="flex items-center gap-4 px-5 py-4">
               <span
-                className={`grid size-9 place-items-center rounded-xl ${item.type === 'Entrada' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}
+                className={`grid size-9 shrink-0 place-items-center rounded-xl ${item.type === 'Entrada' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}
               >
                 {item.type === 'Entrada' ? (
                   <ArrowUpRight />
@@ -1822,16 +2006,20 @@ function Finance({
                 <p className="truncate text-sm font-semibold">
                   {item.description}
                 </p>
-                <p className="text-xs text-muted-foreground">{item.date}</p>
+                <p className="text-xs text-muted-foreground">
+                  {item.category || 'Sem categoria'} •{' '}
+                  {formatFinanceDate(item.date)}
+                </p>
               </div>
               <p
-                className={`font-semibold ${item.type === 'Entrada' ? 'text-green-700' : 'text-red-700'}`}
+                className={`shrink-0 font-semibold ${item.type === 'Entrada' ? 'text-green-700' : 'text-red-700'}`}
               >
                 {item.type === 'Entrada' ? '+' : '−'} {money(item.value)}
               </p>
               <Button
                 variant="ghost"
                 size="icon-sm"
+                aria-label={`Excluir ${item.description}`}
                 onClick={() =>
                   setItems((old) => old.filter((x) => x.id !== item.id))
                 }
