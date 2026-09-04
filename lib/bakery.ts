@@ -11,4 +11,9 @@ export type BakeryProfile = {
   salesModel: string;
   icon: string;
   logo: string;
+  // Shown on the confeitaria's own public link (/c/{bakeryId}) — optional,
+  // a button only appears once the field is filled in.
+  whatsapp?: string;
+  instagram?: string;
+  tiktok?: string;
 };

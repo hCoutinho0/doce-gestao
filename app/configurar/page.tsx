@@ -42,6 +42,9 @@ const initialProfile: BakeryProfile = {
   salesModel: 'Encomendas e pronta entrega',
   icon: '🧁',
   logo: '',
+  whatsapp: '',
+  instagram: '',
+  tiktok: '',
 };
 
 export default function SetupPage() {
@@ -250,6 +253,36 @@ export default function SetupPage() {
                   onChange={(value) => setField('city', value)}
                   placeholder="São Paulo, SP"
                   required
+                />
+              </div>
+              <p className="mt-7 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Link público (opcional)
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Aparecem no seu link de divulgação — deixe em branco pra não
+                mostrar.
+              </p>
+              <div className="mt-3 grid gap-5 sm:grid-cols-3">
+                <SetupInput
+                  id="social-whatsapp"
+                  label="WhatsApp (só números, com DDI)"
+                  value={profile.whatsapp ?? ''}
+                  onChange={(value) => setField('whatsapp', value)}
+                  placeholder="5511999999999"
+                />
+                <SetupInput
+                  id="social-instagram"
+                  label="Instagram (sem @)"
+                  value={profile.instagram ?? ''}
+                  onChange={(value) => setField('instagram', value)}
+                  placeholder="suaconfeitaria"
+                />
+                <SetupInput
+                  id="social-tiktok"
+                  label="TikTok (sem @)"
+                  value={profile.tiktok ?? ''}
+                  onChange={(value) => setField('tiktok', value)}
+                  placeholder="suaconfeitaria"
                 />
               </div>
             </section>

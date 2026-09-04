@@ -106,3 +106,17 @@ export async function writeState<T>(
 ): Promise<void> {
   await writeDoc(`${bakeryId}:${key}`, value);
 }
+
+// The only reads that aren't a point-read-by-id — used sparingly (today
+// just listing a confeitaria's invites), since it's a cross-partition
+// query rather than a single-document lookup.
+export async function queryDocs<T>(
+  sqlQuery: string,
+  parameters: { name: string; value: string }[] = [],
+): Promise<T[]> {
+  const container = await getAppStateContainer();
+  const { resources } = await container.items
+    .query<{ id: string; value: T }>({ query: sqlQuery, parameters })
+    .fetchAll();
+  return resources.map((r) => r.value);
+}

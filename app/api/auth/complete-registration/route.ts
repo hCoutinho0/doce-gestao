@@ -4,7 +4,7 @@ import { auth } from '@/auth';
 import { isCosmosConfigured, writeState } from '@/lib/cosmos';
 import { isValidCpfCnpj } from '@/lib/cpfCnpj';
 import { generateBakeryId, getUserByEmail, upsertUser } from '@/lib/tenant';
-import type { AuthProvider } from '@/lib/tenant';
+import type { AuthProvider, Gender } from '@/lib/tenant';
 import type { BakeryProfile } from '@/lib/bakery';
 
 // The one-shot form submission at the end of /cadastro: creates the
@@ -22,6 +22,7 @@ export async function POST(request: Request) {
     name?: string;
     cpfCnpj?: string;
     phone?: string;
+    gender?: Gender;
     bakery?: Partial<BakeryProfile>;
   };
 
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
   const name = body.name?.trim();
   const cpfCnpj = body.cpfCnpj?.trim();
   const phone = body.phone?.trim();
+  const gender = body.gender === 'M' || body.gender === 'F' ? body.gender : undefined;
   const bakeryName = body.bakery?.name?.trim();
 
   if (
@@ -38,6 +40,7 @@ export async function POST(request: Request) {
     !name ||
     !cpfCnpj ||
     !phone ||
+    !gender ||
     !bakeryName ||
     !isValidCpfCnpj(cpfCnpj)
   ) {
@@ -76,6 +79,13 @@ export async function POST(request: Request) {
     salesModel: body.bakery?.salesModel?.trim() || '',
     icon: body.bakery?.icon?.trim() || '🧁',
     logo: body.bakery?.logo?.trim() || '',
+    ...(body.bakery?.whatsapp?.trim()
+      ? { whatsapp: body.bakery.whatsapp.trim() }
+      : {}),
+    ...(body.bakery?.instagram?.trim()
+      ? { instagram: body.bakery.instagram.trim() }
+      : {}),
+    ...(body.bakery?.tiktok?.trim() ? { tiktok: body.bakery.tiktok.trim() } : {}),
   };
   await writeState(bakeryId, 'doce-bakery-profile', profile);
 
@@ -85,6 +95,7 @@ export async function POST(request: Request) {
     name,
     cpfCnpj,
     phone,
+    gender,
     bakeryId,
     role: 'admin',
     provider,

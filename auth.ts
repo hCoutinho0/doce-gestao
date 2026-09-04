@@ -5,7 +5,7 @@ import Google from 'next-auth/providers/google';
 import MicrosoftEntraID from 'next-auth/providers/microsoft-entra-id';
 import { LAVILY_BAKERY_ID } from '@/lib/cosmos';
 import { getUserByEmail, upsertUser } from '@/lib/tenant';
-import type { UserRole } from '@/lib/auth';
+import type { UserRole, Gender } from '@/lib/tenant';
 
 declare module 'next-auth' {
   interface Session {
@@ -33,6 +33,7 @@ const ADMIN_APP_ROLE = 'admin';
 type ResolvedAccount = {
   bakeryId: string | null;
   role: UserRole;
+  gender?: Gender;
   needsOnboarding: boolean;
 };
 
@@ -57,18 +58,29 @@ async function resolveAccount(
           name: existing?.name ?? '',
           cpfCnpj: existing?.cpfCnpj ?? '',
           phone: existing?.phone ?? '',
+          ...(existing?.gender ? { gender: existing.gender } : {}),
           bakeryId: LAVILY_BAKERY_ID,
           role,
           provider: 'microsoft-entra-id',
           createdAt: existing?.createdAt ?? new Date().toISOString(),
         });
       }
-      return { bakeryId: LAVILY_BAKERY_ID, role, needsOnboarding: false };
+      return {
+        bakeryId: LAVILY_BAKERY_ID,
+        role,
+        gender: existing?.gender,
+        needsOnboarding: false,
+      };
     }
   }
   const user = await getUserByEmail(email);
   if (user) {
-    return { bakeryId: user.bakeryId, role: user.role, needsOnboarding: false };
+    return {
+      bakeryId: user.bakeryId,
+      role: user.role,
+      gender: user.gender,
+      needsOnboarding: false,
+    };
   }
   return { bakeryId: null, role: 'admin', needsOnboarding: true };
 }
@@ -127,6 +139,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const resolved = await resolveAccount(token.email, entraRoles);
         (token as { bakeryId?: string | null }).bakeryId = resolved.bakeryId;
         (token as { role?: UserRole }).role = resolved.role;
+        (token as { gender?: Gender }).gender = resolved.gender;
         (token as { needsOnboarding?: boolean }).needsOnboarding =
           resolved.needsOnboarding;
       }
@@ -137,9 +150,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     session({ session, token }) {
       const role: UserRole = (token as { role?: UserRole }).role ?? 'admin';
+      const gender = (token as { gender?: Gender }).gender;
       session.user.role = role;
       session.user.roleLabel =
-        role === 'production' ? 'Produção' : 'Administradora';
+        role === 'production'
+          ? 'Produção'
+          : gender === 'M'
+            ? 'Administrador'
+            : gender === 'F'
+              ? 'Administradora'
+              : 'Administrador(a)';
       session.user.bakeryId =
         (token as { bakeryId?: string | null }).bakeryId ?? null;
       session.user.needsOnboarding = Boolean(

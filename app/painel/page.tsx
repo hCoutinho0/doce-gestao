@@ -41,7 +41,9 @@ import {
   ShoppingBag,
   Sparkles,
   Trash2,
+  Copy,
   Upload,
+  UserPlus,
   Users,
   WalletCards,
   X,
@@ -50,6 +52,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { BAKERY_KEY, type BakeryProfile } from '@/lib/bakery';
 import { useUserSession, signOut, type UserSession } from '@/lib/auth';
+import type { Invite } from '@/lib/tenant';
 
 type View =
   | 'dashboard'
@@ -60,6 +63,7 @@ type View =
   | 'menu'
   | 'customers'
   | 'loyalty'
+  | 'team'
   | 'whatsapp';
 type OrderItem = { name: string; quantity: number; unitPrice: number };
 type Order = {
@@ -219,6 +223,7 @@ const navItems: { label: string; icon: typeof LayoutDashboard; view: View }[] =
     { label: 'Cardápio', icon: CakeSlice, view: 'menu' },
     { label: 'Clientes', icon: Users, view: 'customers' },
     { label: 'Fidelidade', icon: Gift, view: 'loyalty' },
+    { label: 'Equipe', icon: UserPlus, view: 'team' },
   ];
 const money = (value: number) =>
   value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -451,6 +456,7 @@ export default function Home() {
             {view === 'loyalty' && (
               <Loyalty items={loyalty} setItems={setLoyalty} />
             )}
+            {view === 'team' && <Team isAdmin={session.role === 'admin'} />}
             {view === 'whatsapp' && <WhatsApp />}
             <p className="mt-8 text-center text-xs text-muted-foreground">
               {pageTitle} • Dados sincronizados na nuvem • Acesso: {session.roleLabel}
@@ -3078,6 +3084,132 @@ function Loyalty({
           </Panel>
         ))}
       </div>
+    </>
+  );
+}
+
+function Team({ isAdmin }: { isAdmin: boolean }) {
+  const [invites, setInvites] = useState<Invite[]>([]);
+  const [role, setRole] = useState<'admin' | 'production'>('production');
+  const [generating, setGenerating] = useState(false);
+  const [copiedCode, setCopiedCode] = useState('');
+
+  const loadInvites = () => {
+    void fetch('/api/invites')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { invites: Invite[] } | null) => {
+        if (data?.invites) setInvites(data.invites);
+      });
+  };
+
+  useEffect(() => {
+    if (isAdmin) loadInvites();
+  }, [isAdmin]);
+
+  const generate = async () => {
+    setGenerating(true);
+    const response = await fetch('/api/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role }),
+    });
+    setGenerating(false);
+    if (!response.ok) return;
+    loadInvites();
+  };
+
+  const copyLink = (code: string) => {
+    const link = `${window.location.origin}/cadastro?convite=${code}`;
+    void navigator.clipboard.writeText(link).then(() => {
+      setCopiedCode(code);
+      setTimeout(() => setCopiedCode(''), 2000);
+    });
+  };
+
+  if (!isAdmin) {
+    return (
+      <>
+        <PageHeading
+          title="Equipe"
+          subtitle="Convide outras pessoas para a sua confeitaria."
+        />
+        <Panel className="p-10 text-center text-sm text-muted-foreground">
+          Só uma Administradora ou Administrador pode gerar convites.
+        </Panel>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <PageHeading
+        title="Equipe"
+        subtitle="Gere um link de convite para alguém entrar na sua confeitaria com o papel certo — sem criar uma confeitaria nova sem querer."
+      />
+      <Panel className="mb-5 p-5">
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+          <Field label="Papel de quem for convidada(o)">
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value as 'admin' | 'production')}
+              className={inputClass}
+            >
+              <option value="production">Produção</option>
+              <option value="admin">Administrador(a)</option>
+            </select>
+          </Field>
+          <div className="flex items-end">
+            <Button
+              type="button"
+              disabled={generating}
+              onClick={() => void generate()}
+              className="h-10 w-full sm:w-auto"
+            >
+              <UserPlus /> Gerar convite
+            </Button>
+          </div>
+        </div>
+      </Panel>
+      <Panel className="overflow-hidden">
+        <PanelTitle title="Convites" subtitle="Cada código só funciona uma vez" />
+        <div className="divide-y">
+          {invites.length === 0 && (
+            <Empty label="Nenhum convite gerado ainda." />
+          )}
+          {invites.map((invite) => (
+            <div
+              key={invite.code}
+              className="flex flex-wrap items-center gap-3 px-5 py-4"
+            >
+              <div className="flex-1">
+                <p className="font-mono text-sm font-bold tracking-wide">
+                  {invite.code}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {invite.role === 'admin' ? 'Administrador(a)' : 'Produção'} •{' '}
+                  {invite.usedBy
+                    ? `Usado por ${invite.usedBy} em ${new Date(invite.usedAt!).toLocaleDateString('pt-BR')}`
+                    : `Gerado em ${new Date(invite.createdAt).toLocaleDateString('pt-BR')}`}
+                </p>
+              </div>
+              <Badge variant={invite.usedBy ? 'outline' : 'secondary'}>
+                {invite.usedBy ? 'Usado' : 'Pendente'}
+              </Badge>
+              {!invite.usedBy && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => copyLink(invite.code)}
+                >
+                  {copiedCode === invite.code ? <Check /> : <Copy />}
+                  {copiedCode === invite.code ? 'Copiado' : 'Copiar link'}
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      </Panel>
     </>
   );
 }

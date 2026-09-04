@@ -10,6 +10,7 @@ import {
   Building2,
   CakeSlice,
   Check,
+  CheckCircle2,
   IdCard,
   LoaderCircle,
   Mail,
@@ -17,9 +18,11 @@ import {
   Palette,
   Phone,
   Settings2,
+  Ticket,
   Upload,
   UserRound,
   UsersRound,
+  XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { GoogleIcon, MicrosoftIcon } from '@/components/brand-icons';
@@ -32,8 +35,10 @@ import { StepHeading, SetupInput } from '@/components/onboarding-fields';
 import { formatCpfCnpj, isValidCpfCnpj } from '@/lib/cpfCnpj';
 import { useUserSession } from '@/lib/auth';
 import type { BakeryProfile } from '@/lib/bakery';
+import type { Gender } from '@/lib/tenant';
 
 type Method = 'google' | 'microsoft-entra-id' | 'credentials';
+type InviteInfo = { bakeryName: string; role: 'admin' | 'production' };
 
 const icons = ['🧁', '🍰', '🎂', '🍪', '🍫', '🥐'];
 const teamSizes = [
@@ -79,11 +84,61 @@ export default function CadastroPage() {
   const [fullName, setFullName] = useState('');
   const [cpfCnpj, setCpfCnpj] = useState('');
   const [phone, setPhone] = useState('');
+  const [gender, setGender] = useState<Gender | ''>('');
   const [bakery, setBakery] = useState(initialBakery);
   const [logoError, setLogoError] = useState('');
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  const [inviteCode, setInviteCode] = useState('');
+  const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
+  const [inviteError, setInviteError] = useState('');
+  const [checkingInvite, setCheckingInvite] = useState(false);
+  const isInvite = Boolean(inviteInfo);
+  const totalSteps = isInvite ? 1 : 4;
+
+  const checkInvite = async (code: string) => {
+    if (code.trim().length < 8) {
+      setInviteInfo(null);
+      setInviteError('');
+      return;
+    }
+    setCheckingInvite(true);
+    setInviteError('');
+    try {
+      const response = await fetch(
+        `/api/invites/${encodeURIComponent(code.trim().toUpperCase())}`,
+      );
+      const data = (await response.json()) as {
+        valid: boolean;
+        bakeryName?: string;
+        role?: 'admin' | 'production';
+      };
+      if (data.valid && data.bakeryName && data.role) {
+        setInviteInfo({ bakeryName: data.bakeryName, role: data.role });
+      } else {
+        setInviteInfo(null);
+        setInviteError('Esse código não é válido ou já foi usado.');
+      }
+    } catch {
+      setInviteInfo(null);
+      setInviteError('Não foi possível conferir o código agora.');
+    } finally {
+      setCheckingInvite(false);
+    }
+  };
+
+  // A convite link (/cadastro?convite=CODE) pre-fills and checks the code
+  // right away, so someone following a teammate's link doesn't have to
+  // type anything.
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get('convite');
+    if (code) {
+      setInviteCode(code.toUpperCase());
+      void checkInvite(code);
+    }
+  }, []);
 
   // An OAuth account (Google/Microsoft) that just came back here already
   // has a session — needsOnboarding true means it has no confeitaria yet.
@@ -132,13 +187,20 @@ export default function CadastroPage() {
       .finally(() => setUploadingLogo(false));
   };
 
+  const oauthRedirect = inviteCode
+    ? `/cadastro?convite=${encodeURIComponent(inviteCode)}`
+    : '/cadastro';
+
   const credentialsReady =
     /.+@.+\..+/.test(signupEmail) &&
     signupPassword.length >= 8 &&
     signupPassword === signupPasswordConfirm;
 
   const personalReady =
-    fullName.trim().length > 2 && isValidCpfCnpj(cpfCnpj) && phone.trim();
+    fullName.trim().length > 2 &&
+    isValidCpfCnpj(cpfCnpj) &&
+    phone.trim() &&
+    Boolean(gender);
 
   const canContinue =
     step === 2
@@ -153,7 +215,10 @@ export default function CadastroPage() {
     setSubmitting(true);
     setSubmitError('');
     try {
-      const response = await fetch('/api/auth/complete-registration', {
+      const endpoint = isInvite
+        ? '/api/auth/join-bakery'
+        : '/api/auth/complete-registration';
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -163,7 +228,10 @@ export default function CadastroPage() {
           name: fullName.trim(),
           cpfCnpj,
           phone: phone.trim(),
-          bakery,
+          gender,
+          ...(isInvite
+            ? { inviteCode: inviteCode.trim().toUpperCase() }
+            : { bakery }),
         }),
       });
       if (!response.ok) {
@@ -173,7 +241,9 @@ export default function CadastroPage() {
         setSubmitError(
           data.error === 'email_already_registered'
             ? 'Esse email já tem uma conta cadastrada — faça login em vez de criar outra.'
-            : 'Não foi possível concluir o cadastro. Confira os dados e tente de novo.',
+            : data.error === 'invite_already_used'
+              ? 'Esse convite já foi usado por outra pessoa.'
+              : 'Não foi possível concluir o cadastro. Confira os dados e tente de novo.',
         );
         setSubmitting(false);
         return;
@@ -202,12 +272,14 @@ export default function CadastroPage() {
     );
   }
 
-  const steps = [
-    { number: 1, label: 'Sua conta', icon: UserRound },
-    { number: 2, label: 'Confeitaria', icon: Building2 },
-    { number: 3, label: 'Identidade', icon: Palette },
-    { number: 4, label: 'Operação', icon: Settings2 },
-  ];
+  const steps = isInvite
+    ? [{ number: 1, label: 'Sua conta', icon: UserRound }]
+    : [
+        { number: 1, label: 'Sua conta', icon: UserRound },
+        { number: 2, label: 'Confeitaria', icon: Building2 },
+        { number: 3, label: 'Identidade', icon: Palette },
+        { number: 4, label: 'Operação', icon: Settings2 },
+      ];
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -224,7 +296,7 @@ export default function CadastroPage() {
           </div>
           {step > 0 && (
             <span className="ml-auto rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-secondary-foreground">
-              Etapa {step} de 4
+              Etapa {step} de {totalSteps}
             </span>
           )}
         </div>
@@ -236,10 +308,14 @@ export default function CadastroPage() {
             Bem-vindo(a)
           </p>
           <h1 className="mt-3 font-heading text-3xl font-bold leading-tight">
-            Vamos criar o painel da sua confeitaria.
+            {isInvite
+              ? `Você foi convidado(a) para ${inviteInfo!.bakeryName}.`
+              : 'Vamos criar o painel da sua confeitaria.'}
           </h1>
           <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-            Leva menos de 5 minutos. Você poderá alterar tudo depois.
+            {isInvite
+              ? 'Leva menos de um minuto — a confeitaria já existe, só falta sua conta.'
+              : 'Leva menos de 5 minutos. Você poderá alterar tudo depois.'}
           </p>
           {step > 0 && (
             <ol className="mt-8 flex gap-2 lg:flex-col">
@@ -274,7 +350,9 @@ export default function CadastroPage() {
                   type="button"
                   variant="outline"
                   className="h-11 w-full rounded-xl"
-                  onClick={() => void signIn('google', { redirectTo: '/cadastro' })}
+                  onClick={() =>
+                    void signIn('google', { redirectTo: oauthRedirect })
+                  }
                 >
                   <GoogleIcon className="size-4" /> Continuar com o Google
                 </Button>
@@ -283,7 +361,9 @@ export default function CadastroPage() {
                   variant="outline"
                   className="h-11 w-full rounded-xl"
                   onClick={() =>
-                    void signIn('microsoft-entra-id', { redirectTo: '/cadastro' })
+                    void signIn('microsoft-entra-id', {
+                      redirectTo: oauthRedirect,
+                    })
                   }
                 >
                   <MicrosoftIcon className="size-4" /> Continuar com a Microsoft
@@ -331,6 +411,42 @@ export default function CadastroPage() {
                   Continuar <ArrowRight />
                 </Button>
               </div>
+
+              <div className="mt-7 border-t pt-6">
+                <SetupInput
+                  id="invite-code"
+                  label="Tem um código de convite? (opcional)"
+                  icon={<Ticket />}
+                  value={inviteCode}
+                  onChange={(value) => {
+                    const upper = value.toUpperCase();
+                    setInviteCode(upper);
+                    void checkInvite(upper);
+                  }}
+                  placeholder="Ex.: A1B2C3D4"
+                />
+                {checkingInvite && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Conferindo código…
+                  </p>
+                )}
+                {!checkingInvite && inviteInfo && (
+                  <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-green-700">
+                    <CheckCircle2 className="size-3.5" /> Convite válido —
+                    você vai entrar em {inviteInfo.bakeryName} como{' '}
+                    {inviteInfo.role === 'admin'
+                      ? 'Administrador(a)'
+                      : 'Produção'}
+                    .
+                  </p>
+                )}
+                {!checkingInvite && inviteError && (
+                  <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-destructive">
+                    <XCircle className="size-3.5" /> {inviteError}
+                  </p>
+                )}
+              </div>
+
               <p className="mt-6 text-center text-sm text-muted-foreground">
                 Já tem conta?{' '}
                 <Link href="/login" className="font-semibold text-primary">
@@ -344,7 +460,11 @@ export default function CadastroPage() {
             <section>
               <StepHeading
                 title="Seus dados"
-                description="Usados para identificar quem administra essa confeitaria no sistema."
+                description={
+                  isInvite
+                    ? `Usados para identificar você dentro de ${inviteInfo!.bakeryName}.`
+                    : 'Usados para identificar quem administra essa confeitaria no sistema.'
+                }
               />
               <div className="mt-7 grid gap-5 sm:grid-cols-2">
                 <div className="sm:col-span-2">
@@ -376,6 +496,25 @@ export default function CadastroPage() {
                   placeholder="(11) 99999-9999"
                   required
                 />
+                <div className="space-y-2 sm:col-span-2">
+                  <Label>Como podemos te chamar?</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setGender('M')}
+                      className={`h-11 rounded-xl border text-sm font-medium transition ${gender === 'M' ? 'border-primary bg-primary/10 text-primary ring-2 ring-primary/15' : 'hover:border-primary/40'}`}
+                    >
+                      Administrador
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGender('F')}
+                      className={`h-11 rounded-xl border text-sm font-medium transition ${gender === 'F' ? 'border-primary bg-primary/10 text-primary ring-2 ring-primary/15' : 'hover:border-primary/40'}`}
+                    >
+                      Administradora
+                    </button>
+                  </div>
+                </div>
                 {cpfCnpj && !isValidCpfCnpj(cpfCnpj) && (
                   <p className="text-xs font-medium text-destructive sm:col-span-2">
                     Esse CPF/CNPJ não parece válido — confira os números.
@@ -601,7 +740,20 @@ export default function CadastroPage() {
               >
                 <ArrowLeft /> Voltar
               </Button>
-              {step < 4 ? (
+              {step === 1 && isInvite ? (
+                <Button
+                  type="button"
+                  disabled={!personalReady || submitting}
+                  onClick={() => void finish()}
+                >
+                  {submitting ? (
+                    <LoaderCircle className="animate-spin" />
+                  ) : (
+                    <Check />
+                  )}
+                  {submitting ? 'Entrando…' : 'Entrar na confeitaria'}
+                </Button>
+              ) : step < 4 ? (
                 <Button
                   type="button"
                   disabled={step === 1 ? !personalReady : !canContinue}
