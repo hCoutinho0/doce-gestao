@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   CreditCard,
   Clock3,
+  Gift,
   LoaderCircle,
   Minus,
   Plus,
@@ -54,10 +55,12 @@ export default function CardapioPage() {
   const [category, setCategory] = useState('Todos');
   const [customer, setCustomer] = useState('');
   const [phone, setPhone] = useState('');
+  const [birthday, setBirthday] = useState('');
   const [deliveryDate, setDeliveryDate] = useState('');
   const [deliveryTime, setDeliveryTime] = useState('');
   const [notes, setNotes] = useState('');
   const [success, setSuccess] = useState('');
+  const [stamps, setStamps] = useState(0);
   const [payment, setPayment] = useState<PaymentMethod>('');
   const [deliveryCardType, setDeliveryCardType] = useState<
     'Crédito' | 'Débito'
@@ -132,6 +135,7 @@ export default function CardapioPage() {
       body: JSON.stringify({
         customer: customer.trim(),
         phone: phone.trim(),
+        birthday,
         items: cartItems.map((item) => ({
           name: item.name,
           quantity: item.quantity,
@@ -144,13 +148,18 @@ export default function CardapioPage() {
       }),
     });
     if (!response.ok) throw new Error('order_failed');
-    const data = (await response.json()) as { order: SavedOrder };
+    const data = (await response.json()) as {
+      order: SavedOrder;
+      stamps?: number;
+    };
+    setStamps(data.stamps ?? 0);
     return data.order;
   };
   const resetForm = () => {
     setCart({});
     setCustomer('');
     setPhone('');
+    setBirthday('');
     setDeliveryDate('');
     setDeliveryTime('');
     setNotes('');
@@ -161,6 +170,7 @@ export default function CardapioPage() {
   const finishOrder = async () => {
     if (
       !customer.trim() ||
+      !birthday ||
       !deliveryDate ||
       !deliveryTime ||
       !cartItems.length ||
@@ -389,6 +399,37 @@ export default function CardapioPage() {
                   Recebemos o pedido <strong>{success}</strong>. A confeitaria
                   entrará em contato para confirmar a disponibilidade.
                 </p>
+                {stamps > 0 && (
+                  <div className="mt-5 overflow-hidden rounded-2xl text-left">
+                    <div className="bg-gradient-to-br from-[#4f1f6e] to-[#a374c9] p-5 text-white">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-white/70">
+                          Cartão fidelidade
+                        </p>
+                        <Gift className="size-5" />
+                      </div>
+                      <div className="mt-4 grid grid-cols-5 gap-2">
+                        {Array.from({ length: 10 }, (_, i) => (
+                          <span
+                            key={i}
+                            className={`grid aspect-square place-items-center rounded-full border text-xs ${i < stamps ? 'border-white bg-white text-primary' : 'border-white/40 text-white/50'}`}
+                          >
+                            {i < stamps ? (
+                              <CheckCircle2 className="size-3" />
+                            ) : (
+                              i + 1
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="mt-4 text-xs text-white/75">
+                        {stamps >= 10
+                          ? 'Desconto de 10% liberado! Combine com a confeitaria.'
+                          : `Faltam ${10 - stamps} selos para 10% de desconto`}
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <Button className="mt-5" onClick={() => setSuccess('')}>
                   Fazer outro pedido
                 </Button>
@@ -455,6 +496,16 @@ export default function CardapioPage() {
                       onChange={(e) => setPhone(e.target.value)}
                       className="h-10 rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
                       placeholder="(11) 90000-0000"
+                    />
+                  </label>
+                  <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
+                    Data de aniversário
+                    <input
+                      required
+                      type="date"
+                      value={birthday}
+                      onChange={(e) => setBirthday(e.target.value)}
+                      className="h-10 rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
                     />
                   </label>
                   <div className="grid grid-cols-2 gap-2">
@@ -617,6 +668,7 @@ export default function CardapioPage() {
                     disabled={
                       !cartItems.length ||
                       !customer.trim() ||
+                      !birthday ||
                       !deliveryDate ||
                       !deliveryTime ||
                       !payment ||

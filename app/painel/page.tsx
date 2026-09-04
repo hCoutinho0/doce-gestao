@@ -21,6 +21,7 @@ import {
   Menu,
   MessageCircleMore,
   PackageOpen,
+  Pencil,
   Plus,
   Search,
   Settings2,
@@ -85,7 +86,13 @@ type MenuItem = {
   emoji: string;
   photoUrl?: string;
 };
-type LoyaltyItem = { id: number; name: string; phone: string; stamps: number };
+type LoyaltyItem = {
+  id: number;
+  name: string;
+  phone: string;
+  birthday?: string;
+  stamps: number;
+};
 
 // Real confeitarias start with none of this — orders, stock, finance,
 // cardápio and clientes all begin empty and fill up from what the admin
@@ -935,6 +942,7 @@ function Orders({
   const [customerChoice, setCustomerChoice] = useState('');
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
+  const [newBirthday, setNewBirthday] = useState('');
   const [deliveryDate, setDeliveryDate] = useState('');
   const [deliveryTime, setDeliveryTime] = useState('');
   const [quantities, setQuantities] = useState<Record<number, number>>({});
@@ -954,6 +962,7 @@ function Orders({
       : customerChoice;
   const canSubmit =
     Boolean(customerName) &&
+    (customerChoice !== NEW_CUSTOMER || Boolean(newBirthday)) &&
     Boolean(deliveryDate) &&
     Boolean(deliveryTime) &&
     cartItems.length > 0;
@@ -977,6 +986,8 @@ function Orders({
       body: JSON.stringify({
         customer: customerName,
         phone: customerChoice === NEW_CUSTOMER ? newPhone.trim() : undefined,
+        birthday:
+          customerChoice === NEW_CUSTOMER ? newBirthday : undefined,
         items: cartItems.map((item) => ({
           name: item.name,
           quantity: item.quantity,
@@ -997,6 +1008,7 @@ function Orders({
     setCustomerChoice('');
     setNewName('');
     setNewPhone('');
+    setNewBirthday('');
     setDeliveryDate('');
     setDeliveryTime('');
     setQuantities({});
@@ -1052,6 +1064,15 @@ function Orders({
                     onChange={(e) => setNewPhone(e.target.value)}
                     className={inputClass}
                     placeholder="(11) 90000-0000"
+                  />
+                </Field>
+                <Field label="Aniversário">
+                  <input
+                    required
+                    type="date"
+                    value={newBirthday}
+                    onChange={(e) => setNewBirthday(e.target.value)}
+                    className={inputClass}
                   />
                 </Field>
               </div>
@@ -2059,6 +2080,31 @@ function DigitalMenu({
   );
 }
 
+function favoriteProductOf(orders: Order[], customerName: string): string {
+  const counts = new Map<string, number>();
+  for (const order of orders) {
+    if (order.customer !== customerName) continue;
+    for (const item of order.items ?? []) {
+      counts.set(item.name, (counts.get(item.name) ?? 0) + item.quantity);
+    }
+  }
+  let best = '';
+  let bestCount = 0;
+  for (const [name, count] of counts) {
+    if (count > bestCount) {
+      best = name;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+function formatBirthday(birthday?: string): string {
+  if (!birthday) return 'Sem data cadastrada';
+  const [year, month, day] = birthday.split('-');
+  return `${day}/${month}/${year}`;
+}
+
 function Customers({
   loyalty,
   orders,
@@ -2068,17 +2114,59 @@ function Customers({
   orders: Order[];
   setLoyalty: (v: LoyaltyItem[] | ((o: LoyaltyItem[]) => LoyaltyItem[])) => void;
 }) {
+  const [editingId, setEditingId] = useState<number | null>(null);
+
   const addClient = (e: FormSubmit) => {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
     const name = fieldValue(data, 'name').trim();
-    if (!name) return;
+    const birthday = fieldValue(data, 'birthday').trim();
+    if (!name || !birthday) return;
     setLoyalty((old) => [
       ...old,
-      { id: Date.now(), name, phone: fieldValue(data, 'phone'), stamps: 0 },
+      {
+        id: Date.now(),
+        name,
+        phone: fieldValue(data, 'phone'),
+        birthday,
+        stamps: 0,
+      },
     ]);
     e.currentTarget.reset();
   };
+
+  const saveEdit = async (e: FormSubmit, client: LoyaltyItem) => {
+    e.preventDefault();
+    const data = new FormData(e.currentTarget);
+    const name = fieldValue(data, 'name').trim();
+    const birthday = fieldValue(data, 'birthday').trim();
+    if (!name || !birthday) return;
+    const phone = fieldValue(data, 'phone').trim();
+    const response = await fetch(
+      `/api/customers/${encodeURIComponent(client.id)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, phone, birthday }),
+      },
+    );
+    if (!response.ok) return;
+    setLoyalty((old) =>
+      old.map((c) =>
+        c.id === client.id ? { ...c, name, phone, birthday } : c,
+      ),
+    );
+    setEditingId(null);
+  };
+
+  const removeClient = async (id: number) => {
+    const response = await fetch(`/api/customers/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) return;
+    setLoyalty((old) => old.filter((c) => c.id !== id));
+  };
+
   return (
     <>
       <PageHeading
@@ -2086,7 +2174,10 @@ function Customers({
         subtitle="Visão rápida do relacionamento e histórico de compras."
       />
       <Panel className="mb-5 p-5">
-        <form onSubmit={addClient} className="grid gap-3 md:grid-cols-[1.4fr_1fr_auto]">
+        <form
+          onSubmit={addClient}
+          className="grid gap-3 md:grid-cols-[1.2fr_1fr_1fr_auto]"
+        >
           <Field label="Nome ou apelido">
             <input
               required
@@ -2097,6 +2188,14 @@ function Customers({
           </Field>
           <Field label="WhatsApp (opcional)">
             <input name="phone" className={inputClass} placeholder="(11) 90000-0000" />
+          </Field>
+          <Field label="Aniversário">
+            <input
+              required
+              type="date"
+              name="birthday"
+              className={inputClass}
+            />
           </Field>
           <div className="flex items-end">
             <Button type="submit" className="h-10 w-full">
@@ -2113,21 +2212,93 @@ function Customers({
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {loyalty.map((client) => {
           const clientOrders = orders.filter((o) => o.customer === client.name);
+          const favorite = favoriteProductOf(orders, client.name);
+          if (editingId === client.id) {
+            return (
+              <Panel key={client.id} className="p-5">
+                <form
+                  onSubmit={(e) => void saveEdit(e, client)}
+                  className="space-y-3"
+                >
+                  <Field label="Nome ou apelido">
+                    <input
+                      required
+                      name="name"
+                      defaultValue={client.name}
+                      className={inputClass}
+                    />
+                  </Field>
+                  <Field label="WhatsApp">
+                    <input
+                      name="phone"
+                      defaultValue={client.phone}
+                      className={inputClass}
+                    />
+                  </Field>
+                  <Field label="Aniversário">
+                    <input
+                      required
+                      type="date"
+                      name="birthday"
+                      defaultValue={client.birthday}
+                      className={inputClass}
+                    />
+                  </Field>
+                  <div className="flex gap-2">
+                    <Button type="submit" className="flex-1">
+                      Salvar
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => setEditingId(null)}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                </form>
+              </Panel>
+            );
+          }
           return (
             <Panel key={client.id} className="p-5">
-              <div className="flex items-center gap-3">
-                <span className="grid size-11 place-items-center rounded-full bg-secondary font-bold text-primary">
-                  {client.name
-                    .split(' ')
-                    .map((x) => x[0])
-                    .slice(0, 2)
-                    .join('')}
-                </span>
-                <div>
-                  <p className="font-semibold">{client.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {client.phone}
-                  </p>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-3">
+                  <span className="grid size-11 shrink-0 place-items-center rounded-full bg-secondary font-bold text-primary">
+                    {client.name
+                      .split(' ')
+                      .map((x) => x[0])
+                      .slice(0, 2)
+                      .join('')}
+                  </span>
+                  <div>
+                    <p className="font-semibold">{client.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {client.phone || 'Sem WhatsApp'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      🎂 {formatBirthday(client.birthday)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Editar ${client.name}`}
+                    onClick={() => setEditingId(client.id)}
+                  >
+                    <Pencil />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Excluir ${client.name}`}
+                    onClick={() => void removeClient(client.id)}
+                  >
+                    <Trash2 />
+                  </Button>
                 </div>
               </div>
               <div className="mt-5 grid grid-cols-2 gap-3">
@@ -2140,9 +2311,12 @@ function Customers({
                   <p className="text-xl font-bold">{client.stamps}/10</p>
                 </div>
               </div>
-              <Button variant="outline" className="mt-4 w-full">
-                Ver histórico
-              </Button>
+              <div className="mt-3 rounded-xl bg-muted p-3">
+                <p className="text-xs text-muted-foreground">Produto favorito</p>
+                <p className="text-sm font-semibold">
+                  {favorite || 'Ainda sem pedidos estruturados'}
+                </p>
+              </div>
             </Panel>
           );
         })}
@@ -2162,7 +2336,7 @@ function Loyalty({
     <>
       <PageHeading
         title="Fidelidade e descontos"
-        subtitle="A cada compra, um selo. Com 10 selos, o cliente ganha 15% de desconto."
+        subtitle="A cada compra, um selo. Com 10 selos, o cliente ganha 10% de desconto."
       />
       {items.length === 0 && (
         <Panel className="p-10 text-center text-sm text-muted-foreground">
@@ -2194,7 +2368,7 @@ function Loyalty({
               </div>
               <p className="mt-4 text-xs text-white/75">
                 {client.stamps >= 10
-                  ? 'Desconto liberado: 15%'
+                  ? 'Desconto liberado: 10%'
                   : `Faltam ${10 - client.stamps} selos para o prêmio`}
               </p>
             </div>

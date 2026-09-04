@@ -21,26 +21,49 @@ type Customer = {
   id: number;
   name: string;
   phone: string;
+  birthday?: string;
   stamps: number;
 };
 
 const ORDERS_KEY = 'doce-orders';
 const CUSTOMERS_KEY = 'doce-loyalty';
 const MENU_KEY = 'doce-menu';
+const STAMPS_FOR_DISCOUNT = 10;
 
 // A first-time customer becomes a client record automatically — matched by
 // name (trimmed, case-insensitive) so repeat orders don't create
-// duplicates. Stamps are left untouched here; the admin still awards those
-// by hand in the Fidelidade tab.
-async function ensureCustomer(name: string, phone: string) {
+// duplicates. Every order — new or repeat customer — earns one stamp
+// (capped at STAMPS_FOR_DISCOUNT); returns the customer's stamp count after
+// this order so the caller can show a loyalty card.
+async function ensureCustomer(
+  name: string,
+  phone: string,
+  birthday?: string,
+): Promise<number> {
   const customers = ((await readState<Customer[]>(CUSTOMERS_KEY)) ??
     []) as Customer[];
-  const exists = customers.some(
+  const match = customers.find(
     (c) => c.name.trim().toLowerCase() === name.toLowerCase(),
   );
-  if (exists) return;
-  const customer: Customer = { id: Date.now(), name, phone, stamps: 0 };
-  await writeState(CUSTOMERS_KEY, [...customers, customer]);
+  if (!match) {
+    const customer: Customer = {
+      id: Date.now(),
+      name,
+      phone,
+      ...(birthday ? { birthday } : {}),
+      stamps: 1,
+    };
+    await writeState(CUSTOMERS_KEY, [...customers, customer]);
+    return customer.stamps;
+  }
+  const stamps = Math.min(STAMPS_FOR_DISCOUNT, match.stamps + 1);
+  const updated = customers.map((c) =>
+    c.id === match.id
+      ? { ...c, stamps, ...(birthday ? { birthday } : {}) }
+      : c,
+  );
+  await writeState(CUSTOMERS_KEY, updated);
+  return stamps;
 }
 
 // Prices for structured items are always taken from the live cardápio, not
@@ -93,6 +116,7 @@ export async function POST(request: Request) {
     date?: string;
     value?: number;
     status?: string;
+    birthday?: string;
   };
 
   if (!body.customer?.trim() || !body.date?.trim()) {
@@ -138,7 +162,11 @@ export async function POST(request: Request) {
     status: body.status?.trim() || 'Novo',
   };
   await writeState(ORDERS_KEY, [order, ...existing]);
-  await ensureCustomer(order.customer, body.phone?.trim() ?? '');
+  const stamps = await ensureCustomer(
+    order.customer,
+    body.phone?.trim() ?? '',
+    body.birthday?.trim() || undefined,
+  );
 
-  return NextResponse.json({ order });
+  return NextResponse.json({ order, stamps });
 }
