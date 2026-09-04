@@ -1748,8 +1748,14 @@ function RecipeEditor({
     hiddenTotal,
     baseCost,
   } = computeRecipeCost({ recipeItems, hiddenCosts }, stock);
-  const denominator = 1 - (profit + cardFee + tax) / 100;
-  const totalPrice = denominator > 0 ? baseCost / denominator : 0;
+  // Ordem pedida: custo (ingredientes + embalagens + gastos invisíveis) ->
+  // soma o lucro pretendido sobre esse custo -> só depois soma taxa de
+  // cartão/impostos sobre o preço já com lucro. Taxas nunca "comem" a
+  // margem nem travam a conta — são só um adicional opcional no fim.
+  const profitAmount = baseCost * (profit / 100);
+  const priceBeforeFees = baseCost + profitAmount;
+  const feesAmount = priceBeforeFees * ((cardFee + tax) / 100);
+  const totalPrice = priceBeforeFees + feesAmount;
   const unitPrice = totalPrice / Math.max(1, yieldCount);
 
   const addStockItem = (e: FormSubmit) => {
@@ -2018,8 +2024,9 @@ function RecipeEditor({
             />
           </div>
           <p className="mt-4 rounded-xl bg-secondary/60 p-3 text-xs text-secondary-foreground">
-            Gastos invisíveis incidem no custo. Taxas e lucro incidem no preço
-            final, evitando que sejam retirados da sua margem.
+            Ordem do cálculo: custo (ingredientes + embalagens + gastos
+            invisíveis) → soma o lucro pretendido → só depois soma taxa de
+            cartão e impostos, se houver. As taxas nunca reduzem sua margem.
           </p>
         </Panel>
         <Panel className="overflow-hidden">
@@ -2042,17 +2049,21 @@ function RecipeEditor({
             />
             <CalcLine label="Custo total da receita" value={money(baseCost)} />
             <CalcLine
-              label="Taxas sobre venda"
-              value={`${(cardFee + tax).toFixed(2)}%`}
+              label="Lucro estimado"
+              value={money(profitAmount)}
             />
             <CalcLine
-              label="Lucro estimado"
-              value={money((totalPrice * profit) / 100)}
+              label="Preço com lucro (antes de taxas)"
+              value={money(priceBeforeFees)}
+            />
+            <CalcLine
+              label={`Taxas de cartão / impostos (${(cardFee + tax).toFixed(2)}%)`}
+              value={money(feesAmount)}
             />
             <CalcLine label="Venda da receita inteira" value={money(totalPrice)} />
             <Button
               type="button"
-              disabled={denominator <= 0 || !enrichedItems.length}
+              disabled={!enrichedItems.length}
               className="mt-2 w-full rounded-xl"
               onClick={save}
             >
@@ -2067,11 +2078,6 @@ function RecipeEditor({
               >
                 <Trash2 /> Remover ficha técnica
               </Button>
-            )}
-            {denominator <= 0 && (
-              <p className="text-xs font-medium text-destructive">
-                Lucro + taxas precisam somar menos de 100%.
-              </p>
             )}
           </div>
         </Panel>
@@ -2094,14 +2100,13 @@ function ProfitByProduct({
     if (!recipe) return { product, recipe: null as ProductRecipe | null };
     const { baseCost } = computeRecipeCost(recipe, stock);
     const unitCost = baseCost / Math.max(1, recipe.yieldCount);
-    const denominator = 1 - (recipe.profit + recipe.cardFee + recipe.tax) / 100;
-    const suggestedTotal = denominator > 0 ? baseCost / denominator : 0;
-    const suggestedUnit = suggestedTotal / Math.max(1, recipe.yieldCount);
-    // "Prolabore" é a margem definida na ficha técnica (o que o dono
-    // planejou tirar por unidade); o que sobra entre o preço realmente
+    // "Prolabore" é o lucro pretendido definido na ficha técnica (aplicado
+    // sobre o custo, antes de taxas) dividido pelo rendimento — o que o
+    // dono planejou tirar por unidade. O que sobra entre o preço realmente
     // praticado no cardápio e custo + prolabore fica para reinvestir na
     // confeitaria — pode ficar negativo se o produto estiver subprecificado.
-    const prolabore = suggestedUnit * (recipe.profit / 100);
+    const profitAmount = baseCost * (recipe.profit / 100);
+    const prolabore = profitAmount / Math.max(1, recipe.yieldCount);
     const grossProfit = product.price - unitCost;
     const companyShare = grossProfit - prolabore;
     return { product, recipe, unitCost, grossProfit, prolabore, companyShare };
