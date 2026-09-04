@@ -11,11 +11,13 @@ import {
   Check,
   ChevronRight,
   CircleDollarSign,
+  Clock3,
   Eye,
   Gift,
   LayoutDashboard,
   LoaderCircle,
   LogOut,
+  Minus,
   Menu,
   MessageCircleMore,
   PackageOpen,
@@ -44,14 +46,20 @@ type View =
   | 'customers'
   | 'loyalty'
   | 'whatsapp';
+type OrderItem = { name: string; quantity: number; unitPrice: number };
 type Order = {
   id: string;
   customer: string;
+  phone?: string;
+  items?: OrderItem[];
   item: string;
+  deliveryDate?: string;
+  deliveryTime?: string;
   date: string;
   value: number;
   status: string;
 };
+const ORDER_STATUSES = ['Novo', 'Produção', 'Pronto', 'Entrega', 'Concluído'];
 type StockItem = {
   id: number;
   name: string;
@@ -244,7 +252,7 @@ export default function Home() {
                 sincronizados
               </Badge>
               <div className="flex items-center gap-3 rounded-xl p-1 text-left">
-                <div className="grid size-9 place-items-center rounded-full bg-[#f6d9e6] text-sm font-bold text-[#8c2e5c]">
+                <div className="grid size-9 place-items-center rounded-full bg-[#e8d7f1] text-sm font-bold text-[#5a2a7d]">
                   {session.initials}
                 </div>
                 <div className="hidden sm:block">
@@ -292,7 +300,12 @@ export default function Home() {
               />
             )}
             {view === 'orders' && (
-              <Orders orders={orders} setOrders={setOrders} />
+              <Orders
+                orders={orders}
+                setOrders={setOrders}
+                menuItems={menuItems}
+                customers={loyalty}
+              />
             )}
             {view === 'stock' && <Stock stock={stock} setStock={setStock} />}
             {view === 'pricing' && <Pricing stock={stock} />}
@@ -426,7 +439,7 @@ function SidebarNav({
             <Icon className="size-[18px]" />
             <span>{label}</span>
             {target === 'orders' && orders.length ? (
-              <span className="ml-auto rounded-full bg-[#f3c9dd] px-2 py-0.5 text-[11px] font-bold text-[#772450]">
+              <span className="ml-auto rounded-full bg-[#ddc2ec] px-2 py-0.5 text-[11px] font-bold text-[#4a1f68]">
                 {orders.length}
               </span>
             ) : null}
@@ -436,18 +449,18 @@ function SidebarNav({
       {session.role === 'admin' && (
         <button
           onClick={() => onNavigate('whatsapp')}
-          className={`mt-auto rounded-2xl border p-4 text-left transition ${view === 'whatsapp' ? 'border-primary bg-primary/10' : 'border-[#f2cfe0] bg-[#fdf4f6] hover:border-primary/40'}`}
+          className={`mt-auto rounded-2xl border p-4 text-left transition ${view === 'whatsapp' ? 'border-primary bg-primary/10' : 'border-[#ddc9ea] bg-[#f7f2fa] hover:border-primary/40'}`}
         >
-          <div className="mb-3 grid size-9 place-items-center rounded-xl bg-[#f9dde8] text-[#9a3665]">
+          <div className="mb-3 grid size-9 place-items-center rounded-xl bg-[#ecdcf4] text-[#642e8a]">
             <MessageCircleMore className="size-5" />
           </div>
-          <p className="text-sm font-semibold text-[#47202f]">
+          <p className="text-sm font-semibold text-[#362040]">
             WhatsApp conectado
           </p>
-          <p className="mt-1 text-xs leading-relaxed text-[#8a6070]">
+          <p className="mt-1 text-xs leading-relaxed text-[#6f5a80]">
             Veja o fluxo planejado do bot de pedidos.
           </p>
-          <span className="mt-3 flex items-center gap-1 text-xs font-bold text-[#a34070]">
+          <span className="mt-3 flex items-center gap-1 text-xs font-bold text-[#6e3599]">
             Ver automações <ChevronRight className="size-3" />
           </span>
         </button>
@@ -800,10 +813,10 @@ function PanelTitle({
 }
 function StatusBadge({ status }: { status: string }) {
   const style: Record<string, string> = {
-    Novo: 'bg-[#fbeef2] text-[#9f5378]',
+    Novo: 'bg-[#f3ecf8] text-[#7a4a97]',
     Produção: 'bg-[#fff4d9] text-[#8b6412]',
     Pronto: 'bg-[#e9f7ef] text-[#277447]',
-    Entrega: 'bg-[#fdf0f5] text-[#b8446f]',
+    Entrega: 'bg-[#f5eff9] text-[#7c3aa8]',
     Concluído: 'bg-muted text-muted-foreground',
   };
   return (
@@ -814,6 +827,15 @@ function StatusBadge({ status }: { status: string }) {
     </span>
   );
 }
+const isDeliverySoon = (order: Order) => {
+  if (!order.deliveryDate) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const delivery = new Date(`${order.deliveryDate}T00:00:00`);
+  const days = Math.round((delivery.getTime() - today.getTime()) / 86400000);
+  return days >= 0 && days <= 1;
+};
+
 function OrderTable({
   orders,
   compact = false,
@@ -822,7 +844,7 @@ function OrderTable({
 }: {
   orders: Order[];
   compact?: boolean;
-  onStatus?: (id: string) => void;
+  onStatus?: (id: string, status: string) => void;
   onDelete?: (id: string) => void;
 }) {
   return (
@@ -846,30 +868,46 @@ function OrderTable({
                 <p className="font-medium">{order.customer}</p>
                 <p className="text-xs text-muted-foreground">{order.item}</p>
               </td>
-              <td className="px-3 py-3.5">{order.date}</td>
+              <td className="px-3 py-3.5">
+                <span
+                  className={
+                    isDeliverySoon(order)
+                      ? 'inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-destructive'
+                      : ''
+                  }
+                >
+                  {isDeliverySoon(order) && <Clock3 className="size-3" />}
+                  {order.date}
+                </span>
+              </td>
               <td className="px-3 py-3.5 font-medium">{money(order.value)}</td>
               <td className="px-3 py-3.5">
-                <StatusBadge status={order.status} />
+                {compact || !onStatus ? (
+                  <StatusBadge status={order.status} />
+                ) : (
+                  <select
+                    value={order.status}
+                    onChange={(e) => onStatus(order.id, e.target.value)}
+                    className="h-8 rounded-lg border bg-background px-2 text-xs font-semibold outline-none focus:border-primary"
+                  >
+                    {ORDER_STATUSES.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </td>
               {!compact && (
                 <td className="px-3 py-3.5">
-                  <div className="flex gap-1">
-                    <Button
-                      onClick={() => onStatus?.(order.id)}
-                      size="sm"
-                      variant="outline"
-                    >
-                      Avançar
-                    </Button>
-                    <Button
-                      onClick={() => onDelete?.(order.id)}
-                      size="icon-sm"
-                      variant="destructive"
-                      aria-label="Excluir pedido"
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
+                  <Button
+                    onClick={() => onDelete?.(order.id)}
+                    size="icon-sm"
+                    variant="destructive"
+                    aria-label="Excluir pedido"
+                  >
+                    <Trash2 />
+                  </Button>
                 </td>
               )}
             </tr>
@@ -881,39 +919,89 @@ function OrderTable({
   );
 }
 
+const NEW_CUSTOMER = '__new__';
+
 function Orders({
   orders,
   setOrders,
+  menuItems,
+  customers,
 }: {
   orders: Order[];
   setOrders: (v: Order[] | ((o: Order[]) => Order[])) => void;
+  menuItems: MenuItem[];
+  customers: LoyaltyItem[];
 }) {
-  const add = async (e: FormSubmit) => {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const data = new FormData(form);
-    const value = Number(fieldValue(data, 'value').replace(',', '.'));
+  const [customerChoice, setCustomerChoice] = useState('');
+  const [newName, setNewName] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [deliveryDate, setDeliveryDate] = useState('');
+  const [deliveryTime, setDeliveryTime] = useState('');
+  const [quantities, setQuantities] = useState<Record<number, number>>({});
+  const [submitting, setSubmitting] = useState(false);
+
+  const available = menuItems.filter((item) => item.available);
+  const cartItems = available
+    .filter((item) => quantities[item.id] > 0)
+    .map((item) => ({ ...item, quantity: quantities[item.id] }));
+  const total = cartItems.reduce(
+    (sum, item) => sum + item.price * item.quantity,
+    0,
+  );
+  const customerName =
+    customerChoice === NEW_CUSTOMER
+      ? newName.trim()
+      : customerChoice;
+  const canSubmit =
+    Boolean(customerName) &&
+    Boolean(deliveryDate) &&
+    Boolean(deliveryTime) &&
+    cartItems.length > 0;
+
+  const changeQuantity = (id: number, delta: number) =>
+    setQuantities((old) => ({
+      ...old,
+      [id]: Math.max(0, (old[id] ?? 0) + delta),
+    }));
+
+  const add = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    const description = cartItems
+      .map((item) => `${item.quantity}× ${item.name}`)
+      .join(', ');
+    const formattedDate = `${deliveryDate.split('-').reverse().join('/')} às ${deliveryTime}`;
     const response = await fetch('/api/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        customer: fieldValue(data, 'customer'),
-        item: fieldValue(data, 'item'),
-        date: fieldValue(data, 'date'),
-        value,
+        customer: customerName,
+        phone: customerChoice === NEW_CUSTOMER ? newPhone.trim() : undefined,
+        items: cartItems.map((item) => ({
+          name: item.name,
+          quantity: item.quantity,
+          unitPrice: item.price,
+        })),
+        item: description,
+        deliveryDate,
+        deliveryTime,
+        date: formattedDate,
+        value: total,
         status: 'Novo',
       }),
     });
+    setSubmitting(false);
     if (!response.ok) return;
     const { order } = (await response.json()) as { order: Order };
     setOrders((old) => [order, ...old]);
-    form.reset();
+    setCustomerChoice('');
+    setNewName('');
+    setNewPhone('');
+    setDeliveryDate('');
+    setDeliveryTime('');
+    setQuantities({});
   };
-  const advance = async (id: string) => {
-    const flow = ['Novo', 'Produção', 'Pronto', 'Entrega', 'Concluído'];
-    const current = orders.find((o) => o.id === id);
-    if (!current) return;
-    const status = flow[Math.min(flow.length - 1, flow.indexOf(current.status) + 1)];
+  const changeStatus = async (id: string, status: string) => {
     const response = await fetch(`/api/orders/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -929,56 +1017,138 @@ function Orders({
         subtitle="Lance, acompanhe, altere o status ou exclua encomendas."
       />
       <Panel className="mb-5 p-5">
-        <form onSubmit={add} className="grid gap-3 md:grid-cols-5">
-          <Field label="Cliente">
-            <input
-              required
-              name="customer"
-              className={inputClass}
-              placeholder="Nome do cliente"
-            />
-          </Field>
-          <Field label="Produto">
-            <input
-              required
-              name="item"
-              className={inputClass}
-              placeholder="Ex.: Bolo 2 kg"
-            />
-          </Field>
-          <Field label="Entrega">
-            <input
-              required
-              name="date"
-              className={inputClass}
-              placeholder="Ex.: Sex, 14:00"
-            />
-          </Field>
-          <Field label="Valor">
-            <input
-              required
-              name="value"
-              type="number"
-              step="0.01"
-              className={inputClass}
-              placeholder="0,00"
-            />
-          </Field>
-          <div className="flex items-end">
-            <Button type="submit" className="h-10 w-full rounded-xl">
-              <Plus /> Lançar pedido
-            </Button>
+        <div className="grid gap-5 lg:grid-cols-2">
+          <div className="space-y-3">
+            <Field label="Cliente">
+              <select
+                value={customerChoice}
+                onChange={(e) => setCustomerChoice(e.target.value)}
+                className={inputClass}
+              >
+                <option value="" disabled>
+                  Selecione...
+                </option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.name}>
+                    {c.name}
+                  </option>
+                ))}
+                <option value={NEW_CUSTOMER}>+ Novo cliente</option>
+              </select>
+            </Field>
+            {customerChoice === NEW_CUSTOMER && (
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-muted/40 p-3">
+                <Field label="Nome">
+                  <input
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    className={inputClass}
+                    placeholder="Nome do cliente"
+                  />
+                </Field>
+                <Field label="WhatsApp (opcional)">
+                  <input
+                    value={newPhone}
+                    onChange={(e) => setNewPhone(e.target.value)}
+                    className={inputClass}
+                    placeholder="(11) 90000-0000"
+                  />
+                </Field>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Data da entrega">
+                <input
+                  type="date"
+                  value={deliveryDate}
+                  onChange={(e) => setDeliveryDate(e.target.value)}
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="Horário">
+                <input
+                  type="time"
+                  value={deliveryTime}
+                  onChange={(e) => setDeliveryTime(e.target.value)}
+                  className={inputClass}
+                />
+              </Field>
+            </div>
           </div>
-        </form>
+          <div>
+            <p className="mb-2 text-xs font-semibold text-muted-foreground">
+              Produtos da semana
+            </p>
+            {available.length === 0 ? (
+              <p className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
+                Nenhum produto publicado no cardápio desta semana.
+              </p>
+            ) : (
+              <div className="max-h-60 space-y-1.5 overflow-y-auto rounded-xl border p-2">
+                {available.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-muted/40"
+                  >
+                    <span className="flex-1 truncate text-sm">
+                      {item.name}{' '}
+                      <span className="text-xs text-muted-foreground">
+                        {money(item.price)}
+                      </span>
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        onClick={() => changeQuantity(item.id, -1)}
+                        aria-label={`Diminuir ${item.name}`}
+                      >
+                        <Minus />
+                      </Button>
+                      <span className="w-5 text-center text-sm font-semibold">
+                        {quantities[item.id] ?? 0}
+                      </span>
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        onClick={() => changeQuantity(item.id, 1)}
+                        aria-label={`Aumentar ${item.name}`}
+                      >
+                        <Plus />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="mt-4 flex items-center justify-between border-t pt-4">
+          <div>
+            <p className="text-xs text-muted-foreground">Valor do pedido</p>
+            <p className="font-heading text-xl font-bold text-primary">
+              {money(total)}
+            </p>
+          </div>
+          <Button
+            onClick={() => void add()}
+            disabled={!canSubmit || submitting}
+            className="h-10 rounded-xl"
+          >
+            <Plus /> Lançar pedido
+          </Button>
+        </div>
       </Panel>
       <Panel className="overflow-hidden">
         <PanelTitle
           title={`${orders.length} pedidos`}
-          subtitle="Clique em Avançar para mudar o status"
+          subtitle="Escolha o status na lista de cada pedido"
         />
         <OrderTable
           orders={orders}
-          onStatus={advance}
+          onStatus={changeStatus}
           onDelete={(id) => {
             void fetch(`/api/orders/${encodeURIComponent(id)}`, {
               method: 'DELETE',
@@ -1448,7 +1618,7 @@ function Pricing({ stock }: { stock: StockItem[] }) {
             </p>
           </Panel>
           <Panel className="overflow-hidden">
-            <div className="bg-gradient-to-br from-primary to-[#c65a82] p-6 text-primary-foreground">
+            <div className="bg-gradient-to-br from-primary to-[#8f4fb8] p-6 text-primary-foreground">
               <p className="text-sm opacity-80">Preço sugerido por unidade</p>
               <p className="mt-2 font-heading text-4xl font-bold">
                 {money(unitPrice)}
@@ -2002,7 +2172,7 @@ function Loyalty({
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {items.map((client) => (
           <Panel key={client.id} className="overflow-hidden">
-            <div className="bg-gradient-to-br from-[#7c2350] to-[#d97a97] p-5 text-white">
+            <div className="bg-gradient-to-br from-[#4f1f6e] to-[#a374c9] p-5 text-white">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-white/70">Cartão fidelidade</p>
@@ -2092,7 +2262,7 @@ function WhatsApp() {
           <div className="divide-y">
             {commands.map(([title, detail], i) => (
               <div key={title} className="flex gap-4 p-5">
-                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#fbe6ee] text-sm font-bold text-[#8f3560]">
+                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#f0e4f6] text-sm font-bold text-[#5e2c80]">
                   {i + 1}
                 </span>
                 <div>
@@ -2104,7 +2274,7 @@ function WhatsApp() {
           </div>
         </Panel>
         <Panel className="p-6">
-          <span className="grid size-12 place-items-center rounded-2xl bg-[#f8dde9] text-[#9a3568]">
+          <span className="grid size-12 place-items-center rounded-2xl bg-[#ebdcf3] text-[#642e8a]">
             <MessageCircleMore />
           </span>
           <h2 className="mt-5 font-heading text-xl font-bold">

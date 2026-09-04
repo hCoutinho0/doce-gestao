@@ -132,9 +132,14 @@ export default function CardapioPage() {
       body: JSON.stringify({
         customer: customer.trim(),
         phone: phone.trim(),
+        items: cartItems.map((item) => ({
+          name: item.name,
+          quantity: item.quantity,
+        })),
         item: details,
+        deliveryDate,
+        deliveryTime,
         date: formattedDate,
-        value: total,
         status,
       }),
     });
@@ -255,7 +260,7 @@ export default function CardapioPage() {
           sizes="100vw"
           className="object-cover"
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#4d1430]/95 via-[#70244a]/70 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#2f1245]/95 via-[#4a1f68]/70 to-transparent" />
         <div className="relative mx-auto flex min-h-[320px] max-w-7xl items-center px-5 py-10 sm:px-8">
           <div className="max-w-xl text-white">
             <Badge className="mb-4 bg-white/15 text-white backdrop-blur">
