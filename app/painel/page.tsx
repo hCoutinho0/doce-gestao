@@ -261,7 +261,9 @@ export default function Home() {
 
   useEffect(() => {
     if (!session) return;
-    void fetch(`/api/data/${BAKERY_KEY}`)
+    void fetch(`/api/data/${BAKERY_KEY}`, {
+      headers: { 'X-Panel-Request': '1' },
+    })
       .then((res) => (res.ok ? res.json() : null))
       .then((data: { value: BakeryProfile } | null) => {
         if (data?.value) setBakery(data.value);
