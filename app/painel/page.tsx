@@ -1241,46 +1241,71 @@ function Orders({
   );
 }
 
-function Stock({
+function StockSection({
+  category,
+  title,
+  subtitle,
   stock,
   setStock,
 }: {
+  category: 'Ingrediente' | 'Embalagem';
+  title: string;
+  subtitle: string;
   stock: StockItem[];
   setStock: (v: StockItem[] | ((o: StockItem[]) => StockItem[])) => void;
 }) {
+  const items = stock.filter(
+    (item) => (item.category ?? 'Ingrediente') === category,
+  );
+
+  // Cadastrar um nome que já existe (na mesma categoria) é reposição: soma
+  // na quantidade do item existente em vez de criar uma linha duplicada —
+  // mesmo "match por nome" usado para clientes em /api/orders.
   const add = (e: FormSubmit) => {
     e.preventDefault();
     const d = new FormData(e.currentTarget);
-    setStock((old) => [
-      ...old,
-      {
-        id: Date.now(),
-        name: fieldValue(d, 'name'),
-        category: fieldValue(d, 'category') as 'Ingrediente' | 'Embalagem',
-        qty: Number(fieldValue(d, 'qty')),
-        unit: fieldValue(d, 'unit'),
-        min: Number(fieldValue(d, 'min')),
-        cost: Number(fieldValue(d, 'cost')),
-      },
-    ]);
+    const name = fieldValue(d, 'name').trim();
+    const qty = Number(fieldValue(d, 'qty'));
+    if (!name || !Number.isFinite(qty)) return;
+    setStock((old) => {
+      const match = old.find(
+        (x) =>
+          (x.category ?? 'Ingrediente') === category &&
+          x.name.trim().toLowerCase() === name.toLowerCase(),
+      );
+      if (match) {
+        return old.map((x) =>
+          x.id === match.id ? { ...x, qty: +(x.qty + qty).toFixed(2) } : x,
+        );
+      }
+      return [
+        ...old,
+        {
+          id: Date.now(),
+          name,
+          category,
+          qty,
+          unit: fieldValue(d, 'unit'),
+          min: Number(fieldValue(d, 'min')),
+          cost: Number(fieldValue(d, 'cost')),
+        },
+      ];
+    });
     e.currentTarget.reset();
   };
+
   return (
     <>
-      <PageHeading
-        title="Estoque e embalagens"
-        subtitle="Cadastre insumos uma vez e reutilize-os automaticamente nas fichas técnicas."
-      />
+      <PageHeading title={title} subtitle={subtitle} />
       <Panel className="mb-5 p-5">
-        <form onSubmit={add} className="grid gap-3 md:grid-cols-7">
+        <form onSubmit={add} className="grid gap-3 md:grid-cols-6">
           <Field label="Item">
-            <input required name="name" className={inputClass} />
-          </Field>
-          <Field label="Categoria">
-            <select name="category" className={inputClass}>
-              <option>Ingrediente</option>
-              <option>Embalagem</option>
-            </select>
+            <input
+              required
+              name="name"
+              className={inputClass}
+              placeholder="Repita um nome já cadastrado para repor"
+            />
           </Field>
           <Field label="Quantidade">
             <input
@@ -1320,34 +1345,43 @@ function Stock({
           </Field>
           <div className="flex items-end">
             <Button type="submit" className="h-10 w-full rounded-xl">
-              <Plus /> Adicionar
+              <Plus /> Adicionar / repor
             </Button>
           </div>
         </form>
       </Panel>
-      {stock.length === 0 && (
-        <Panel className="p-10 text-center text-sm text-muted-foreground">
+      {items.length === 0 && (
+        <Panel className="mb-8 p-10 text-center text-sm text-muted-foreground">
           Nenhum item cadastrado ainda.
         </Panel>
       )}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {stock.map((item) => {
+      <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {items.map((item) => {
           const low = item.qty < item.min;
           return (
             <Panel key={item.id} className="p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <Badge variant="outline" className="mb-2">
-                    {item.category ?? 'Ingrediente'}
-                  </Badge>
                   <p className="font-semibold">{item.name}</p>
                   <p className="text-xs text-muted-foreground">
                     Custo: {money(item.cost)} / {item.unit}
                   </p>
                 </div>
-                <Badge variant={low ? 'destructive' : 'secondary'}>
-                  {low ? 'Repor' : 'Normal'}
-                </Badge>
+                <div className="flex items-center gap-1">
+                  <Badge variant={low ? 'destructive' : 'secondary'}>
+                    {low ? 'Repor' : 'Normal'}
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Excluir ${item.name}`}
+                    onClick={() =>
+                      setStock((old) => old.filter((x) => x.id !== item.id))
+                    }
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
               </div>
               <div className="my-5 flex items-end justify-between">
                 <p className="font-heading text-3xl font-bold">
@@ -1393,6 +1427,33 @@ function Stock({
           );
         })}
       </div>
+    </>
+  );
+}
+
+function Stock({
+  stock,
+  setStock,
+}: {
+  stock: StockItem[];
+  setStock: (v: StockItem[] | ((o: StockItem[]) => StockItem[])) => void;
+}) {
+  return (
+    <>
+      <StockSection
+        category="Ingrediente"
+        title="Ingredientes"
+        subtitle="Cadastre insumos uma vez e reponha pelo nome — sem duplicar linhas."
+        stock={stock}
+        setStock={setStock}
+      />
+      <StockSection
+        category="Embalagem"
+        title="Embalagens"
+        subtitle="Caixas, sacolas e etiquetas, separadas dos ingredientes."
+        stock={stock}
+        setStock={setStock}
+      />
     </>
   );
 }
