@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
-import { isCosmosConfigured, readState } from '@/lib/cosmos';
+import { isCosmosConfigured, readState, LAVILY_BAKERY_ID } from '@/lib/cosmos';
 import { isWhatsAppConfigured, sendWhatsAppMessage } from '@/lib/whatsapp';
 
 type Order = {
@@ -61,7 +61,8 @@ async function handleMessage(from: string, text: string) {
 
   if (orderMatch && isCosmosConfigured()) {
     const code = `#${orderMatch[1]}`;
-    const orders = ((await readState<Order[]>(ORDERS_KEY)) ?? []) as Order[];
+    const orders = ((await readState<Order[]>(LAVILY_BAKERY_ID, ORDERS_KEY)) ??
+      []) as Order[];
     const order = orders.find((o) => o.id === code);
     if (order) {
       await replyTo(

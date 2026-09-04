@@ -20,12 +20,13 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await auth();
-  if (!session) {
+  if (!session?.user.bakeryId) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
   if (!isCosmosConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
+  const bakeryId = session.user.bakeryId;
   const { id } = await params;
   const body = (await request.json()) as {
     name?: string;
@@ -36,7 +37,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'invalid_customer' }, { status: 400 });
   }
 
-  const customers = ((await readState<Customer[]>(CUSTOMERS_KEY)) ??
+  const customers = ((await readState<Customer[]>(bakeryId, CUSTOMERS_KEY)) ??
     []) as Customer[];
   const customerId = Number(id);
   const updated = customers.map((customer) =>
@@ -49,7 +50,7 @@ export async function PATCH(
         }
       : customer,
   );
-  await writeState(CUSTOMERS_KEY, updated);
+  await writeState(bakeryId, CUSTOMERS_KEY, updated);
 
   return NextResponse.json({ ok: true });
 }
@@ -59,18 +60,20 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await auth();
-  if (!session) {
+  if (!session?.user.bakeryId) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
   if (!isCosmosConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
+  const bakeryId = session.user.bakeryId;
   const { id } = await params;
   const customerId = Number(id);
 
-  const customers = ((await readState<Customer[]>(CUSTOMERS_KEY)) ??
+  const customers = ((await readState<Customer[]>(bakeryId, CUSTOMERS_KEY)) ??
     []) as Customer[];
   await writeState(
+    bakeryId,
     CUSTOMERS_KEY,
     customers.filter((customer) => customer.id !== customerId),
   );

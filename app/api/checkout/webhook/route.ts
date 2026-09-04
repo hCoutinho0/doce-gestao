@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { MercadoPagoConfig, Payment } from 'mercadopago';
-import { isCosmosConfigured, readState, writeState } from '@/lib/cosmos';
+import { isCosmosConfigured, readState, writeState, LAVILY_BAKERY_ID } from '@/lib/cosmos';
 
 type Order = {
   id: string;
@@ -82,11 +82,12 @@ export async function POST(request: Request) {
     const label = payment.status ? STATUS_LABELS[payment.status] : undefined;
     if (!orderId || !label) return NextResponse.json({ received: true });
 
-    const orders = ((await readState<Order[]>(ORDERS_KEY)) ?? []) as Order[];
+    const orders = ((await readState<Order[]>(LAVILY_BAKERY_ID, ORDERS_KEY)) ??
+      []) as Order[];
     const updated = orders.map((order) =>
       order.id === orderId ? { ...order, status: label } : order,
     );
-    await writeState(ORDERS_KEY, updated);
+    await writeState(LAVILY_BAKERY_ID, ORDERS_KEY, updated);
   } catch (error) {
     console.error('Falha ao processar notificação do Mercado Pago', error);
   }

@@ -1,7 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { CakeSlice, Camera, MessageCircle, Music2, Settings2 } from 'lucide-react';
-import { isCosmosConfigured, readState } from '@/lib/cosmos';
+import { isCosmosConfigured, readState, LAVILY_BAKERY_ID } from '@/lib/cosmos';
 
 // Otherwise Next prerenders the bakery name/logo once at build time and
 // every deploy ships that frozen snapshot regardless of what's actually
@@ -58,7 +58,9 @@ if (TIKTOK_HANDLE) {
 
 export default async function LinkHubPage() {
   const bakery = isCosmosConfigured()
-    ? await readState<BakeryProfile>('doce-bakery-profile').catch(() => null)
+    ? await readState<BakeryProfile>(LAVILY_BAKERY_ID, 'doce-bakery-profile').catch(
+        () => null,
+      )
     : null;
 
   return (

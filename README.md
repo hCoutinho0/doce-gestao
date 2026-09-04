@@ -38,7 +38,24 @@ npm run dev
 Abra `http://localhost:3000` para o cardápio público, ou
 `http://localhost:3000/painel` para o painel administrativo (pede login).
 
-### Configurar o login (Microsoft Entra ID)
+### Login e cadastro multi-confeitaria
+
+O Doce Gestão deixou de ser um sistema de uma confeitaria só. Qualquer
+pessoa pode criar uma conta em `/cadastro` (Google, Microsoft, ou email e
+senha) e ganha um painel isolado — pedidos, estoque, financeiro, cardápio,
+clientes e fichas técnicas nunca se misturam entre confeitarias diferentes.
+Só quem já tem uma conta consegue entrar em `/login`; quem tenta entrar sem
+ter uma é mandado para `/cadastro` automaticamente.
+
+No cadastro, além da conta, pedimos nome completo, CPF ou CNPJ (só
+validação de formato/dígito verificador — sem consulta à Receita Federal)
+e telefone de quem administra, mais os dados da própria confeitaria.
+
+O cardápio público (`/cardapio`) e o bot do WhatsApp ainda são só da
+Lavily por enquanto — cada confeitaria ter seu próprio link público fica
+para uma etapa futura.
+
+#### Microsoft Entra ID (login da Lavily)
 
 1. No [Azure Portal](https://portal.azure.com), vá em **Microsoft Entra ID
    → App registrations → New registration**.
@@ -50,8 +67,25 @@ Abra `http://localhost:3000` para o cardápio público, ou
 5. Copie Tenant ID, Client ID e (em **Certificates & secrets**) um Client
    Secret para `.env.local`.
 
-Sem essas variáveis configuradas, a tela de login funciona mas o
-`signIn` falha — não há mais nenhuma credencial de demonstração.
+Só quem tem um desses dois papéis atribuídos no Entra ID da Lavily entra
+automaticamente no painel da Lavily — qualquer outra conta Microsoft sem
+esse papel é tratada como uma confeitaria nova e vai para `/cadastro`.
+
+#### Google (login de qualquer confeitaria)
+
+1. No [Google Cloud Console](https://console.cloud.google.com/), crie um
+   projeto (ou use um existente) e configure a **Tela de consentimento
+   OAuth** (tipo Externo já serve).
+2. Em **APIs e serviços → Credenciais → Criar credenciais → ID do cliente
+   OAuth**, tipo **Aplicativo da Web**.
+3. Em **URIs de redirecionamento autorizados**, adicione
+   `http://localhost:3000/api/auth/callback/google` (e depois
+   `https://SEU-DOMINIO/api/auth/callback/google`).
+4. Copie o Client ID e o Client Secret para `GOOGLE_CLIENT_ID` e
+   `GOOGLE_CLIENT_SECRET` em `.env.local`.
+
+Sem essas variáveis, os botões de login continuam na tela mas o `signIn`
+falha — não há credencial de demonstração para nenhum provedor.
 
 ### Configurar o pagamento (Mercado Pago)
 

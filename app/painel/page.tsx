@@ -475,7 +475,12 @@ function useStoredState<T>(
   useEffect(() => {
     let cancelled = false;
     skipNextWrite.current = true;
-    void fetch(`/api/data/${key}`)
+    // Only the admin panel sends this header — it tells the API "read MY
+    // confeitaria's data" even for the handful of keys (menu, bakery
+    // profile) the public cardápio also reads anonymously and expects
+    // pinned to one fixed confeitaria regardless of whose session cookie
+    // happens to be in the browser.
+    void fetch(`/api/data/${key}`, { headers: { 'X-Panel-Request': '1' } })
       .then((res) => (res.ok ? res.json() : null))
       .then((data: { value: T } | null) => {
         if (cancelled) return;

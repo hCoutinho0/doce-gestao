@@ -2,9 +2,18 @@ import { CosmosClient, type Container } from '@azure/cosmos';
 
 // Everything the app used to keep in the browser's localStorage — orders,
 // stock, finance, menu, loyalty, bakery profile — now lives in one Cosmos DB
-// container as small documents, one per domain, so two computers looking at
-// the same confeitaria see the same data.
+// container as small documents, one per domain per confeitaria, so two
+// computers looking at the same confeitaria see the same data, and two
+// different confeitarias never see each other's.
 const CONTAINER_ID = 'app-state';
+
+// The one confeitaria that existed before multi-tenancy. Its domain
+// documents were written without any bakeryId prefix (just `doce-orders`,
+// `doce-bakery-profile`, etc.) — readState falls back to those unprefixed
+// keys for this bakeryId only, so nothing needed a manual migration. Also
+// the bakeryId auto-assigned to Microsoft/Entra ID logins that carry one
+// of the two Lavily-specific App Roles (see auth.ts).
+export const LAVILY_BAKERY_ID = 'lavily';
 
 let containerPromise: Promise<Container> | null = null;
 
@@ -37,10 +46,10 @@ export function getAppStateContainer(): Promise<Container> {
   return containerPromise;
 }
 
-export async function readState<T>(key: string): Promise<T | null> {
+async function readDoc<T>(id: string): Promise<T | null> {
   const container = await getAppStateContainer();
   // Only a genuine "this document doesn't exist" (404) means null — every
-  // caller does `readState(...) ?? []` and then writes that result back, so
+  // caller does `readDoc(...) ?? []` and then writes that result back, so
   // treating a transient error (timeout, throttling, cold start) the same
   // as "empty" would silently overwrite real data with nothing. That's
   // exactly how a customer's order was wiped in production: a read hiccup
@@ -48,7 +57,7 @@ export async function readState<T>(key: string): Promise<T | null> {
   // an empty array over the real one.
   try {
     const { resource } = await container
-      .item(key, key)
+      .item(id, id)
       .read<{ id: string; value: T }>();
     return resource?.value ?? null;
   } catch (error) {
@@ -57,7 +66,43 @@ export async function readState<T>(key: string): Promise<T | null> {
   }
 }
 
-export async function writeState<T>(key: string, value: T): Promise<void> {
+async function writeDoc<T>(id: string, value: T): Promise<void> {
   const container = await getAppStateContainer();
-  await container.items.upsert({ id: key, value });
+  await container.items.upsert({ id, value });
+}
+
+// Documents that exist outside any confeitaria — today just `user:{email}`
+// account records, used to look up which bakeryId a login belongs to
+// before we know which confeitaria's data to read.
+export function readGlobal<T>(id: string): Promise<T | null> {
+  return readDoc<T>(id);
+}
+
+export function writeGlobal<T>(id: string, value: T): Promise<void> {
+  return writeDoc(id, value);
+}
+
+export async function readState<T>(
+  bakeryId: string,
+  key: string,
+): Promise<T | null> {
+  const scopedId = `${bakeryId}:${key}`;
+  const value = await readDoc<T>(scopedId);
+  if (value !== null) return value;
+  if (bakeryId === LAVILY_BAKERY_ID) {
+    const legacy = await readDoc<T>(key);
+    if (legacy !== null) {
+      await writeDoc(scopedId, legacy);
+      return legacy;
+    }
+  }
+  return null;
+}
+
+export async function writeState<T>(
+  bakeryId: string,
+  key: string,
+  value: T,
+): Promise<void> {
+  await writeDoc(`${bakeryId}:${key}`, value);
 }

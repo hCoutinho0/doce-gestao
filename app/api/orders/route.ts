@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { isCosmosConfigured, readState, writeState } from '@/lib/cosmos';
+import { auth } from '@/auth';
+import { isCosmosConfigured, readState, writeState, LAVILY_BAKERY_ID } from '@/lib/cosmos';
 
 type OrderItem = { name: string; quantity: number; unitPrice: number };
 type Order = {
@@ -37,11 +38,12 @@ const STAMPS_FOR_DISCOUNT = 10;
 // (capped at STAMPS_FOR_DISCOUNT); returns the customer's stamp count after
 // this order so the caller can show a loyalty card.
 async function ensureCustomer(
+  bakeryId: string,
   name: string,
   phone: string,
   birthday?: string,
 ): Promise<number> {
-  const customers = ((await readState<Customer[]>(CUSTOMERS_KEY)) ??
+  const customers = ((await readState<Customer[]>(bakeryId, CUSTOMERS_KEY)) ??
     []) as Customer[];
   const match = customers.find(
     (c) => c.name.trim().toLowerCase() === name.toLowerCase(),
@@ -54,7 +56,7 @@ async function ensureCustomer(
       ...(birthday ? { birthday } : {}),
       stamps: 1,
     };
-    await writeState(CUSTOMERS_KEY, [...customers, customer]);
+    await writeState(bakeryId, CUSTOMERS_KEY, [...customers, customer]);
     return customer.stamps;
   }
   const stamps = Math.min(STAMPS_FOR_DISCOUNT, match.stamps + 1);
@@ -63,7 +65,7 @@ async function ensureCustomer(
       ? { ...c, stamps, ...(birthday ? { birthday } : {}) }
       : c,
   );
-  await writeState(CUSTOMERS_KEY, updated);
+  await writeState(bakeryId, CUSTOMERS_KEY, updated);
   return stamps;
 }
 
@@ -71,9 +73,11 @@ async function ensureCustomer(
 // whatever a client (customer or admin form) sends — otherwise anyone could
 // place an order for a cent by editing the request.
 async function priceItems(
+  bakeryId: string,
   requested: { name: string; quantity: number }[],
 ): Promise<{ items: OrderItem[]; value: number } | null> {
-  const menu = ((await readState<MenuItem[]>(MENU_KEY)) ?? []) as MenuItem[];
+  const menu = ((await readState<MenuItem[]>(bakeryId, MENU_KEY)) ??
+    []) as MenuItem[];
   const items: OrderItem[] = [];
   for (const request of requested) {
     if (!Number.isFinite(request.quantity) || request.quantity <= 0) {
@@ -106,6 +110,12 @@ export async function POST(request: Request) {
   if (!isCosmosConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
+  // The admin panel's "Lançar pedido" form calls this same endpoint
+  // authenticated (session cookie present) — use its confeitaria when
+  // there is one. An anonymous request is the public cardápio checkout,
+  // which has no per-confeitaria routing yet, so it's pinned to Lavily.
+  const session = await auth();
+  const bakeryId = session?.user.bakeryId ?? LAVILY_BAKERY_ID;
 
   const body = (await request.json()) as {
     customer?: string;
@@ -130,7 +140,7 @@ export async function POST(request: Request) {
   let itemSummary: string;
 
   if (body.items?.length) {
-    const priced = await priceItems(body.items);
+    const priced = await priceItems(bakeryId, body.items);
     if (!priced) {
       return NextResponse.json({ error: 'invalid_items' }, { status: 400 });
     }
@@ -151,7 +161,8 @@ export async function POST(request: Request) {
     itemSummary = body.item.trim();
   }
 
-  const existing = ((await readState<Order[]>(ORDERS_KEY)) ?? []) as Order[];
+  const existing = ((await readState<Order[]>(bakeryId, ORDERS_KEY)) ??
+    []) as Order[];
   const order: Order = {
     id: `#${2001 + existing.length}`,
     customer: body.customer.trim(),
@@ -164,8 +175,9 @@ export async function POST(request: Request) {
     value,
     status: body.status?.trim() || 'Novo',
   };
-  await writeState(ORDERS_KEY, [order, ...existing]);
+  await writeState(bakeryId, ORDERS_KEY, [order, ...existing]);
   const stamps = await ensureCustomer(
+    bakeryId,
     order.customer,
     body.phone?.trim() ?? '',
     body.birthday?.trim() || undefined,

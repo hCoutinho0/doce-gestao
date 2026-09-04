@@ -1,18 +1,55 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { signIn } from 'next-auth/react';
-import { CakeSlice, CheckCircle2, LoaderCircle, LogIn } from 'lucide-react';
+import {
+  CakeSlice,
+  Globe,
+  CheckCircle2,
+  KeyRound,
+  LoaderCircle,
+  LogIn,
+  Mail,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useUserSession } from '@/lib/auth';
 
+type FormSubmit = {
+  preventDefault: () => void;
+};
+
 export default function LoginPage() {
   const { session, isLoading } = useUserSession();
-  const [submitting, setSubmitting] = useState(false);
+  const [submittingProvider, setSubmittingProvider] = useState<
+    'microsoft-entra-id' | 'google' | null
+  >(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [submittingCredentials, setSubmittingCredentials] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!isLoading && session) window.location.replace('/painel');
+    if (isLoading || !session) return;
+    window.location.replace(session.needsOnboarding ? '/cadastro' : '/painel');
   }, [isLoading, session]);
+
+  const submitCredentials = async (event: FormSubmit) => {
+    event.preventDefault();
+    setError('');
+    setSubmittingCredentials(true);
+    const result = await signIn('credentials', {
+      email,
+      password,
+      redirect: false,
+    });
+    setSubmittingCredentials(false);
+    if (result?.error) {
+      setError('Email ou senha incorretos.');
+      return;
+    }
+    window.location.replace('/painel');
+  };
 
   return (
     <main className="grid min-h-screen bg-background lg:grid-cols-[minmax(380px,0.9fr)_minmax(520px,1.1fr)]">
@@ -36,13 +73,13 @@ export default function LoginPage() {
             Decisões mais simples. Resultados mais doces.
           </h1>
           <p className="mt-5 max-w-md leading-relaxed text-white/70">
-            Pedidos, estoque, preços e financeiro em um só lugar, com acesso
-            controlado pela sua conta Microsoft.
+            Pedidos, estoque, preços e financeiro em um só lugar, com o login
+            que você preferir.
           </p>
           <div className="mt-9 space-y-4 text-sm text-white/85">
             {[
-              'Login corporativo real via Microsoft Entra ID',
-              'Acessos separados para administração e produção',
+              'Entre com Google, Microsoft ou email e senha',
+              'Cada confeitaria com seus próprios dados, isolados',
               'Cardápio público independente para seus clientes',
             ].map((item) => (
               <p key={item} className="flex items-center gap-3">
@@ -54,7 +91,7 @@ export default function LoginPage() {
       </section>
 
       <section className="flex items-center justify-center px-5 py-10 sm:px-10">
-        <div className="w-full max-w-md text-center">
+        <div className="w-full max-w-md">
           <div className="mb-7 flex items-center justify-center gap-3 lg:hidden">
             <span className="grid size-10 place-items-center rounded-2xl bg-primary text-primary-foreground">
               <CakeSlice className="size-5" />
@@ -67,36 +104,107 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <p className="text-sm font-semibold text-primary">Área interna</p>
-          <h2 className="mt-2 font-heading text-3xl font-bold tracking-tight">
+          <p className="text-center text-sm font-semibold text-primary">
+            Área interna
+          </p>
+          <h2 className="mt-2 text-center font-heading text-3xl font-bold tracking-tight">
             Bem-vinda de volta
           </h2>
-          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
-            Entre com a conta Microsoft da sua confeitaria. O perfil
-            (Administradora ou Produção) é definido pelo administrador do
-            Entra ID, não por esta tela.
-          </p>
 
-          <Button
-            type="button"
-            disabled={submitting}
-            className="mt-8 h-11 w-full rounded-xl"
-            onClick={() => {
-              setSubmitting(true);
-              void signIn('microsoft-entra-id', { redirectTo: '/painel' });
-            }}
-          >
-            {submitting ? (
-              <LoaderCircle className="animate-spin" />
-            ) : (
-              <LogIn />
+          <div className="mt-7 space-y-3">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={submittingProvider !== null}
+              className="h-11 w-full rounded-xl"
+              onClick={() => {
+                setSubmittingProvider('google');
+                void signIn('google', { redirectTo: '/painel' });
+              }}
+            >
+              {submittingProvider === 'google' ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                <Globe />
+              )}
+              Entrar com o Google
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={submittingProvider !== null}
+              className="h-11 w-full rounded-xl"
+              onClick={() => {
+                setSubmittingProvider('microsoft-entra-id');
+                void signIn('microsoft-entra-id', { redirectTo: '/painel' });
+              }}
+            >
+              {submittingProvider === 'microsoft-entra-id' ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                <LogIn />
+              )}
+              Entrar com a Microsoft
+            </Button>
+          </div>
+
+          <div className="my-6 flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="h-px flex-1 bg-border" />
+            ou com email e senha
+            <span className="h-px flex-1 bg-border" />
+          </div>
+
+          <form onSubmit={submitCredentials} className="space-y-3">
+            <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
+              Email
+              <span className="relative">
+                <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="h-11 w-full rounded-xl border bg-background pl-9 pr-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+                  placeholder="voce@suaconfeitaria.com"
+                />
+              </span>
+            </label>
+            <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
+              Senha
+              <span className="relative">
+                <KeyRound className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="h-11 w-full rounded-xl border bg-background pl-9 pr-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+                  placeholder="••••••••"
+                />
+              </span>
+            </label>
+            {error && (
+              <p className="text-xs font-medium text-destructive">{error}</p>
             )}
-            Entrar com a Microsoft
-          </Button>
+            <Button
+              type="submit"
+              disabled={submittingCredentials}
+              className="h-11 w-full rounded-xl"
+            >
+              {submittingCredentials ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                <LogIn />
+              )}
+              Entrar
+            </Button>
+          </form>
 
-          <p className="mt-5 text-center text-[11px] leading-relaxed text-muted-foreground">
-            Precisa de acesso? Peça para a administradora da confeitaria criar
-            sua conta no Microsoft Entra ID.
+          <p className="mt-6 text-center text-sm text-muted-foreground">
+            Ainda não tem conta?{' '}
+            <Link href="/cadastro" className="font-semibold text-primary">
+              Criar conta
+            </Link>
           </p>
         </div>
       </section>

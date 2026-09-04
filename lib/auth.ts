@@ -10,6 +10,9 @@ export type UserSession = {
   role: UserRole;
   roleLabel: string;
   initials: string;
+  bakeryId: string | null;
+  needsOnboarding: boolean;
+  provider: 'microsoft-entra-id' | 'google' | 'credentials' | null;
 };
 
 // Session now lives server-side (signed cookie set by NextAuth after a real
@@ -18,10 +21,15 @@ export type UserSession = {
 export function useUserSession(): {
   session: UserSession | null;
   isLoading: boolean;
+  refresh: () => Promise<unknown>;
 } {
-  const { data, status } = useSession();
-  if (status === 'loading') return { session: null, isLoading: true };
-  if (!data?.user) return { session: null, isLoading: false };
+  const { data, status, update } = useSession();
+  if (status === 'loading') {
+    return { session: null, isLoading: true, refresh: update };
+  }
+  if (!data?.user) {
+    return { session: null, isLoading: false, refresh: update };
+  }
   return {
     session: {
       name: data.user.name ?? data.user.email ?? '',
@@ -29,8 +37,12 @@ export function useUserSession(): {
       role: data.user.role,
       roleLabel: data.user.roleLabel,
       initials: data.user.initials,
+      bakeryId: data.user.bakeryId,
+      needsOnboarding: data.user.needsOnboarding,
+      provider: data.user.provider,
     },
     isLoading: false,
+    refresh: update,
   };
 }
 

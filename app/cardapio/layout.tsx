@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { isCosmosConfigured, readState } from '@/lib/cosmos';
+import { isCosmosConfigured, readState, LAVILY_BAKERY_ID } from '@/lib/cosmos';
 
 // Otherwise Next prerenders this metadata once at build time — before any
 // bakery has configured its name — and every deploy would ship the same
@@ -10,7 +10,9 @@ type BakeryProfile = { name?: string };
 
 export async function generateMetadata(): Promise<Metadata> {
   const profile = isCosmosConfigured()
-    ? await readState<BakeryProfile>('doce-bakery-profile').catch(() => null)
+    ? await readState<BakeryProfile>(LAVILY_BAKERY_ID, 'doce-bakery-profile').catch(
+        () => null,
+      )
     : null;
   const bakeryName = profile?.name || 'Confeitaria';
   const title = `Cardápio da Semana | ${bakeryName}`;
