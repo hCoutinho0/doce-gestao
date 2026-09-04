@@ -29,6 +29,7 @@ type MenuItem = {
   available: boolean;
   emoji: string;
   photoUrl?: string;
+  weight?: { value: number; unit: 'kg' | 'g' | 'l' };
 };
 type Cart = Record<number, number>;
 type PaymentMethod =
@@ -331,6 +332,9 @@ export default function CardapioPage() {
                   </p>
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {item.category}
+                    {item.weight
+                      ? ` • ${item.weight.value}${item.weight.unit}`
+                      : ''}
                   </p>
                   <p className="mt-1 font-heading text-base font-bold text-primary sm:hidden">
                     {money(item.price)}

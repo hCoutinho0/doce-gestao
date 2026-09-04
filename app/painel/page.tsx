@@ -41,6 +41,7 @@ import {
   ShoppingBag,
   Sparkles,
   Trash2,
+  Upload,
   Users,
   WalletCards,
   X,
@@ -134,6 +135,40 @@ function isSameMonth(date: string, reference: Date): boolean {
 function monthKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
+
+// Only orders with structured items and an ISO deliveryDate count — legacy
+// free-text orders (from before Fase 1) can't be placed in a period
+// reliably, so they're left out rather than guessed at.
+function productSalesInRange(
+  orders: Order[],
+  start: Date,
+  end: Date,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const order of orders) {
+    if (!order.items?.length || !order.deliveryDate) continue;
+    const delivery = parseFinanceDate(order.deliveryDate);
+    if (!delivery || delivery < start || delivery > end) continue;
+    for (const item of order.items) {
+      counts.set(item.name, (counts.get(item.name) ?? 0) + item.quantity);
+    }
+  }
+  return counts;
+}
+
+function bestAndWorst(counts: Map<string, number>): {
+  best: [string, number] | null;
+  worst: [string, number] | null;
+} {
+  if (counts.size === 0) return { best: null, worst: null };
+  let best: [string, number] = ['', -Infinity];
+  let worst: [string, number] = ['', Infinity];
+  for (const entry of counts) {
+    if (entry[1] > best[1]) best = entry;
+    if (entry[1] < worst[1]) worst = entry;
+  }
+  return { best, worst };
+}
 type MenuItem = {
   id: number;
   name: string;
@@ -142,6 +177,19 @@ type MenuItem = {
   available: boolean;
   emoji: string;
   photoUrl?: string;
+  weight?: { value: number; unit: 'kg' | 'g' | 'l' };
+};
+
+type RecipeLine = { id: number; stockId: number; quantity: number };
+type HiddenCost = { id: number; name: string; percentage: number };
+type ProductRecipe = {
+  productId: number;
+  yieldCount: number;
+  recipeItems: RecipeLine[];
+  hiddenCosts: HiddenCost[];
+  profit: number;
+  cardFee: number;
+  tax: number;
 };
 type LoyaltyItem = {
   id: number;
@@ -202,6 +250,10 @@ export default function Home() {
   const [finance, setFinance] = useStoredState('doce-finance', initialFinance);
   const [menuItems, setMenuItems] = useStoredState('doce-menu', initialMenu);
   const [loyalty, setLoyalty] = useStoredState('doce-loyalty', initialLoyalty);
+  const [recipes, setRecipes] = useStoredState<ProductRecipe[]>(
+    'doce-pricing',
+    [],
+  );
   const [bakery, setBakery] = useState<BakeryProfile | null>(null);
   const { session, isLoading: sessionLoading } = useUserSession();
   const isBrowserReady = !sessionLoading;
@@ -372,7 +424,14 @@ export default function Home() {
               />
             )}
             {view === 'stock' && <Stock stock={stock} setStock={setStock} />}
-            {view === 'pricing' && <Pricing stock={stock} />}
+            {view === 'pricing' && (
+              <Pricing
+                stock={stock}
+                menuItems={menuItems}
+                recipes={recipes}
+                setRecipes={setRecipes}
+              />
+            )}
             {view === 'finance' && (
               <Finance items={finance} setItems={setFinance} />
             )}
@@ -1005,6 +1064,18 @@ function Orders({
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [submitting, setSubmitting] = useState(false);
 
+  const salesStats = useMemo(() => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - 6);
+    return {
+      month: bestAndWorst(productSalesInRange(orders, monthStart, monthEnd)),
+      week: bestAndWorst(productSalesInRange(orders, weekStart, now)),
+    };
+  }, [orders]);
+
   const available = menuItems.filter((item) => item.available);
   const cartItems = available
     .filter((item) => quantities[item.id] > 0)
@@ -1085,6 +1156,58 @@ function Orders({
         title="Pedidos"
         subtitle="Lance, acompanhe, altere o status ou exclua encomendas."
       />
+      <div className="mb-5 grid gap-4 sm:grid-cols-2">
+        <Panel className="p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Produtos do mês
+          </p>
+          {salesStats.month.best ? (
+            <div className="mt-3 space-y-2 text-sm">
+              <p>
+                🏆 Mais vendido:{' '}
+                <strong>
+                  {salesStats.month.best[0]} ({salesStats.month.best[1]})
+                </strong>
+              </p>
+              <p>
+                📉 Menos vendido:{' '}
+                <strong>
+                  {salesStats.month.worst![0]} ({salesStats.month.worst![1]})
+                </strong>
+              </p>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Sem pedidos com entrega agendada neste mês ainda.
+            </p>
+          )}
+        </Panel>
+        <Panel className="p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Produtos da semana
+          </p>
+          {salesStats.week.best ? (
+            <div className="mt-3 space-y-2 text-sm">
+              <p>
+                🏆 Mais vendido:{' '}
+                <strong>
+                  {salesStats.week.best[0]} ({salesStats.week.best[1]})
+                </strong>
+              </p>
+              <p>
+                📉 Menos vendido:{' '}
+                <strong>
+                  {salesStats.week.worst![0]} ({salesStats.week.worst![1]})
+                </strong>
+              </p>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Sem pedidos com entrega agendada nos últimos 7 dias.
+            </p>
+          )}
+        </Panel>
+      </div>
       <Panel className="mb-5 p-5">
         <div className="grid gap-5 lg:grid-cols-2">
           <div className="space-y-3">
@@ -1458,23 +1581,11 @@ function Stock({
   );
 }
 
-function Pricing({ stock }: { stock: StockItem[] }) {
-  const [recipeName, setRecipeName] = useState('Bolo Red Velvet 2 kg');
-  const [yieldCount, setYieldCount] = useState(1);
-  const [recipeItems, setRecipeItems] = useState([
-    { id: 1, stockId: 4, quantity: 0.5 },
-    { id: 2, stockId: 1, quantity: 0.25 },
-    { id: 3, stockId: 6, quantity: 1 },
-  ]);
-  const [hiddenCosts, setHiddenCosts] = useState([
-    { id: 1, name: 'Gás e energia', percentage: 6 },
-    { id: 2, name: 'Mão de obra', percentage: 18 },
-    { id: 3, name: 'Perdas e desperdícios', percentage: 4 },
-  ]);
-  const [profit, setProfit] = useState(35);
-  const [cardFee, setCardFee] = useState(4.99);
-  const [tax, setTax] = useState(3);
-  const enrichedItems = recipeItems
+function computeRecipeCost(recipe: {
+  recipeItems: RecipeLine[];
+  hiddenCosts: HiddenCost[];
+}, stock: StockItem[]) {
+  const enrichedItems = recipe.recipeItems
     .map((item) => ({
       ...item,
       stockItem: stock.find((entry) => entry.id === item.stockId),
@@ -1495,15 +1606,152 @@ function Pricing({ stock }: { stock: StockItem[] }) {
       0,
     );
   const directCost = ingredientCost + packagingCost;
-  const hiddenPercentage = hiddenCosts.reduce(
+  const hiddenPercentage = recipe.hiddenCosts.reduce(
     (sum, item) => sum + item.percentage,
     0,
   );
   const hiddenTotal = (directCost * hiddenPercentage) / 100;
   const baseCost = directCost + hiddenTotal;
+  return {
+    enrichedItems,
+    ingredientCost,
+    packagingCost,
+    directCost,
+    hiddenPercentage,
+    hiddenTotal,
+    baseCost,
+  };
+}
+
+function Pricing({
+  stock,
+  menuItems,
+  recipes,
+  setRecipes,
+}: {
+  stock: StockItem[];
+  menuItems: MenuItem[];
+  recipes: ProductRecipe[];
+  setRecipes: (v: ProductRecipe[] | ((o: ProductRecipe[]) => ProductRecipe[])) => void;
+}) {
+  const [tab, setTab] = useState<'ficha' | 'lucro'>('ficha');
+  const [productId, setProductId] = useState<number | ''>(
+    menuItems[0]?.id ?? '',
+  );
+  const selectedProduct = menuItems.find((m) => m.id === productId);
+
+  const saveRecipe = (recipe: ProductRecipe) =>
+    setRecipes((old) =>
+      old.some((r) => r.productId === recipe.productId)
+        ? old.map((r) => (r.productId === recipe.productId ? recipe : r))
+        : [...old, recipe],
+    );
+  const removeRecipe = (productId: number) =>
+    setRecipes((old) => old.filter((r) => r.productId !== productId));
+
+  return (
+    <>
+      <PageHeading
+        title="Ficha técnica e precificação"
+        subtitle="Uma ficha por produto do cardápio, com custo real e margem preservada."
+        action={
+          <div className="flex gap-2">
+            <Button
+              variant={tab === 'ficha' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setTab('ficha')}
+            >
+              Ficha técnica
+            </Button>
+            <Button
+              variant={tab === 'lucro' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setTab('lucro')}
+            >
+              Lucro por produto
+            </Button>
+          </div>
+        }
+      />
+      {menuItems.length === 0 ? (
+        <Panel className="p-10 text-center text-sm text-muted-foreground">
+          Cadastre produtos no cardápio antes de criar fichas técnicas.
+        </Panel>
+      ) : tab === 'ficha' ? (
+        <>
+          <Panel className="mb-5 p-5">
+            <Field label="Produto do cardápio">
+              <select
+                value={productId}
+                onChange={(e) => setProductId(Number(e.target.value))}
+                className={inputClass}
+              >
+                {menuItems.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} — {money(item.price)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </Panel>
+          {selectedProduct && (
+            <RecipeEditor
+              key={selectedProduct.id}
+              product={selectedProduct}
+              stock={stock}
+              recipe={recipes.find((r) => r.productId === selectedProduct.id)}
+              onSave={saveRecipe}
+              onRemove={() => removeRecipe(selectedProduct.id)}
+            />
+          )}
+        </>
+      ) : (
+        <ProfitByProduct menuItems={menuItems} recipes={recipes} stock={stock} />
+      )}
+    </>
+  );
+}
+
+function RecipeEditor({
+  product,
+  stock,
+  recipe,
+  onSave,
+  onRemove,
+}: {
+  product: MenuItem;
+  stock: StockItem[];
+  recipe: ProductRecipe | undefined;
+  onSave: (recipe: ProductRecipe) => void;
+  onRemove: () => void;
+}) {
+  const [yieldCount, setYieldCount] = useState(recipe?.yieldCount ?? 1);
+  const [recipeItems, setRecipeItems] = useState<RecipeLine[]>(
+    recipe?.recipeItems ?? [],
+  );
+  const [hiddenCosts, setHiddenCosts] = useState<HiddenCost[]>(
+    recipe?.hiddenCosts ?? [],
+  );
+  // Margem inicial em 100%: a confeitaria começa cobrindo o dobro do custo,
+  // e ajusta para baixo caso ache melhor — nunca o contrário.
+  const [profit, setProfit] = useState(recipe?.profit ?? 100);
+  const [cardFee, setCardFee] = useState(recipe?.cardFee ?? 4.99);
+  const [tax, setTax] = useState(recipe?.tax ?? 3);
+  const [justSaved, setJustSaved] = useState(false);
+
+  const {
+    enrichedItems,
+    ingredientCost,
+    packagingCost,
+    directCost,
+    hiddenPercentage,
+    hiddenTotal,
+    baseCost,
+  } = computeRecipeCost({ recipeItems, hiddenCosts }, stock);
   const denominator = 1 - (profit + cardFee + tax) / 100;
   const totalPrice = denominator > 0 ? baseCost / denominator : 0;
   const unitPrice = totalPrice / Math.max(1, yieldCount);
+
   const addStockItem = (e: FormSubmit) => {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
@@ -1520,6 +1768,7 @@ function Pricing({ stock }: { stock: StockItem[] }) {
         : [...old, { id: Date.now(), stockId, quantity }];
     });
     e.currentTarget.reset();
+    setJustSaved(false);
   };
   const addHiddenCost = (e: FormSubmit) => {
     e.preventDefault();
@@ -1533,276 +1782,382 @@ function Pricing({ stock }: { stock: StockItem[] }) {
       },
     ]);
     e.currentTarget.reset();
+    setJustSaved(false);
   };
+  const save = () => {
+    onSave({
+      productId: product.id,
+      yieldCount,
+      recipeItems,
+      hiddenCosts,
+      profit,
+      cardFee,
+      tax,
+    });
+    setJustSaved(true);
+  };
+
+  return (
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_380px]">
+      <div className="space-y-5">
+        <Panel className="p-5">
+          <div className="grid gap-4 sm:grid-cols-[1fr_150px]">
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground">
+                Produto
+              </p>
+              <p className="font-heading text-lg font-bold">{product.name}</p>
+            </div>
+            <NumberField
+              label="Rendimento (un.)"
+              value={yieldCount}
+              setValue={(v) => {
+                setYieldCount(v);
+                setJustSaved(false);
+              }}
+            />
+          </div>
+        </Panel>
+        <Panel className="overflow-hidden">
+          <PanelTitle
+            title="Itens consumidos na receita"
+            subtitle="A lista vem diretamente do estoque, incluindo embalagens"
+          />
+          <form
+            onSubmit={addStockItem}
+            className="grid gap-3 border-b bg-muted/25 p-4 sm:grid-cols-[1fr_170px_auto]"
+          >
+            <Field label="Item do estoque">
+              <select
+                required
+                name="stockId"
+                className={inputClass}
+                defaultValue=""
+              >
+                <option value="" disabled>
+                  Selecione...
+                </option>
+                <optgroup label="Ingredientes">
+                  {stock
+                    .filter(
+                      (item) =>
+                        (item.category ?? 'Ingrediente') === 'Ingrediente',
+                    )
+                    .map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} — {money(item.cost)}/{item.unit}
+                      </option>
+                    ))}
+                </optgroup>
+                <optgroup label="Embalagens">
+                  {stock
+                    .filter((item) => item.category === 'Embalagem')
+                    .map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} — {money(item.cost)}/{item.unit}
+                      </option>
+                    ))}
+                </optgroup>
+              </select>
+            </Field>
+            <Field label="Quantidade utilizada">
+              <input
+                required
+                name="quantity"
+                type="number"
+                min="0.001"
+                step="0.001"
+                className={inputClass}
+              />
+            </Field>
+            <div className="flex items-end">
+              <Button type="submit" className="h-10">
+                <Plus /> Adicionar
+              </Button>
+            </div>
+          </form>
+          <div className="divide-y">
+            {enrichedItems.map((item) => (
+              <div
+                key={item.id}
+                className="grid grid-cols-[1fr_auto_auto] items-center gap-4 px-5 py-3.5"
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold">
+                      {item.stockItem?.name}
+                    </p>
+                    <Badge variant="outline">
+                      {item.stockItem?.category ?? 'Ingrediente'}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {item.quantity} {item.stockItem?.unit} ×{' '}
+                    {money(item.stockItem?.cost ?? 0)} • saldo{' '}
+                    {item.stockItem?.qty} {item.stockItem?.unit}
+                  </p>
+                </div>
+                <strong className="text-sm">
+                  {money(item.quantity * (item.stockItem?.cost ?? 0))}
+                </strong>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Excluir ${item.stockItem?.name}`}
+                  onClick={() => {
+                    setRecipeItems((old) =>
+                      old.filter((x) => x.id !== item.id),
+                    );
+                    setJustSaved(false);
+                  }}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-3 bg-muted/35 px-5 py-4 text-sm">
+            <span>
+              Ingredientes{' '}
+              <strong className="float-right">{money(ingredientCost)}</strong>
+            </span>
+            <span>
+              Embalagens{' '}
+              <strong className="float-right">{money(packagingCost)}</strong>
+            </span>
+          </div>
+        </Panel>
+        <Panel className="overflow-hidden">
+          <PanelTitle
+            title="Gastos invisíveis em porcentagem"
+            subtitle="Cada percentual é aplicado sobre ingredientes + embalagens"
+          />
+          <form
+            onSubmit={addHiddenCost}
+            className="grid gap-3 border-b bg-muted/25 p-4 sm:grid-cols-[1fr_180px_auto]"
+          >
+            <Field label="Descrição">
+              <input
+                required
+                name="name"
+                className={inputClass}
+                placeholder="Ex.: Marketing"
+              />
+            </Field>
+            <Field label="Percentual">
+              <input
+                required
+                name="percentage"
+                type="number"
+                min="0"
+                step="0.01"
+                className={inputClass}
+              />
+            </Field>
+            <div className="flex items-end">
+              <Button type="submit" className="h-10">
+                <Plus /> Adicionar gasto
+              </Button>
+            </div>
+          </form>
+          <div className="divide-y">
+            {hiddenCosts.map((item) => (
+              <div key={item.id} className="flex items-center gap-4 px-5 py-3.5">
+                <span className="flex-1 text-sm font-medium">
+                  {item.name}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {money((directCost * item.percentage) / 100)}
+                </span>
+                <strong className="text-sm">{item.percentage}%</strong>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Excluir ${item.name}`}
+                  onClick={() => {
+                    setHiddenCosts((old) => old.filter((x) => x.id !== item.id));
+                    setJustSaved(false);
+                  }}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
+      <div className="space-y-5 xl:sticky xl:top-24 xl:self-start">
+        <Panel className="p-5">
+          <h2 className="font-heading text-lg font-bold">
+            Lucro e taxas da venda
+          </h2>
+          <div className="mt-4 grid gap-4">
+            <NumberField
+              label="Margem de lucro desejada (%)"
+              value={profit}
+              setValue={(v) => {
+                setProfit(v);
+                setJustSaved(false);
+              }}
+            />
+            <NumberField
+              label="Taxa do cartão / gateway (%)"
+              value={cardFee}
+              setValue={(v) => {
+                setCardFee(v);
+                setJustSaved(false);
+              }}
+            />
+            <NumberField
+              label="Impostos sobre a venda (%)"
+              value={tax}
+              setValue={(v) => {
+                setTax(v);
+                setJustSaved(false);
+              }}
+            />
+          </div>
+          <p className="mt-4 rounded-xl bg-secondary/60 p-3 text-xs text-secondary-foreground">
+            Gastos invisíveis incidem no custo. Taxas e lucro incidem no preço
+            final, evitando que sejam retirados da sua margem.
+          </p>
+        </Panel>
+        <Panel className="overflow-hidden">
+          <div className="bg-gradient-to-br from-primary to-[#8f4fb8] p-6 text-primary-foreground">
+            <p className="text-sm opacity-80">Preço sugerido por unidade</p>
+            <p className="mt-2 font-heading text-4xl font-bold">
+              {money(unitPrice)}
+            </p>
+            <p className="mt-2 text-xs opacity-75">
+              {product.name} • rendimento de {yieldCount} un. • preço no
+              cardápio: {money(product.price)}
+            </p>
+          </div>
+          <div className="space-y-4 p-6">
+            <CalcLine label="Ingredientes" value={money(ingredientCost)} />
+            <CalcLine label="Embalagens" value={money(packagingCost)} />
+            <CalcLine
+              label={`Gastos invisíveis (${hiddenPercentage}%)`}
+              value={money(hiddenTotal)}
+            />
+            <CalcLine label="Custo total da receita" value={money(baseCost)} />
+            <CalcLine
+              label="Taxas sobre venda"
+              value={`${(cardFee + tax).toFixed(2)}%`}
+            />
+            <CalcLine
+              label="Lucro estimado"
+              value={money((totalPrice * profit) / 100)}
+            />
+            <CalcLine label="Venda da receita inteira" value={money(totalPrice)} />
+            <Button
+              type="button"
+              disabled={denominator <= 0 || !enrichedItems.length}
+              className="mt-2 w-full rounded-xl"
+              onClick={save}
+            >
+              {justSaved ? <Check /> : null} {justSaved ? 'Ficha salva' : 'Salvar ficha técnica'}
+            </Button>
+            {recipe && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full rounded-xl"
+                onClick={onRemove}
+              >
+                <Trash2 /> Remover ficha técnica
+              </Button>
+            )}
+            {denominator <= 0 && (
+              <p className="text-xs font-medium text-destructive">
+                Lucro + taxas precisam somar menos de 100%.
+              </p>
+            )}
+          </div>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function ProfitByProduct({
+  menuItems,
+  recipes,
+  stock,
+}: {
+  menuItems: MenuItem[];
+  recipes: ProductRecipe[];
+  stock: StockItem[];
+}) {
+  const rows = menuItems.map((product) => {
+    const recipe = recipes.find((r) => r.productId === product.id);
+    if (!recipe) return { product, recipe: null as ProductRecipe | null };
+    const { baseCost } = computeRecipeCost(recipe, stock);
+    const unitCost = baseCost / Math.max(1, recipe.yieldCount);
+    const denominator = 1 - (recipe.profit + recipe.cardFee + recipe.tax) / 100;
+    const suggestedTotal = denominator > 0 ? baseCost / denominator : 0;
+    const suggestedUnit = suggestedTotal / Math.max(1, recipe.yieldCount);
+    // "Prolabore" é a margem definida na ficha técnica (o que o dono
+    // planejou tirar por unidade); o que sobra entre o preço realmente
+    // praticado no cardápio e custo + prolabore fica para reinvestir na
+    // confeitaria — pode ficar negativo se o produto estiver subprecificado.
+    const prolabore = suggestedUnit * (recipe.profit / 100);
+    const grossProfit = product.price - unitCost;
+    const companyShare = grossProfit - prolabore;
+    return { product, recipe, unitCost, grossProfit, prolabore, companyShare };
+  });
+
   return (
     <>
-      <PageHeading
-        title="Ficha técnica e precificação"
-        subtitle="Selecione ingredientes e embalagens do estoque, aplique gastos percentuais e preserve sua margem."
-      />
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_380px]">
-        <div className="space-y-5">
-          <Panel className="p-5">
-            <div className="grid gap-4 sm:grid-cols-[1fr_150px]">
-              <Field label="Nome da receita">
-                <input
-                  className={inputClass}
-                  value={recipeName}
-                  onChange={(e) => setRecipeName(e.target.value)}
-                />
-              </Field>
-              <NumberField
-                label="Rendimento (un.)"
-                value={yieldCount}
-                setValue={setYieldCount}
-              />
-            </div>
-          </Panel>
-          <Panel className="overflow-hidden">
-            <PanelTitle
-              title="Itens consumidos na receita"
-              subtitle="A lista vem diretamente do estoque, incluindo embalagens"
-            />
-            <form
-              onSubmit={addStockItem}
-              className="grid gap-3 border-b bg-muted/25 p-4 sm:grid-cols-[1fr_170px_auto]"
-            >
-              <Field label="Item do estoque">
-                <select
-                  required
-                  name="stockId"
-                  className={inputClass}
-                  defaultValue=""
-                >
-                  <option value="" disabled>
-                    Selecione...
-                  </option>
-                  <optgroup label="Ingredientes">
-                    {stock
-                      .filter(
-                        (item) =>
-                          (item.category ?? 'Ingrediente') === 'Ingrediente',
-                      )
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} — {money(item.cost)}/{item.unit}
-                        </option>
-                      ))}
-                  </optgroup>
-                  <optgroup label="Embalagens">
-                    {stock
-                      .filter((item) => item.category === 'Embalagem')
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} — {money(item.cost)}/{item.unit}
-                        </option>
-                      ))}
-                  </optgroup>
-                </select>
-              </Field>
-              <Field label="Quantidade utilizada">
-                <input
-                  required
-                  name="quantity"
-                  type="number"
-                  min="0.001"
-                  step="0.001"
-                  className={inputClass}
-                />
-              </Field>
-              <div className="flex items-end">
-                <Button type="submit" className="h-10">
-                  <Plus /> Adicionar
-                </Button>
-              </div>
-            </form>
-            <div className="divide-y">
-              {enrichedItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="grid grid-cols-[1fr_auto_auto] items-center gap-4 px-5 py-3.5"
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold">
-                        {item.stockItem?.name}
-                      </p>
-                      <Badge variant="outline">
-                        {item.stockItem?.category ?? 'Ingrediente'}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {item.quantity} {item.stockItem?.unit} ×{' '}
-                      {money(item.stockItem?.cost ?? 0)} • saldo{' '}
-                      {item.stockItem?.qty} {item.stockItem?.unit}
-                    </p>
-                  </div>
-                  <strong className="text-sm">
-                    {money(item.quantity * (item.stockItem?.cost ?? 0))}
-                  </strong>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Excluir ${item.stockItem?.name}`}
-                    onClick={() =>
-                      setRecipeItems((old) =>
-                        old.filter((x) => x.id !== item.id),
-                      )
-                    }
-                  >
-                    <Trash2 />
-                  </Button>
-                </div>
-              ))}
-            </div>
-            <div className="grid grid-cols-2 gap-3 bg-muted/35 px-5 py-4 text-sm">
-              <span>
-                Ingredientes{' '}
-                <strong className="float-right">{money(ingredientCost)}</strong>
-              </span>
-              <span>
-                Embalagens{' '}
-                <strong className="float-right">{money(packagingCost)}</strong>
-              </span>
-            </div>
-          </Panel>
-          <Panel className="overflow-hidden">
-            <PanelTitle
-              title="Gastos invisíveis em porcentagem"
-              subtitle="Cada percentual é aplicado sobre ingredientes + embalagens"
-            />
-            <form
-              onSubmit={addHiddenCost}
-              className="grid gap-3 border-b bg-muted/25 p-4 sm:grid-cols-[1fr_180px_auto]"
-            >
-              <Field label="Descrição">
-                <input
-                  required
-                  name="name"
-                  className={inputClass}
-                  placeholder="Ex.: Marketing"
-                />
-              </Field>
-              <Field label="Percentual">
-                <input
-                  required
-                  name="percentage"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className={inputClass}
-                />
-              </Field>
-              <div className="flex items-end">
-                <Button type="submit" className="h-10">
-                  <Plus /> Adicionar gasto
-                </Button>
-              </div>
-            </form>
-            <div className="divide-y">
-              {hiddenCosts.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-center gap-4 px-5 py-3.5"
-                >
-                  <span className="flex-1 text-sm font-medium">
-                    {item.name}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {money((directCost * item.percentage) / 100)}
-                  </span>
-                  <strong className="text-sm">{item.percentage}%</strong>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Excluir ${item.name}`}
-                    onClick={() =>
-                      setHiddenCosts((old) =>
-                        old.filter((x) => x.id !== item.id),
-                      )
-                    }
-                  >
-                    <Trash2 />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </Panel>
-        </div>
-        <div className="space-y-5 xl:sticky xl:top-24 xl:self-start">
-          <Panel className="p-5">
-            <h2 className="font-heading text-lg font-bold">
-              Lucro e taxas da venda
-            </h2>
-            <div className="mt-4 grid gap-4">
-              <NumberField
-                label="Margem de lucro desejada (%)"
-                value={profit}
-                setValue={setProfit}
-              />
-              <NumberField
-                label="Taxa do cartão / gateway (%)"
-                value={cardFee}
-                setValue={setCardFee}
-              />
-              <NumberField
-                label="Impostos sobre a venda (%)"
-                value={tax}
-                setValue={setTax}
-              />
-            </div>
-            <p className="mt-4 rounded-xl bg-secondary/60 p-3 text-xs text-secondary-foreground">
-              Gastos invisíveis incidem no custo. Taxas e lucro incidem no preço
-              final, evitando que sejam retirados da sua margem.
+      <p className="mb-4 rounded-xl bg-secondary/60 p-3 text-xs text-secondary-foreground">
+        Prolabore é a margem definida na ficha técnica de cada produto. O que
+        sobra entre o preço do cardápio e (custo + prolabore) fica para a
+        empresa reinvestir — se estiver negativo, o produto está vendendo
+        abaixo do que a ficha técnica recomenda.
+      </p>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {rows.map(({ product, recipe, unitCost, grossProfit, prolabore, companyShare }) => (
+          <Panel key={product.id} className="p-5">
+            <p className="font-semibold">{product.name}</p>
+            <p className="text-xs text-muted-foreground">
+              Preço no cardápio: {money(product.price)}
             </p>
-          </Panel>
-          <Panel className="overflow-hidden">
-            <div className="bg-gradient-to-br from-primary to-[#8f4fb8] p-6 text-primary-foreground">
-              <p className="text-sm opacity-80">Preço sugerido por unidade</p>
-              <p className="mt-2 font-heading text-4xl font-bold">
-                {money(unitPrice)}
+            {!recipe ? (
+              <p className="mt-4 text-sm text-muted-foreground">
+                Sem ficha técnica cadastrada.
               </p>
-              <p className="mt-2 text-xs opacity-75">
-                {recipeName} • rendimento de {yieldCount} un.
-              </p>
-            </div>
-            <div className="space-y-4 p-6">
-              <CalcLine label="Ingredientes" value={money(ingredientCost)} />
-              <CalcLine label="Embalagens" value={money(packagingCost)} />
-              <CalcLine
-                label={`Gastos invisíveis (${hiddenPercentage}%)`}
-                value={money(hiddenTotal)}
-              />
-              <CalcLine
-                label="Custo total da receita"
-                value={money(baseCost)}
-              />
-              <CalcLine
-                label="Taxas sobre venda"
-                value={`${(cardFee + tax).toFixed(2)}%`}
-              />
-              <CalcLine
-                label="Lucro estimado"
-                value={money((totalPrice * profit) / 100)}
-              />
-              <CalcLine
-                label="Venda da receita inteira"
-                value={money(totalPrice)}
-              />
-              <Button
-                disabled={denominator <= 0 || !enrichedItems.length}
-                className="mt-2 w-full rounded-xl"
-              >
-                Salvar ficha técnica
-              </Button>
-              {denominator <= 0 && (
-                <p className="text-xs font-medium text-destructive">
-                  Lucro + taxas precisam somar menos de 100%.
-                </p>
-              )}
-            </div>
+            ) : (
+              <div className="mt-4 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Custo unitário</span>
+                  <strong>{money(unitCost ?? 0)}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Lucro bruto</span>
+                  <strong>{money(grossProfit ?? 0)}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">
+                    Prolabore (dono)
+                  </span>
+                  <strong>{money(prolabore ?? 0)}</strong>
+                </div>
+                <div className="flex justify-between border-t pt-2">
+                  <span className="text-muted-foreground">
+                    Fica para a empresa
+                  </span>
+                  <strong
+                    className={
+                      (companyShare ?? 0) < 0 ? 'text-destructive' : ''
+                    }
+                  >
+                    {money(companyShare ?? 0)}
+                  </strong>
+                </div>
+              </div>
+            )}
           </Panel>
-        </div>
+        ))}
       </div>
     </>
   );
@@ -2139,6 +2494,7 @@ function DigitalMenu({
   const addProduct = (e: FormSubmit) => {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
+    const weightValue = Number(fieldValue(data, 'weightValue'));
     setItems((old) => [
       ...old,
       {
@@ -2146,9 +2502,17 @@ function DigitalMenu({
         name: fieldValue(data, 'name'),
         category: fieldValue(data, 'category'),
         price: Number(fieldValue(data, 'price')),
-        emoji: fieldValue(data, 'emoji') || '🧁',
+        emoji: '🧁',
         photoUrl: pendingPhoto || undefined,
         available: true,
+        ...(weightValue > 0
+          ? {
+              weight: {
+                value: weightValue,
+                unit: fieldValue(data, 'weightUnit') as 'kg' | 'g' | 'l',
+              },
+            }
+          : {}),
       },
     ]);
     e.currentTarget.reset();
@@ -2204,7 +2568,7 @@ function DigitalMenu({
       <Panel className="mb-5 p-5">
         <form
           onSubmit={addProduct}
-          className="grid gap-3 md:grid-cols-[1.4fr_.8fr_.7fr_.45fr_auto]"
+          className="grid gap-3 md:grid-cols-[1.4fr_.8fr_.7fr_.5fr_.4fr_auto]"
         >
           <Field label="Produto">
             <input
@@ -2231,36 +2595,57 @@ function DigitalMenu({
               className={inputClass}
             />
           </Field>
-          <Field label="Emoji">
-            <input name="emoji" className={inputClass} placeholder="🧁" />
+          <Field label="Peso aproximado">
+            <input
+              name="weightValue"
+              type="number"
+              step="0.01"
+              min="0"
+              className={inputClass}
+              placeholder="0"
+            />
+          </Field>
+          <Field label="Unidade">
+            <select name="weightUnit" className={inputClass} defaultValue="g">
+              <option value="kg">kg</option>
+              <option value="g">g</option>
+              <option value="l">l</option>
+            </select>
           </Field>
           <div className="flex items-end">
             <Button type="submit" className="h-10" disabled={uploadingPhoto}>
               <Plus /> Adicionar produto
             </Button>
           </div>
-          <div className="md:col-span-5">
-            <Field label="Foto do produto (opcional)">
+          <div className="md:col-span-6">
+            <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-4 text-center transition hover:border-primary/50">
               <input
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
                 onChange={uploadProductPhoto}
                 disabled={uploadingPhoto}
-                className={inputClass}
+                className="hidden"
               />
-            </Field>
-            {uploadingPhoto && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Enviando foto...
-              </p>
-            )}
+              {uploadingPhoto ? (
+                <LoaderCircle className="size-6 animate-spin text-muted-foreground" />
+              ) : pendingPhoto ? (
+                <Image
+                  src={pendingPhoto}
+                  alt="Pré-visualização"
+                  width={48}
+                  height={48}
+                  unoptimized
+                  className="size-12 rounded-lg object-cover"
+                />
+              ) : (
+                <Upload className="size-6 text-muted-foreground" />
+              )}
+              <span className="text-xs text-muted-foreground">
+                Imagem do produto
+              </span>
+            </label>
             {photoError && (
               <p className="mt-1 text-xs text-destructive">{photoError}</p>
-            )}
-            {pendingPhoto && !uploadingPhoto && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Foto pronta — será usada no próximo produto adicionado.
-              </p>
             )}
           </div>
         </form>
@@ -2294,6 +2679,7 @@ function DigitalMenu({
                 <p className="font-semibold">{item.name}</p>
                 <p className="text-xs text-muted-foreground">
                   {item.category} • {money(item.price)}
+                  {item.weight ? ` • ${item.weight.value}${item.weight.unit}` : ''}
                 </p>
               </div>
               <Badge variant={item.available ? 'secondary' : 'outline'}>
