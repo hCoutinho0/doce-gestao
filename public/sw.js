@@ -2,7 +2,7 @@
 // asset interception. Its only job is to show a notification when a
 // push arrives and to focus/open the dashboard when it's tapped.
 self.addEventListener('push', (event) => {
-  let data = { title: 'Doce Gestão', body: 'Você tem tarefas pendentes.' };
+  let data = { title: 'Confeitto', body: 'Você tem tarefas pendentes.' };
   try {
     if (event.data) data = { ...data, ...event.data.json() };
   } catch {

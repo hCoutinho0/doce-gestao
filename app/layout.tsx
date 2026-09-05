@@ -9,16 +9,16 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: 'Doce Gestão | Gestão completa para confeitaria',
+  title: 'Confeitto | Gestão completa para confeitaria',
   description: 'Estoque, pedidos, precificação, financeiro, cardápio e fidelidade em um só lugar.',
   openGraph: {
-    title: 'Doce Gestão | Gestão completa para confeitaria',
+    title: 'Confeitto | Gestão completa para confeitaria',
     description: 'Estoque, pedidos, precificação, financeiro, cardápio e fidelidade em um só lugar.',
     type: 'website',
   },
   twitter: {
     card: 'summary',
-    title: 'Doce Gestão',
+    title: 'Confeitto',
     description: 'Gestão completa para confeitaria.',
   },
 };

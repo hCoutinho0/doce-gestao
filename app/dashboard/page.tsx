@@ -36,7 +36,6 @@ import {
   LogOut,
   Minus,
   Menu,
-  MessageCircleMore,
   PackageOpen,
   Pencil,
   Plus,
@@ -55,7 +54,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { BAKERY_KEY, type BakeryProfile } from '@/lib/bakery';
-import { useUserSession, signOut, type UserSession } from '@/lib/auth';
+import { useUserSession, signOut } from '@/lib/auth';
 import type { Invite } from '@/lib/tenant';
 
 type View =
@@ -68,8 +67,7 @@ type View =
   | 'products'
   | 'customers'
   | 'loyalty'
-  | 'team'
-  | 'whatsapp';
+  | 'team';
 type OrderItem = { name: string; quantity: number; unitPrice: number };
 type Order = {
   id: string;
@@ -358,8 +356,7 @@ export default function Home() {
           ['dashboard', 'orders', 'stock', 'menu'].includes(item.view),
         )
       : navItems;
-  const pageTitle =
-    navItems.find((item) => item.view === view)?.label ?? 'WhatsApp';
+  const pageTitle = navItems.find((item) => item.view === view)?.label ?? '';
 
   if (!isBrowserReady || !session) {
     return (
@@ -379,7 +376,6 @@ export default function Home() {
     visibleNavItems,
     view,
     orders,
-    session,
     onNavigate: (target: View) => {
       setView(target);
       setMobileNavOpen(false);
@@ -541,7 +537,6 @@ export default function Home() {
               <Loyalty items={loyalty} setItems={setLoyalty} />
             )}
             {view === 'team' && <Team isAdmin={session.role === 'admin'} />}
-            {view === 'whatsapp' && <WhatsApp />}
             <p className="mt-8 text-center text-xs text-muted-foreground">
               {pageTitle} • Dados sincronizados na nuvem • Acesso: {session.roleLabel}
             </p>
@@ -637,14 +632,12 @@ function SidebarNav({
   visibleNavItems,
   view,
   orders,
-  session,
   onNavigate,
 }: {
   bakery: BakeryProfile | null;
   visibleNavItems: { label: string; icon: typeof LayoutDashboard; view: View }[];
   view: View;
   orders: Order[];
-  session: UserSession;
   onNavigate: (target: View) => void;
 }) {
   return (
@@ -667,25 +660,6 @@ function SidebarNav({
           </button>
         ))}
       </nav>
-      {session.role === 'admin' && (
-        <button
-          onClick={() => onNavigate('whatsapp')}
-          className={`mt-auto rounded-2xl border p-4 text-left transition ${view === 'whatsapp' ? 'border-primary bg-primary/10' : 'border-[#ddc9ea] bg-[#f7f2fa] hover:border-primary/40'}`}
-        >
-          <div className="mb-3 grid size-9 place-items-center rounded-xl bg-[#ecdcf4] text-[#642e8a]">
-            <MessageCircleMore className="size-5" />
-          </div>
-          <p className="text-sm font-semibold text-[#362040]">
-            WhatsApp conectado
-          </p>
-          <p className="mt-1 text-xs leading-relaxed text-[#6f5a80]">
-            Veja o fluxo planejado do bot de pedidos.
-          </p>
-          <span className="mt-3 flex items-center gap-1 text-xs font-bold text-[#6e3599]">
-            Ver automações <ChevronRight className="size-3" />
-          </span>
-        </button>
-      )}
     </>
   );
 }
@@ -834,7 +808,7 @@ function Brand({ bakery }: { bakery: BakeryProfile | null }) {
       </span>
       <div>
         <p className="font-heading text-lg font-bold leading-tight">
-          Doce Gestão
+          Confeitto
         </p>
         <p className="text-xs text-muted-foreground">
           {bakery?.name || 'Sua confeitaria'}
@@ -4281,78 +4255,6 @@ function Team({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
-function WhatsApp() {
-  const commands = [
-    [
-      'Qualquer mensagem',
-      'O bot responde com o link do cardápio público para o cliente pedir.',
-    ],
-    [
-      'Número do pedido (ex.: 2001)',
-      'O bot consulta o Cosmos DB e responde com status, entrega e valor.',
-    ],
-  ];
-  return (
-    <>
-      <PageHeading
-        title="Bot de pedidos no WhatsApp"
-        subtitle="Webhook implementado — falta só conectar a conta da Meta."
-      />
-      <div className="grid gap-5 lg:grid-cols-[1fr_.8fr]">
-        <Panel className="overflow-hidden">
-          <PanelTitle
-            title="O que o bot já faz"
-            subtitle="app/api/whatsapp/webhook"
-          />
-          <div className="divide-y">
-            {commands.map(([title, detail], i) => (
-              <div key={title} className="flex gap-4 p-5">
-                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#f0e4f6] text-sm font-bold text-[#5e2c80]">
-                  {i + 1}
-                </span>
-                <div>
-                  <p className="font-semibold">{title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{detail}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Panel>
-        <Panel className="p-6">
-          <span className="grid size-12 place-items-center rounded-2xl bg-[#ebdcf3] text-[#642e8a]">
-            <MessageCircleMore />
-          </span>
-          <h2 className="mt-5 font-heading text-xl font-bold">
-            Falta conectar a conta
-          </h2>
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            Crie um app em developers.facebook.com com o produto WhatsApp e
-            preencha as variáveis WHATSAPP_* — o passo a passo está no
-            README.md.
-          </p>
-          <div className="mt-5 space-y-2 text-sm">
-            <Step done label="Webhook e comandos implementados" />
-            <Step done label="Conectado ao banco de pedidos" />
-            <Step label="Criar app na Meta e obter credenciais" />
-            <Step label="Verificação da empresa (Meta)" />
-          </div>
-        </Panel>
-      </div>
-    </>
-  );
-}
-function Step({ label, done = false }: { label: string; done?: boolean }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span
-        className={`grid size-5 place-items-center rounded-full ${done ? 'bg-green-100 text-green-700' : 'bg-muted text-muted-foreground'}`}
-      >
-        {done ? <Check className="size-3" /> : ''}
-      </span>
-      <span>{label}</span>
-    </div>
-  );
-}
 function Empty({ label }: { label: string }) {
   return (
     <div className="p-10 text-center text-sm text-muted-foreground">

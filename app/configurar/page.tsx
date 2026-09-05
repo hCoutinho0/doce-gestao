@@ -139,7 +139,7 @@ export default function SetupPage() {
             <CakeSlice className="size-5" />
           </span>
           <div>
-            <p className="font-heading font-bold">Doce Gestão</p>
+            <p className="font-heading font-bold">Confeitto</p>
             <p className="text-[11px] text-muted-foreground">
               Configuração inicial
             </p>
@@ -363,7 +363,7 @@ export default function SetupPage() {
                     {profile.name || 'Sua confeitaria'}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Administrado com Doce Gestão
+                    Administrado com Confeitto
                   </p>
                 </div>
               </div>

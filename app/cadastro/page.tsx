@@ -289,7 +289,7 @@ export default function CadastroPage() {
             <CakeSlice className="size-5" />
           </span>
           <div>
-            <p className="font-heading font-bold">Doce Gestão</p>
+            <p className="font-heading font-bold">Confeitto</p>
             <p className="text-[11px] text-muted-foreground">
               Cadastro da confeitaria
             </p>
@@ -343,7 +343,7 @@ export default function CadastroPage() {
             <section>
               <StepHeading
                 title="Como você quer entrar?"
-                description="Escolha Google, Microsoft, ou crie um email e senha só para o Doce Gestão."
+                description="Escolha Google, Microsoft, ou crie um email e senha só para o Confeitto."
               />
               <div className="mt-7 space-y-3">
                 <Button
@@ -665,7 +665,7 @@ export default function CadastroPage() {
                     {bakery.name || 'Sua confeitaria'}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Administrado com Doce Gestão
+                    Administrado com Confeitto
                   </p>
                 </div>
               </div>

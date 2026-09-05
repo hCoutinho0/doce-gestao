@@ -61,7 +61,7 @@ export default function LoginPage() {
             <CakeSlice className="size-6" />
           </span>
           <div>
-            <p className="font-heading text-xl font-bold">Doce Gestão</p>
+            <p className="font-heading text-xl font-bold">Confeitto</p>
             <p className="text-xs text-white/65">Gestão para confeitaria</p>
           </div>
         </div>
@@ -97,7 +97,7 @@ export default function LoginPage() {
               <CakeSlice className="size-5" />
             </span>
             <div className="text-left">
-              <p className="font-heading text-lg font-bold">Doce Gestão</p>
+              <p className="font-heading text-lg font-bold">Confeitto</p>
               <p className="text-xs text-muted-foreground">
                 Gestão para confeitaria
               </p>
