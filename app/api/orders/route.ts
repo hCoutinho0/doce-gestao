@@ -21,6 +21,9 @@ type Order = {
   date: string;
   value: number;
   status: string;
+  paymentMethod?: 'Pix' | 'Cartão' | 'Dinheiro' | 'Presente';
+  paymentStatus: 'Pago' | 'Pendente';
+  paymentDate?: string;
   stampsAwarded?: boolean;
   financeLogged?: boolean;
 };
@@ -36,11 +39,41 @@ type Customer = {
   stamps: number;
 };
 
+type FinanceItem = {
+  id: number;
+  description: string;
+  type: 'Entrada' | 'Saída';
+  category?: string;
+  value: number;
+  date: string;
+};
+
 const ORDERS_KEY = 'doce-orders';
 const ORDER_COUNTER_KEY = 'doce-order-counter';
 const CUSTOMERS_KEY = 'doce-loyalty';
 const MENU_KEY = 'doce-menu';
 const MENU_EDITIONS_KEY = 'doce-menu-editions';
+const FINANCE_KEY = 'doce-finance';
+
+// Same shape/purpose as logSale in app/api/orders/[id]/route.ts — an order
+// created already marked paid (e.g. "Presente" handed over on the spot)
+// never goes through PATCH's Pago transition, so it needs to post to
+// Financeiro right here at creation time instead.
+async function logSale(bakeryId: string, order: Order): Promise<FinanceItem> {
+  const entry: FinanceItem = {
+    id: Date.now(),
+    description: `Pedido ${order.id} - ${order.customer}`,
+    type: 'Entrada',
+    category: 'Vendas',
+    value: order.value,
+    date: order.paymentDate ?? new Date().toISOString().slice(0, 10),
+  };
+  await updateStateAtomic<FinanceItem[]>(bakeryId, FINANCE_KEY, (current) => [
+    entry,
+    ...(current ?? []),
+  ]);
+  return entry;
+}
 
 // A first-time customer becomes a client record automatically — matched by
 // name (trimmed, case-insensitive) so repeat orders don't create
@@ -197,6 +230,8 @@ export async function POST(request: Request) {
     status?: string;
     birthday?: string;
     editionId?: string;
+    paymentMethod?: 'Pix' | 'Cartão' | 'Dinheiro' | 'Presente';
+    paymentStatus?: 'Pago' | 'Pendente';
   };
   const bakeryId =
     session?.user.bakeryId ?? body.bakeryId?.trim() ?? LAVILY_BAKERY_ID;
@@ -248,6 +283,14 @@ export async function POST(request: Request) {
     date: body.date.trim(),
     value,
     status: body.status?.trim() || 'Novo',
+    ...(body.paymentMethod ? { paymentMethod: body.paymentMethod } : {}),
+    paymentStatus: body.paymentStatus === 'Pago' ? 'Pago' : 'Pendente',
+    ...(body.paymentStatus === 'Pago'
+      ? {
+          paymentDate: new Date().toISOString().slice(0, 10),
+          financeLogged: true,
+        }
+      : {}),
   };
   // updateStateAtomic, not readState+writeState — two orders created in
   // the same instant (two customers checking out at once) must not let
@@ -262,6 +305,9 @@ export async function POST(request: Request) {
     body.phone?.trim() ?? '',
     body.birthday?.trim() || undefined,
   );
+  const financeItem = order.financeLogged
+    ? await logSale(bakeryId, order)
+    : undefined;
 
-  return NextResponse.json({ order, stamps });
+  return NextResponse.json({ order, stamps, financeItem });
 }

@@ -28,6 +28,7 @@ import {
   ChevronRight,
   CircleDollarSign,
   Clock3,
+  Download,
   Eye,
   Gift,
   LayoutDashboard,
@@ -83,10 +84,14 @@ type Order = {
   date: string;
   value: number;
   status: string;
+  paymentMethod?: 'Pix' | 'Cartão' | 'Dinheiro' | 'Presente';
+  paymentStatus: 'Pago' | 'Pendente';
+  paymentDate?: string;
   stampsAwarded?: boolean;
   financeLogged?: boolean;
 };
 const ORDER_STATUSES = ['Novo', 'Produção', 'Pronto', 'Entrega', 'Concluído'];
+const PAYMENT_METHODS = ['Pix', 'Cartão', 'Dinheiro', 'Presente'] as const;
 type StockItem = {
   id: number;
   name: string;
@@ -207,7 +212,26 @@ type MenuEdition = {
 // A simple named product + flavor, independent of the weekly cardápio —
 // meant for things like custom cakes that aren't part of a given week's
 // published menu but still need to show up when building a pedido.
-type Product = { id: number; name: string; flavor: string };
+type Product = {
+  id: number;
+  name: string;
+  flavor: string;
+  price?: number;
+  weight?: { value: number; unit: 'g' | 'kg' | 'ml' | 'l' | 'unidade' };
+};
+
+// Grams/ml are the base units so kg and l (×1000) compare on the same
+// scale — used to show "quanto custa por grama/ml" while precificando.
+function pricePerBaseUnit(product: Product): string | null {
+  if (!product.price || !product.weight?.value) return null;
+  const { value, unit } = product.weight;
+  if (unit === 'unidade') {
+    return `${money(product.price / value)}/un`;
+  }
+  const grams = unit === 'kg' ? value * 1000 : unit === 'l' ? value * 1000 : value;
+  const baseUnit = unit === 'kg' || unit === 'g' ? 'g' : 'ml';
+  return `${money(product.price / grams)}/${baseUnit}`;
+}
 
 // A simple manual to-do item shown on the Visão geral — no automatic
 // suggestions, just whatever the admin types.
@@ -317,7 +341,15 @@ export default function Home() {
     if (isBrowserReady && !session) window.location.replace('/login');
   }, [isBrowserReady, session]);
 
-  const todaySales = orders.reduce((sum, order) => sum + order.value, 0);
+  // "Este mês" segue a mesma convenção da aba Pedidos: agrupa pela data de
+  // entrega, não pela data em que o pedido foi feito.
+  const currentMonthOrders = orders.filter(
+    (order) => order.deliveryDate && isSameMonth(order.deliveryDate, new Date()),
+  );
+  const todaySales = currentMonthOrders.reduce(
+    (sum, order) => sum + order.value,
+    0,
+  );
   const profit = todaySales * 0.364;
   const lowStock = stock.filter((item) => item.qty < item.min);
   const visibleNavItems =
@@ -397,14 +429,12 @@ export default function Home() {
             >
               <Menu />
             </Button>
-            <div className="relative hidden max-w-md flex-1 sm:block">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                aria-label="Buscar no sistema"
-                placeholder="Buscar pedido, produto ou cliente..."
-                className="h-10 w-full rounded-xl border bg-muted/45 pl-10 pr-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
-              />
-            </div>
+            <HeaderSearch
+              orders={orders}
+              products={products}
+              customers={loyalty}
+              onNavigate={setView}
+            />
             <div className="ml-auto flex items-center gap-3">
               <Badge
                 variant="outline"
@@ -453,6 +483,7 @@ export default function Home() {
             {view === 'dashboard' && (
               <Dashboard
                 orders={orders}
+                activeOrdersCount={currentMonthOrders.length}
                 lowStock={lowStock}
                 finance={finance}
                 todaySales={todaySales}
@@ -659,6 +690,129 @@ function SidebarNav({
   );
 }
 
+function HeaderSearch({
+  orders,
+  products,
+  customers,
+  onNavigate,
+}: {
+  orders: Order[];
+  products: Product[];
+  customers: LoyaltyItem[];
+  onNavigate: (v: View) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const q = query.trim().toLowerCase();
+
+  const matchedOrders = q
+    ? orders
+        .filter(
+          (o) =>
+            o.id.toLowerCase().includes(q) ||
+            o.customer.toLowerCase().includes(q) ||
+            o.item.toLowerCase().includes(q),
+        )
+        .slice(0, 6)
+    : [];
+  const matchedProducts = q
+    ? products
+        .filter(
+          (p) =>
+            p.name.toLowerCase().includes(q) ||
+            p.flavor.toLowerCase().includes(q),
+        )
+        .slice(0, 6)
+    : [];
+  const matchedCustomers = q
+    ? customers.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 6)
+    : [];
+  const hasResults =
+    matchedOrders.length + matchedProducts.length + matchedCustomers.length >
+    0;
+
+  const go = (view: View) => {
+    onNavigate(view);
+    setOpen(false);
+    setQuery('');
+  };
+
+  return (
+    <div className="relative hidden max-w-md flex-1 sm:block">
+      <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <input
+        aria-label="Buscar no sistema"
+        placeholder="Buscar pedido, produto ou cliente..."
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        className="h-10 w-full rounded-xl border bg-muted/45 pl-10 pr-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+      />
+      {open && q && (
+        <div className="absolute left-0 right-0 top-12 z-30 max-h-80 overflow-y-auto rounded-xl border bg-card p-2 text-sm shadow-lg">
+          {!hasResults && (
+            <p className="p-3 text-xs text-muted-foreground">
+              Nada encontrado para &ldquo;{query}&rdquo;.
+            </p>
+          )}
+          {matchedOrders.length > 0 && (
+            <div className="mb-1">
+              <p className="px-2 py-1 text-[10px] font-semibold uppercase text-muted-foreground">
+                Pedidos
+              </p>
+              {matchedOrders.map((o) => (
+                <button
+                  key={o.id}
+                  onClick={() => go('orders')}
+                  className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left hover:bg-muted/60"
+                >
+                  <span className="truncate">
+                    {o.id} — {o.customer}
+                  </span>
+                  <StatusBadge status={o.status} />
+                </button>
+              ))}
+            </div>
+          )}
+          {matchedProducts.length > 0 && (
+            <div className="mb-1">
+              <p className="px-2 py-1 text-[10px] font-semibold uppercase text-muted-foreground">
+                Produtos
+              </p>
+              {matchedProducts.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => go('products')}
+                  className="flex w-full items-center rounded-lg px-2 py-1.5 text-left hover:bg-muted/60"
+                >
+                  {p.name} - {p.flavor}
+                </button>
+              ))}
+            </div>
+          )}
+          {matchedCustomers.length > 0 && (
+            <div>
+              <p className="px-2 py-1 text-[10px] font-semibold uppercase text-muted-foreground">
+                Clientes
+              </p>
+              {matchedCustomers.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => go('customers')}
+                  className="flex w-full items-center rounded-lg px-2 py-1.5 text-left hover:bg-muted/60"
+                >
+                  {c.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Brand({ bakery }: { bakery: BakeryProfile | null }) {
   return (
     <div className="mb-8 flex items-center gap-3 px-2">
@@ -767,6 +921,7 @@ const inputClass =
 
 function Dashboard({
   orders,
+  activeOrdersCount,
   lowStock,
   finance,
   todaySales,
@@ -777,6 +932,7 @@ function Dashboard({
   setTasks,
 }: {
   orders: Order[];
+  activeOrdersCount: number;
   lowStock: StockItem[];
   finance: FinanceItem[];
   todaySales: number;
@@ -794,11 +950,16 @@ function Dashboard({
     .reduce((sum, item) => sum + item.value, 0);
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite';
+  // Só o que realmente precisa de atenção agora — Pronto/Entrega/Concluído
+  // já passaram da parte que exige acompanhamento diário.
+  const activeOrders = orders.filter(
+    (o) => o.status === 'Novo' || o.status === 'Produção',
+  );
   return (
     <div className="space-y-7">
       <PageHeading
         title={`${greeting}, ${firstName}!`}
-        subtitle={`Sua confeitaria está com ${orders.length} pedidos ativos hoje.`}
+        subtitle={`Sua confeitaria está com ${activeOrdersCount} pedidos ativos neste mês.`}
         action={
           <Button
             onClick={() => setView('orders')}
@@ -814,20 +975,20 @@ function Dashboard({
           icon={CircleDollarSign}
           label="Vendas em pedidos"
           value={money(todaySales)}
-          detail="Atualizado pelos pedidos"
+          detail="Neste mês, por data de entrega"
           positive
         />
         <MetricCard
           icon={ShoppingBag}
           label="Pedidos ativos"
-          value={String(orders.length)}
-          detail="Acompanhe por status"
+          value={String(activeOrdersCount)}
+          detail="Neste mês, por data de entrega"
         />
         <MetricCard
           icon={Sparkles}
           label="Lucro estimado"
           value={money(profit)}
-          detail="Margem projetada de 36,4%"
+          detail="Margem projetada de 36,4% neste mês"
         />
         <MetricCard
           icon={PackageOpen}
@@ -841,7 +1002,7 @@ function Dashboard({
         <Panel className="overflow-hidden">
           <PanelTitle
             title="Pedidos recentes"
-            subtitle="Produção e entrega em um só lugar"
+            subtitle="Novos e em produção agora"
             action={
               <Button
                 onClick={() => setView('orders')}
@@ -852,7 +1013,7 @@ function Dashboard({
               </Button>
             }
           />
-          <OrderTable orders={orders.slice(0, 5)} compact />
+          <OrderTable orders={activeOrders} compact />
         </Panel>
         <div className="space-y-5">
           <Panel className="p-5">
@@ -1202,11 +1363,13 @@ function OrderTable({
   compact = false,
   onStatus,
   onDelete,
+  onMarkPaid,
 }: {
   orders: Order[];
   compact?: boolean;
   onStatus?: (id: string, status: string) => void;
   onDelete?: (id: string) => void;
+  onMarkPaid?: (id: string, method: Order['paymentMethod']) => void;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -1217,6 +1380,7 @@ function OrderTable({
             <th className="px-3 py-3">Cliente</th>
             <th className="px-3 py-3">Entrega</th>
             <th className="px-3 py-3">Valor</th>
+            <th className="px-3 py-3">Pagamento</th>
             <th className="px-3 py-3">Status</th>
             {!compact && <th className="px-3 py-3">Ações</th>}
           </tr>
@@ -1255,6 +1419,38 @@ function OrderTable({
               </td>
               <td className="px-3 py-3.5 font-medium">{money(order.value)}</td>
               <td className="px-3 py-3.5">
+                {compact || !onMarkPaid ? (
+                  <PaymentBadge order={order} />
+                ) : order.paymentStatus === 'Pago' ? (
+                  <div className="space-y-0.5">
+                    <PaymentBadge order={order} />
+                    {order.paymentMethod && (
+                      <p className="text-[11px] text-muted-foreground">
+                        {order.paymentMethod}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      onMarkPaid(order.id, e.target.value as Order['paymentMethod']);
+                    }}
+                    className="h-8 rounded-lg border border-orange-300 bg-orange-50 px-2 text-xs font-semibold text-orange-800 outline-none focus:border-primary"
+                  >
+                    <option value="" disabled>
+                      Marcar como pago...
+                    </option>
+                    {PAYMENT_METHODS.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </td>
+              <td className="px-3 py-3.5">
                 {compact || !onStatus ? (
                   <StatusBadge status={order.status} />
                 ) : (
@@ -1292,6 +1488,18 @@ function OrderTable({
   );
 }
 
+function PaymentBadge({ order }: { order: Order }) {
+  return order.paymentStatus === 'Pago' ? (
+    <span className="inline-flex rounded-full bg-[#e9f7ef] px-2.5 py-1 text-[11px] font-bold text-[#277447]">
+      Pago
+    </span>
+  ) : (
+    <span className="inline-flex rounded-full bg-orange-100 px-2.5 py-1 text-[11px] font-bold text-orange-800">
+      Pendente
+    </span>
+  );
+}
+
 const NEW_CUSTOMER = '__new__';
 
 function Orders({
@@ -1323,6 +1531,9 @@ function Orders({
   const [deliveryDate, setDeliveryDate] = useState('');
   const [deliveryTime, setDeliveryTime] = useState('');
   const [notes, setNotes] = useState('');
+  const [paymentMethod, setPaymentMethod] =
+    useState<Order['paymentMethod']>('Pix');
+  const [alreadyPaid, setAlreadyPaid] = useState(false);
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [productQuantities, setProductQuantities] = useState<
     Record<number, number>
@@ -1407,7 +1618,8 @@ function Orders({
     }));
 
   const monthOrders = useMemo(
-    () => orders.filter((o) => o.orderDate && isSameMonth(o.orderDate, monthView)),
+    () =>
+      orders.filter((o) => o.deliveryDate && isSameMonth(o.deliveryDate, monthView)),
     [orders, monthView],
   );
   const monthLabel = monthView
@@ -1451,12 +1663,18 @@ function Orders({
         value: total,
         status: 'Novo',
         editionId: viewedEdition?.id,
+        paymentMethod,
+        paymentStatus: alreadyPaid ? 'Pago' : 'Pendente',
       }),
     });
     setSubmitting(false);
     if (!response.ok) return;
-    const { order } = (await response.json()) as { order: Order };
+    const { order, financeItem } = (await response.json()) as {
+      order: Order;
+      financeItem?: FinanceItem;
+    };
     setOrders((old) => [order, ...old]);
+    if (financeItem) setFinance((old) => [financeItem, ...old]);
     setCustomerChoice('');
     setNewName('');
     setNewPhone('');
@@ -1465,6 +1683,8 @@ function Orders({
     setDeliveryDate('');
     setDeliveryTime('');
     setNotes('');
+    setPaymentMethod('Pix');
+    setAlreadyPaid(false);
     setQuantities({});
     setProductQuantities({});
     setProductPrices({});
@@ -1505,6 +1725,20 @@ function Orders({
           : [...old, updatedCustomer],
       );
     }
+  };
+  const markPaid = async (id: string, method: Order['paymentMethod']) => {
+    const response = await fetch(`/api/orders/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paymentStatus: 'Pago', paymentMethod: method }),
+    });
+    if (!response.ok) return;
+    const data = (await response.json()) as {
+      order: Order;
+      financeItem?: FinanceItem;
+    };
+    setOrders((old) => old.map((o) => (o.id === id ? data.order : o)));
+    if (data.financeItem) setFinance((old) => [data.financeItem!, ...old]);
   };
   return (
     <>
@@ -1650,6 +1884,32 @@ function Orders({
                 placeholder="Sabor, decoração, restrições..."
               />
             </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Forma de pagamento">
+                <select
+                  value={paymentMethod}
+                  onChange={(e) =>
+                    setPaymentMethod(e.target.value as Order['paymentMethod'])
+                  }
+                  className={inputClass}
+                >
+                  {PAYMENT_METHODS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <label className="mt-6 flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={alreadyPaid}
+                  onChange={(e) => setAlreadyPaid(e.target.checked)}
+                  className="size-4"
+                />
+                Já foi pago
+              </label>
+            </div>
           </div>
           <div className="space-y-4">
             <div>
@@ -1835,11 +2095,12 @@ function Orders({
       <Panel className="overflow-hidden">
         <PanelTitle
           title={`${monthOrders.length} pedidos`}
-          subtitle={`Pedidos de ${monthLabel.toLowerCase()}`}
+          subtitle={`Entregues em ${monthLabel.toLowerCase()}`}
         />
         <OrderTable
           orders={monthOrders}
           onStatus={changeStatus}
+          onMarkPaid={markPaid}
           onDelete={(id) => {
             void fetch(`/api/orders/${encodeURIComponent(id)}`, {
               method: 'DELETE',
@@ -2830,6 +3091,36 @@ function Finance({
           detail="Resultado do mês"
         />
       </section>
+      <Panel className="mb-5 p-5">
+        <PanelTitle
+          title="Rateio do mês"
+          subtitle="Sobre o total de entradas já recebidas neste mês"
+        />
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl bg-secondary p-4">
+            <p className="text-[10px] font-semibold uppercase text-primary">
+              Pró-labore (40%)
+            </p>
+            <p className="mt-1 text-lg font-bold text-primary">
+              {money(entries * 0.4)}
+            </p>
+          </div>
+          <div className="rounded-xl bg-muted/50 p-4">
+            <p className="text-[10px] font-semibold uppercase text-muted-foreground">
+              Empresa (50%)
+            </p>
+            <p className="mt-1 text-lg font-bold">{money(entries * 0.5)}</p>
+          </div>
+          <div className="rounded-xl bg-green-50 p-4">
+            <p className="text-[10px] font-semibold uppercase text-green-700">
+              Reserva emergencial (10%)
+            </p>
+            <p className="mt-1 text-lg font-bold text-green-800">
+              {money(entries * 0.1)}
+            </p>
+          </div>
+        </div>
+      </Panel>
       {chartData.length > 0 && (
         <Panel className="mb-5 p-5">
           <PanelTitle
@@ -3319,14 +3610,31 @@ function ProductsCatalog({
   items: Product[];
   setItems: (v: Product[] | ((o: Product[]) => Product[])) => void;
 }) {
+  const [weightUnit, setWeightUnit] = useState<
+    'g' | 'kg' | 'ml' | 'l' | 'unidade'
+  >('g');
   const add = (e: FormSubmit) => {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
     const name = fieldValue(data, 'name').trim();
     const flavor = fieldValue(data, 'flavor').trim();
     if (!name || !flavor) return;
-    setItems((old) => [...old, { id: Date.now(), name, flavor }]);
+    const price = Number(fieldValue(data, 'price'));
+    const weightValue = Number(fieldValue(data, 'weightValue'));
+    setItems((old) => [
+      ...old,
+      {
+        id: Date.now(),
+        name,
+        flavor,
+        ...(price > 0 ? { price } : {}),
+        ...(weightValue > 0
+          ? { weight: { value: weightValue, unit: weightUnit } }
+          : {}),
+      },
+    ]);
     e.currentTarget.reset();
+    setWeightUnit('g');
   };
   return (
     <>
@@ -3335,7 +3643,7 @@ function ProductsCatalog({
         subtitle="Cadastre produtos com sabor para usar rapidamente na hora de montar um pedido."
       />
       <Panel className="mb-5 p-5">
-        <form onSubmit={add} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+        <form onSubmit={add} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto_auto]">
           <Field label="Nome do produto">
             <input
               required
@@ -3351,6 +3659,41 @@ function ProductsCatalog({
               className={inputClass}
               placeholder="Ex.: Ninho com Nutella"
             />
+          </Field>
+          <Field label="Valor (opcional)">
+            <input
+              name="price"
+              type="number"
+              step="0.01"
+              min="0"
+              className={`${inputClass} w-28`}
+              placeholder="0,00"
+            />
+          </Field>
+          <Field label="Peso/volume (opcional)">
+            <div className="flex gap-1">
+              <input
+                name="weightValue"
+                type="number"
+                step="0.01"
+                min="0"
+                className={`${inputClass} w-20`}
+                placeholder="0"
+              />
+              <select
+                value={weightUnit}
+                onChange={(e) =>
+                  setWeightUnit(e.target.value as typeof weightUnit)
+                }
+                className={inputClass}
+              >
+                <option value="g">g</option>
+                <option value="kg">kg</option>
+                <option value="ml">ml</option>
+                <option value="l">l</option>
+                <option value="unidade">unidade</option>
+              </select>
+            </div>
           </Field>
           <div className="flex items-end">
             <Button type="submit" className="h-10 w-full sm:w-auto">
@@ -3372,7 +3715,14 @@ function ProductsCatalog({
             <div key={product.id} className="flex items-center gap-4 px-5 py-4">
               <div className="flex-1">
                 <p className="font-semibold">{product.name}</p>
-                <p className="text-xs text-muted-foreground">{product.flavor}</p>
+                <p className="text-xs text-muted-foreground">
+                  {product.flavor}
+                  {product.price ? ` • ${money(product.price)}` : ''}
+                  {product.weight
+                    ? ` • ${product.weight.value}${product.weight.unit === 'unidade' ? ' un' : product.weight.unit}`
+                    : ''}
+                  {pricePerBaseUnit(product) ? ` • ${pricePerBaseUnit(product)}` : ''}
+                </p>
               </div>
               <Button
                 variant="ghost"
@@ -3524,6 +3874,10 @@ function Customers({
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {loyalty.map((client) => {
           const clientOrders = orders.filter((o) => o.customer === client.name);
+          const totalPurchased = clientOrders.reduce(
+            (sum, o) => sum + o.value,
+            0,
+          );
           const favorite = favoriteProductOf(orders, client.name);
           if (editingId === client.id) {
             return (
@@ -3613,7 +3967,7 @@ function Customers({
                   </Button>
                 </div>
               </div>
-              <div className="mt-5 grid grid-cols-2 gap-3">
+              <div className="mt-5 grid grid-cols-3 gap-3">
                 <div className="rounded-xl bg-muted p-3">
                   <p className="text-xs text-muted-foreground">Pedidos</p>
                   <p className="text-xl font-bold">{clientOrders.length}</p>
@@ -3621,6 +3975,12 @@ function Customers({
                 <div className="rounded-xl bg-muted p-3">
                   <p className="text-xs text-muted-foreground">Selos</p>
                   <p className="text-xl font-bold">{client.stamps}/10</p>
+                </div>
+                <div className="rounded-xl bg-secondary p-3">
+                  <p className="text-xs text-primary">Total comprado</p>
+                  <p className="text-lg font-bold text-primary">
+                    {money(totalPurchased)}
+                  </p>
                 </div>
               </div>
               <div className="mt-3 rounded-xl bg-muted p-3">
@@ -3635,6 +3995,70 @@ function Customers({
       </div>
     </>
   );
+}
+
+// Desenhado direto num <canvas> (sem lib nenhuma) e baixado como PNG — dá
+// pra mandar no WhatsApp do cliente como se fosse uma foto do cartão.
+function downloadLoyaltyCard(client: LoyaltyItem) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 720;
+  canvas.height = 440;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+  gradient.addColorStop(0, '#4f1f6e');
+  gradient.addColorStop(1, '#a374c9');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.font = '20px sans-serif';
+  ctx.fillText('Cartão fidelidade', 40, 60);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 34px sans-serif';
+  ctx.fillText(client.name, 40, 105);
+
+  const cols = 5;
+  const cellSize = 88;
+  const gap = 16;
+  const startX = 40;
+  const startY = 150;
+  for (let i = 0; i < 10; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = startX + col * (cellSize + gap);
+    const y = startY + row * (cellSize + gap);
+    const filled = i < client.stamps;
+    ctx.beginPath();
+    ctx.arc(x + cellSize / 2, y + cellSize / 2, cellSize / 2, 0, Math.PI * 2);
+    ctx.fillStyle = filled ? '#ffffff' : 'rgba(255,255,255,0.15)';
+    ctx.fill();
+    ctx.strokeStyle = filled ? '#ffffff' : 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = filled ? '#4f1f6e' : 'rgba(255,255,255,0.6)';
+    ctx.font = 'bold 28px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(filled ? '✓' : String(i + 1), x + cellSize / 2, y + cellSize / 2 + 2);
+  }
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.font = '18px sans-serif';
+  const status =
+    client.stamps >= 10
+      ? 'Desconto liberado: 10%'
+      : `Faltam ${10 - client.stamps} selos para o prêmio`;
+  ctx.fillText(status, 40, startY + 2 * (cellSize + gap) + 20);
+
+  const link = document.createElement('a');
+  link.download = `cartao-fidelidade-${client.name.replace(/\s+/g, '-').toLowerCase()}.png`;
+  link.href = canvas.toDataURL('image/png');
+  link.click();
 }
 
 function Loyalty({
@@ -3699,6 +4123,15 @@ function Loyalty({
                 }
               >
                 <Plus /> Adicionar selo
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label={`Baixar cartão de ${client.name}`}
+                title="Baixar cartão"
+                onClick={() => downloadLoyaltyCard(client)}
+              >
+                <Download />
               </Button>
               {client.stamps >= 10 && (
                 <Button

@@ -16,6 +16,9 @@ type Order = {
   date: string;
   value: number;
   status: string;
+  paymentMethod?: 'Pix' | 'Cartão' | 'Dinheiro' | 'Presente';
+  paymentStatus: 'Pago' | 'Pendente';
+  paymentDate?: string;
   stampsAwarded?: boolean;
   financeLogged?: boolean;
 };
@@ -81,7 +84,9 @@ async function logSale(bakeryId: string, order: Order): Promise<FinanceItem> {
     type: 'Entrada',
     category: 'Vendas',
     value: order.value,
-    date: order.orderDate ?? new Date().toISOString().slice(0, 10),
+    // The payment date, not orderDate/deliveryDate — a sale only counts
+    // toward a given month's Financeiro once the customer actually pays.
+    date: order.paymentDate ?? new Date().toISOString().slice(0, 10),
   };
   await updateStateAtomic<FinanceItem[]>(bakeryId, FINANCE_KEY, (current) => [
     entry,
@@ -113,11 +118,15 @@ export async function PATCH(
   }
   const bakeryId = session.user.bakeryId;
   const { id } = await params;
-  const body = (await request.json()) as { status?: string };
-  if (!body.status?.trim()) {
+  const body = (await request.json()) as {
+    status?: string;
+    paymentMethod?: 'Pix' | 'Cartão' | 'Dinheiro' | 'Presente';
+    paymentStatus?: 'Pago' | 'Pendente';
+  };
+  if (!body.status?.trim() && !body.paymentStatus) {
     return NextResponse.json({ error: 'invalid_status' }, { status: 400 });
   }
-  const status = body.status.trim();
+  const status = body.status?.trim();
 
   let updatedOrder: Order | undefined;
   let shouldLogFinance = false;
@@ -131,22 +140,32 @@ export async function PATCH(
       return orders;
     }
 
-    let next: Order = { ...target, status };
+    let next: Order = { ...target, ...(status ? { status } : {}) };
     shouldLogFinance = false;
     shouldAwardStamps = false;
-    // Completing an order is the moment it actually counts as a sale —
-    // both the financeiro entry and the loyalty stamp fire on this
-    // transition, exactly once per order (guarded by these flags),
-    // regardless of how many times the status is changed afterwards.
-    if (status === 'Concluído') {
+    if (body.paymentStatus === 'Pago' && target.paymentStatus !== 'Pago') {
+      next = {
+        ...next,
+        paymentStatus: 'Pago',
+        paymentDate: new Date().toISOString().slice(0, 10),
+        ...(body.paymentMethod ? { paymentMethod: body.paymentMethod } : {}),
+      };
+      // A sale only counts toward Financeiro once the customer actually
+      // pays — not when the order is placed, and not when it's completed
+      // in the kitchen. Fires exactly once per order (guarded by the
+      // flag), regardless of how many times this route is called after.
       if (!target.financeLogged) {
         shouldLogFinance = true;
         next = { ...next, financeLogged: true };
       }
-      if (!target.stampsAwarded) {
-        shouldAwardStamps = true;
-        next = { ...next, stampsAwarded: true };
-      }
+    } else if (body.paymentMethod && !body.paymentStatus) {
+      next = { ...next, paymentMethod: body.paymentMethod };
+    }
+    // The loyalty stamp still rewards actually completing the order, not
+    // getting paid for it — independent transition, independent flag.
+    if (status === 'Concluído' && !target.stampsAwarded) {
+      shouldAwardStamps = true;
+      next = { ...next, stampsAwarded: true };
     }
     updatedOrder = next;
     return orders.map((order) => (order.id === id ? next : order));
