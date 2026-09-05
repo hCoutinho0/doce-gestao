@@ -19,6 +19,8 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   BadgeDollarSign,
+  Bell,
+  BellOff,
   CakeSlice,
   Check,
   ChevronLeft,
@@ -207,6 +209,10 @@ type MenuEdition = {
 // published menu but still need to show up when building a pedido.
 type Product = { id: number; name: string; flavor: string };
 
+// A simple manual to-do item shown on the Visão geral — no automatic
+// suggestions, just whatever the admin types.
+type Task = { id: number; text: string; done: boolean; createdAt: string };
+
 type RecipeLine = { id: number; stockId: number; quantity: number };
 type HiddenCost = { id: number; name: string; percentage: number };
 type ProductRecipe = {
@@ -286,6 +292,7 @@ export default function Home() {
     'doce-products',
     [],
   );
+  const [tasks, setTasks] = useStoredState<Task[]>('doce-tasks', []);
   const [loyalty, setLoyalty] = useStoredState('doce-loyalty', initialLoyalty);
   const [recipes, setRecipes] = useStoredState<ProductRecipe[]>(
     'doce-pricing',
@@ -452,6 +459,8 @@ export default function Home() {
                 profit={profit}
                 setView={setView}
                 firstName={session.name.trim().split(/\s+/)[0] || 'por aí'}
+                tasks={tasks}
+                setTasks={setTasks}
               />
             )}
             {view === 'orders' && (
@@ -764,6 +773,8 @@ function Dashboard({
   profit,
   setView,
   firstName,
+  tasks,
+  setTasks,
 }: {
   orders: Order[];
   lowStock: StockItem[];
@@ -772,6 +783,8 @@ function Dashboard({
   profit: number;
   setView: (v: View) => void;
   firstName: string;
+  tasks: Task[];
+  setTasks: (v: Task[] | ((o: Task[]) => Task[])) => void;
 }) {
   const entries = finance
     .filter((item) => item.type === 'Entrada')
@@ -823,6 +836,7 @@ function Dashboard({
           detail="Itens abaixo do mínimo"
         />
       </section>
+      <TasksPanel tasks={tasks} setTasks={setTasks} />
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.75fr)]">
         <Panel className="overflow-hidden">
           <PanelTitle
@@ -939,6 +953,172 @@ function Dashboard({
         </div>
       </div>
     </div>
+  );
+}
+
+// Converts the VAPID public key (base64url, from the server) into the
+// Uint8Array format PushManager.subscribe expects.
+function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const bytes = new Uint8Array(new ArrayBuffer(rawData.length));
+  for (let i = 0; i < rawData.length; i++) bytes[i] = rawData.charCodeAt(i);
+  return bytes;
+}
+
+function TasksPanel({
+  tasks,
+  setTasks,
+}: {
+  tasks: Task[];
+  setTasks: (v: Task[] | ((o: Task[]) => Task[])) => void;
+}) {
+  const [text, setText] = useState('');
+  const [subscribed, setSubscribed] = useState<boolean | null>(null);
+  const [subscribing, setSubscribing] = useState(false);
+  const [reminderError, setReminderError] = useState('');
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+      setSubscribed(false);
+      return;
+    }
+    navigator.serviceWorker
+      .getRegistration('/sw.js')
+      .then((registration) => registration?.pushManager.getSubscription())
+      .then((sub) => setSubscribed(Boolean(sub)))
+      .catch(() => setSubscribed(false));
+  }, []);
+
+  const add = () => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setTasks((old) => [
+      { id: Date.now(), text: trimmed, done: false, createdAt: new Date().toISOString() },
+      ...old,
+    ]);
+    setText('');
+  };
+
+  const enableReminders = async () => {
+    setReminderError('');
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+      setReminderError('Seu navegador não tem suporte a notificações.');
+      return;
+    }
+    const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!publicKey) {
+      setReminderError('Lembretes ainda não configurados no servidor.');
+      return;
+    }
+    setSubscribing(true);
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        setReminderError('Permissão de notificação negada.');
+        return;
+      }
+      const registration = await navigator.serviceWorker.register('/sw.js');
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+      const response = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription: subscription.toJSON() }),
+      });
+      if (!response.ok) throw new Error('subscribe_failed');
+      setSubscribed(true);
+    } catch {
+      setReminderError('Não foi possível ativar os lembretes agora.');
+    } finally {
+      setSubscribing(false);
+    }
+  };
+
+  const pending = tasks.filter((t) => !t.done);
+  const done = tasks.filter((t) => t.done);
+
+  return (
+    <Panel className="p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-heading text-lg font-bold">Tarefas</h2>
+          <p className="text-xs text-muted-foreground">
+            {pending.length === 0
+              ? 'Nenhuma tarefa pendente.'
+              : `${pending.length} pendente${pending.length > 1 ? 's' : ''}`}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant={subscribed ? 'outline' : 'default'}
+          size="sm"
+          onClick={() => void enableReminders()}
+          disabled={subscribing || subscribed === true}
+        >
+          {subscribed ? <Bell className="size-4" /> : <BellOff className="size-4" />}
+          {subscribed ? 'Lembretes ativos' : 'Ativar lembretes'}
+        </Button>
+      </div>
+      {reminderError && (
+        <p className="mt-2 text-xs text-destructive">{reminderError}</p>
+      )}
+      <div className="mt-4 flex gap-2">
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') add();
+          }}
+          placeholder="O que você precisa fazer?"
+          className={inputClass}
+        />
+        <Button type="button" onClick={add} className="h-10 shrink-0">
+          <Plus /> Adicionar
+        </Button>
+      </div>
+      {tasks.length > 0 && (
+        <div className="mt-4 space-y-1">
+          {[...pending, ...done].map((task) => (
+            <div
+              key={task.id}
+              className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-muted/40"
+            >
+              <input
+                type="checkbox"
+                checked={task.done}
+                onChange={() =>
+                  setTasks((old) =>
+                    old.map((t) =>
+                      t.id === task.id ? { ...t, done: !t.done } : t,
+                    ),
+                  )
+                }
+                className="size-4"
+              />
+              <span
+                className={`flex-1 text-sm ${task.done ? 'text-muted-foreground line-through' : ''}`}
+              >
+                {task.text}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Excluir ${task.text}`}
+                onClick={() =>
+                  setTasks((old) => old.filter((t) => t.id !== task.id))
+                }
+              >
+                <Trash2 />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
   );
 }
 

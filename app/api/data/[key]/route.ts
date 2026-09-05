@@ -18,6 +18,7 @@ const ALLOWED_KEYS = new Set([
   'doce-bakery-profile',
   'doce-pricing',
   'doce-products',
+  'doce-tasks',
 ]);
 
 // The public cardápio (no login) needs the published menu and the bakery's

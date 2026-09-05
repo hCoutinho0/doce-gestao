@@ -114,9 +114,20 @@ export async function queryDocs<T>(
   sqlQuery: string,
   parameters: { name: string; value: string }[] = [],
 ): Promise<T[]> {
+  const docs = await queryDocsWithIds<T>(sqlQuery, parameters);
+  return docs.map((d) => d.value);
+}
+
+// Same as queryDocs, but keeps the document id — needed when the id
+// itself carries information (here, the bakeryId prefix of a
+// `{bakeryId}:doce-tasks` document), not just its value.
+export async function queryDocsWithIds<T>(
+  sqlQuery: string,
+  parameters: { name: string; value: string }[] = [],
+): Promise<{ id: string; value: T }[]> {
   const container = await getAppStateContainer();
   const { resources } = await container.items
     .query<{ id: string; value: T }>({ query: sqlQuery, parameters })
     .fetchAll();
-  return resources.map((r) => r.value);
+  return resources;
 }
