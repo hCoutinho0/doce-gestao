@@ -11,7 +11,7 @@ import { NextResponse } from 'next/server';
 //
 // A signed-in account with no confeitaria yet (new Google/email sign-up,
 // or a Microsoft account without a Lavily App Role) gets sent to /cadastro
-// instead of /painel or /configurar — those need a bakeryId to show
+// instead of /dashboard or /configurar — those need a bakeryId to show
 // anything meaningful.
 export default auth((req) => {
   const isLoggedIn = Boolean(req.auth);
@@ -25,5 +25,5 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ['/painel/:path*', '/configurar/:path*'],
+  matcher: ['/dashboard/:path*', '/configurar/:path*'],
 };

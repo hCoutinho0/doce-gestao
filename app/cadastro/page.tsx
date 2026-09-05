@@ -146,7 +146,7 @@ export default function CadastroPage() {
   useEffect(() => {
     if (sessionLoading) return;
     if (session && !session.needsOnboarding) {
-      window.location.replace('/painel');
+      window.location.replace('/dashboard');
       return;
     }
     if (session?.needsOnboarding && step === 0) {
@@ -257,7 +257,7 @@ export default function CadastroPage() {
       } else {
         await refresh();
       }
-      window.location.replace('/painel');
+      window.location.replace('/dashboard');
     } catch {
       setSubmitError('Não foi possível concluir o cadastro. Tente de novo.');
       setSubmitting(false);

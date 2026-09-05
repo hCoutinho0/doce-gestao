@@ -113,7 +113,7 @@ export default function SetupPage() {
     })
       .then((response) => {
         if (!response.ok) throw new Error('save_failed');
-        window.location.replace('/painel');
+        window.location.replace('/dashboard');
       })
       .catch(() => {
         setSaving(false);

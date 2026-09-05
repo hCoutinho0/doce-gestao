@@ -31,7 +31,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (isLoading || !session) return;
-    window.location.replace(session.needsOnboarding ? '/cadastro' : '/painel');
+    window.location.replace(session.needsOnboarding ? '/cadastro' : '/dashboard');
   }, [isLoading, session]);
 
   const submitCredentials = async (event: FormSubmit) => {
@@ -48,7 +48,7 @@ export default function LoginPage() {
       setError('Email ou senha incorretos.');
       return;
     }
-    window.location.replace('/painel');
+    window.location.replace('/dashboard');
   };
 
   return (
@@ -119,7 +119,7 @@ export default function LoginPage() {
               className="h-11 w-full rounded-xl"
               onClick={() => {
                 setSubmittingProvider('google');
-                void signIn('google', { redirectTo: '/painel' });
+                void signIn('google', { redirectTo: '/dashboard' });
               }}
             >
               {submittingProvider === 'google' ? (
@@ -136,7 +136,7 @@ export default function LoginPage() {
               className="h-11 w-full rounded-xl"
               onClick={() => {
                 setSubmittingProvider('microsoft-entra-id');
-                void signIn('microsoft-entra-id', { redirectTo: '/painel' });
+                void signIn('microsoft-entra-id', { redirectTo: '/dashboard' });
               }}
             >
               {submittingProvider === 'microsoft-entra-id' ? (

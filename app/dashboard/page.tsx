@@ -484,6 +484,7 @@ export default function Home() {
                 setItems={setMenuItems}
                 editions={menuEditions}
                 setEditions={setMenuEditions}
+                bakeryId={session.bakeryId ?? ''}
               />
             )}
             {view === 'products' && (
@@ -2764,11 +2765,13 @@ function DigitalMenu({
   setItems,
   editions,
   setEditions,
+  bakeryId,
 }: {
   items: MenuItem[];
   setItems: (v: MenuItem[] | ((o: MenuItem[]) => MenuItem[])) => void;
   editions: MenuEdition[];
   setEditions: (v: MenuEdition[] | ((o: MenuEdition[]) => MenuEdition[])) => void;
+  bakeryId: string;
 }) {
   const [weekTitle, setWeekTitle] = useStoredState('doce-menu-week', '');
   const [weekStart, setWeekStart] = useStoredState('doce-menu-week-start', '');
@@ -2878,7 +2881,7 @@ function DigitalMenu({
         subtitle="Crie manualmente cada edição semanal, escolha os produtos e compartilhe com clientes."
         action={
           <Link
-            href="/cardapio"
+            href={`/${bakeryId}/cardapio`}
             target="_blank"
             className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border bg-background px-2.5 text-sm font-medium transition hover:bg-muted"
           >

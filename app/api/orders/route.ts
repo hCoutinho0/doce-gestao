@@ -159,12 +159,13 @@ export async function POST(request: Request) {
   // The admin panel's "Lançar pedido" form calls this same endpoint
   // authenticated (session cookie present) — use its confeitaria when
   // there is one. An anonymous request is the public cardápio checkout,
-  // which has no per-confeitaria routing yet, so it's pinned to Lavily.
+  // which names its own confeitaria explicitly (each one has its own
+  // /{bakeryId}/cardapio page) since there's no session to read it from.
   const session = await auth();
-  const bakeryId = session?.user.bakeryId ?? LAVILY_BAKERY_ID;
   const isAuthenticated = Boolean(session?.user.bakeryId);
 
   const body = (await request.json()) as {
+    bakeryId?: string;
     customer?: string;
     phone?: string;
     items?: { name: string; quantity: number; unitPrice?: number }[];
@@ -179,6 +180,8 @@ export async function POST(request: Request) {
     birthday?: string;
     editionId?: string;
   };
+  const bakeryId =
+    session?.user.bakeryId ?? body.bakeryId?.trim() ?? LAVILY_BAKERY_ID;
 
   if (!body.customer?.trim() || !body.date?.trim()) {
     return NextResponse.json({ error: 'invalid_order' }, { status: 400 });

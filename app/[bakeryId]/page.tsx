@@ -5,9 +5,9 @@ import { CakeSlice, Camera, MessageCircle, Music2, Settings2 } from 'lucide-reac
 import { isCosmosConfigured, readState } from '@/lib/cosmos';
 import type { BakeryProfile } from '@/lib/bakery';
 
-// Every confeitaria's own link-in-bio page — /c/{bakeryId}. Lavily's is
-// the only one anyone will actually share for now, but any confeitaria
-// created through /cadastro or a convite already gets one here for free.
+// Every confeitaria's own link-in-bio page — /{bakeryId}. Lavily's is
+// just another confeitaria here, same as any created through /cadastro
+// or a convite.
 export const dynamic = 'force-dynamic';
 
 type HubLink = {
@@ -33,7 +33,7 @@ export default async function BakeryLinkHubPage({
 
   const links: HubLink[] = [
     {
-      href: '/cardapio',
+      href: `/${bakeryId}/cardapio`,
       label: 'Ver cardápio e fazer pedido',
       icon: CakeSlice,
       external: false,
@@ -109,7 +109,7 @@ export default async function BakeryLinkHubPage({
 
         <div className="mt-10 flex justify-center">
           <Link
-            href="/painel"
+            href="/dashboard"
             className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition hover:text-foreground"
           >
             <Settings2 className="size-3.5" /> Entrar no painel

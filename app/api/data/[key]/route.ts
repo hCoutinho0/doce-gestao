@@ -21,9 +21,10 @@ const ALLOWED_KEYS = new Set([
 ]);
 
 // The public cardápio (no login) needs the published menu and the bakery's
-// branding to render at all — everything else is internal panel data. No
-// per-confeitaria public routing exists yet, so public reads are pinned to
-// the one confeitaria that has a public cardápio today.
+// branding to render at all — everything else is internal panel data. Each
+// confeitaria's own /{bakeryId}/cardapio passes its bakeryId explicitly via
+// query string; LAVILY_BAKERY_ID is only a fallback for a caller that omits
+// it (there shouldn't be one left after the move to per-confeitaria pages).
 const PUBLIC_READ_KEYS = new Set([
   'doce-menu',
   'doce-menu-week',
@@ -41,9 +42,9 @@ export async function GET(
   let bakeryId: string;
   if (PUBLIC_READ_KEYS.has(key)) {
     // The public cardápio also reads these three keys, anonymously, and
-    // expects them pinned to one fixed confeitaria — it must never shift
-    // to whatever confeitaria the browser's session cookie belongs to.
-    // Only a request explicitly marked as coming from the admin panel
+    // expects the confeitaria it's asking about — it must never shift to
+    // whatever confeitaria the browser's session cookie belongs to. Only a
+    // request explicitly marked as coming from the admin panel
     // (X-Panel-Request) resolves to the signed-in user's own confeitaria.
     if (request.headers.get('X-Panel-Request')) {
       const session = await auth();
@@ -52,7 +53,8 @@ export async function GET(
       }
       bakeryId = session.user.bakeryId;
     } else {
-      bakeryId = LAVILY_BAKERY_ID;
+      const { searchParams } = new URL(request.url);
+      bakeryId = searchParams.get('bakeryId')?.trim() || LAVILY_BAKERY_ID;
     }
   } else {
     const session = await auth();

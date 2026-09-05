@@ -35,8 +35,8 @@ copy .env.example .env.local
 npm run dev
 ```
 
-Abra `http://localhost:3000` para o cardápio público, ou
-`http://localhost:3000/painel` para o painel administrativo (pede login).
+Abra `http://localhost:3000` para o login, ou
+`http://localhost:3000/dashboard` para o painel administrativo (pede login).
 
 ### Login e cadastro multi-confeitaria
 
@@ -105,21 +105,23 @@ Sem essas variáveis, o cardápio público continua funcionando, mas o botão
   GitHub Actions — repositório em
   [github.com/hCoutinho0/doce-gestao](https://github.com/hCoutinho0/doce-gestao)).
 
-- Painel interno (`/painel`, `/configurar`): protegido por Entra ID de
-  verdade. Pedidos, estoque, financeiro, cardápio e fidelidade agora ficam
-  salvos no **Azure Cosmos DB** (`lib/cosmos.ts`, `app/api/data/[key]`),
-  num container `app-state` com um documento por domínio — duas pessoas em
-  computadores diferentes veem os mesmos dados.
-- Cardápio público (`/`, com `/cardapio` redirecionando para lá): sem
-  login — o cardápio fica na raiz do site para que um domínio próprio
-  (ex.: `lavilyconfeitaria.com.br`) abra direto na vitrine para os
-  clientes. Lê o cardápio publicado e a
-  marca da confeitaria do Cosmos DB (`GET /api/data/doce-menu`,
-  `.../doce-bakery-profile`) e cria pedidos por um endpoint público
-  específico (`POST /api/orders`) que só permite adicionar um pedido, nunca
-  ler ou sobrescrever os pedidos de outra pessoa. Pagamento online passa
-  pelo Mercado Pago; o webhook (`app/api/checkout/webhook`) atualiza o
-  status do pedido automaticamente quando o pagamento é aprovado.
+- Painel interno (`/dashboard`, `/configurar`): protegido por sessão de
+  verdade (Google, Microsoft ou email/senha). Pedidos, estoque, financeiro,
+  cardápio e fidelidade agora ficam salvos no **Azure Cosmos DB**
+  (`lib/cosmos.ts`, `app/api/data/[key]`), num container `app-state` com um
+  documento por domínio por confeitaria — cada confeitaria só vê os
+  próprios dados.
+- Link público de cada confeitaria (`/{bakeryId}`) e seu cardápio
+  (`/{bakeryId}/cardapio`): sem login. Lê o cardápio publicado e a marca
+  daquela confeitaria no Cosmos DB (`GET /api/data/doce-menu?bakeryId=...`,
+  `.../doce-bakery-profile?bakeryId=...`) e cria pedidos por um endpoint
+  público específico (`POST /api/orders`) que só permite adicionar um
+  pedido, nunca ler ou sobrescrever os pedidos de outra confeitaria. A
+  rota antiga `/cardapio` (fixa na Lavily, de antes do app virar
+  multi-confeitaria) continua existindo só como redirect de
+  compatibilidade para `/lavily/cardapio`. Pagamento online (Mercado
+  Pago) está desligado por enquanto — usava um único token global; volta
+  quando cada confeitaria puder configurar o próprio.
 - Sem as variáveis `AZURE_COSMOS_ENDPOINT`/`AZURE_COSMOS_KEY` configuradas,
   o app continua funcionando com dados de exemplo em memória (não persiste
   entre recarregamentos) em vez de travar — útil para rodar localmente sem
