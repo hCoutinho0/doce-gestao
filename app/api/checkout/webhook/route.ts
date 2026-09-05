@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { MercadoPagoConfig, Payment } from 'mercadopago';
-import { isCosmosConfigured, readState, writeState, LAVILY_BAKERY_ID } from '@/lib/cosmos';
+import { isCosmosConfigured, updateStateAtomic, LAVILY_BAKERY_ID } from '@/lib/cosmos';
 
 type Order = {
   id: string;
@@ -51,16 +51,25 @@ function isValidSignature(request: Request, dataId: string): boolean {
   return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(hash));
 }
 
+// Mercado Pago checkout is currently disabled in the UI (single shared
+// access token — see app/[bakeryId]/cardapio/page.tsx) and this route is
+// hardcoded to LAVILY_BAKERY_ID accordingly: it's dead code for every
+// other confeitaria today, kept only so reactivating it later doesn't mean
+// starting from scratch. Before turning it back on for anyone but Lavily,
+// this needs a real bakeryId (e.g. round-tripped through the payment's
+// external_reference / metadata) instead of the hardcoded constant below.
 export async function POST(request: Request) {
   const url = new URL(request.url);
   const dataId =
     url.searchParams.get('data.id') ?? url.searchParams.get('id') ?? '';
   const type = url.searchParams.get('type');
 
-  if (
-    process.env.MERCADOPAGO_WEBHOOK_SECRET &&
-    !isValidSignature(request, dataId)
-  ) {
+  // Fails closed: isValidSignature already returns false when the secret
+  // itself isn't configured, so a missing MERCADOPAGO_WEBHOOK_SECRET
+  // rejects every request instead of silently skipping validation — a
+  // payment id isn't secret (it appears in redirect URLs/emails), so an
+  // unvalidated caller could otherwise force an order's status to flip.
+  if (!isValidSignature(request, dataId)) {
     return NextResponse.json({ error: 'invalid_signature' }, { status: 401 });
   }
 
@@ -82,12 +91,11 @@ export async function POST(request: Request) {
     const label = payment.status ? STATUS_LABELS[payment.status] : undefined;
     if (!orderId || !label) return NextResponse.json({ received: true });
 
-    const orders = ((await readState<Order[]>(LAVILY_BAKERY_ID, ORDERS_KEY)) ??
-      []) as Order[];
-    const updated = orders.map((order) =>
-      order.id === orderId ? { ...order, status: label } : order,
+    await updateStateAtomic<Order[]>(LAVILY_BAKERY_ID, ORDERS_KEY, (current) =>
+      (current ?? []).map((order) =>
+        order.id === orderId ? { ...order, status: label } : order,
+      ),
     );
-    await writeState(LAVILY_BAKERY_ID, ORDERS_KEY, updated);
   } catch (error) {
     console.error('Falha ao processar notificação do Mercado Pago', error);
   }

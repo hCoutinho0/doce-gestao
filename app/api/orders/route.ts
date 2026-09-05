@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { isCosmosConfigured, readState, writeState, LAVILY_BAKERY_ID } from '@/lib/cosmos';
+import {
+  isCosmosConfigured,
+  readState,
+  updateStateAtomic,
+  LAVILY_BAKERY_ID,
+} from '@/lib/cosmos';
 
 type OrderItem = { name: string; quantity: number; unitPrice: number };
 type Order = {
@@ -44,44 +49,57 @@ const MENU_EDITIONS_KEY = 'doce-menu-editions';
 // cancelled order never earns one. Returns the customer's current stamp
 // count (unchanged by this call) so the checkout can still show their
 // loyalty card.
+//
+// Wrapped in updateStateAtomic (not a plain readState+writeState) because
+// two customers can check out at nearly the same instant — without the
+// ETag-guarded retry, both requests read the list before either write
+// lands, and whichever writes second silently erases the customer record
+// the other one just created.
 async function ensureCustomer(
   bakeryId: string,
   name: string,
   phone: string,
   birthday?: string,
 ): Promise<number> {
-  const customers = ((await readState<Customer[]>(bakeryId, CUSTOMERS_KEY)) ??
-    []) as Customer[];
-  const match = customers.find(
-    (c) => c.name.trim().toLowerCase() === name.toLowerCase(),
-  );
-  if (!match) {
-    const customer: Customer = {
-      id: Date.now(),
-      name,
-      phone,
-      ...(birthday ? { birthday } : {}),
-      stamps: 0,
-    };
-    await writeState(bakeryId, CUSTOMERS_KEY, [...customers, customer]);
-    return 0;
-  }
-  if (birthday) {
-    const updated = customers.map((c) =>
+  let stamps = 0;
+  await updateStateAtomic<Customer[]>(bakeryId, CUSTOMERS_KEY, (current) => {
+    const customers = current ?? [];
+    const match = customers.find(
+      (c) => c.name.trim().toLowerCase() === name.toLowerCase(),
+    );
+    if (!match) {
+      stamps = 0;
+      const customer: Customer = {
+        id: Date.now(),
+        name,
+        phone,
+        ...(birthday ? { birthday } : {}),
+        stamps: 0,
+      };
+      return [...customers, customer];
+    }
+    stamps = match.stamps;
+    if (!birthday) return customers;
+    return customers.map((c) =>
       c.id === match.id ? { ...c, birthday } : c,
     );
-    await writeState(bakeryId, CUSTOMERS_KEY, updated);
-  }
-  return match.stamps;
+  });
+  return stamps;
 }
 
 // Sequential, persisted counter — immune to orders being deleted (unlike
 // the old `#${2001 + existing.length}`, which could reissue a number once
-// an order in the middle of the list was removed).
+// an order in the middle of the list was removed) AND immune to two orders
+// created at the same instant issuing the same number (updateStateAtomic
+// retries on a write conflict instead of the plain read-then-write this
+// used to be, which let both requests read the same counter value).
 async function nextOrderNumber(bakeryId: string): Promise<string> {
-  const counter = (await readState<number>(bakeryId, ORDER_COUNTER_KEY)) ?? 1;
-  await writeState(bakeryId, ORDER_COUNTER_KEY, counter + 1);
-  return `#${String(counter).padStart(2, '0')}`;
+  let issued = 1;
+  await updateStateAtomic<number>(bakeryId, ORDER_COUNTER_KEY, (current) => {
+    issued = current ?? 1;
+    return issued + 1;
+  });
+  return `#${String(issued).padStart(2, '0')}`;
 }
 
 // Prices for structured items are always taken from the live cardápio, not
@@ -218,8 +236,6 @@ export async function POST(request: Request) {
     itemSummary = body.item.trim();
   }
 
-  const existing = ((await readState<Order[]>(bakeryId, ORDERS_KEY)) ??
-    []) as Order[];
   const order: Order = {
     id: await nextOrderNumber(bakeryId),
     customer: body.customer.trim(),
@@ -233,7 +249,13 @@ export async function POST(request: Request) {
     value,
     status: body.status?.trim() || 'Novo',
   };
-  await writeState(bakeryId, ORDERS_KEY, [order, ...existing]);
+  // updateStateAtomic, not readState+writeState — two orders created in
+  // the same instant (two customers checking out at once) must not let
+  // the second writer's stale snapshot drop the first one's order.
+  await updateStateAtomic<Order[]>(bakeryId, ORDERS_KEY, (current) => [
+    order,
+    ...(current ?? []),
+  ]);
   const stamps = await ensureCustomer(
     bakeryId,
     order.customer,

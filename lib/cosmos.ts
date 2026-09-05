@@ -107,6 +107,70 @@ export async function writeState<T>(
   await writeDoc(`${bakeryId}:${key}`, value);
 }
 
+async function readDocWithEtag<T>(
+  id: string,
+): Promise<{ value: T | null; etag: string | null }> {
+  const container = await getAppStateContainer();
+  try {
+    const { resource } = await container
+      .item(id, id)
+      .read<{ id: string; value: T; _etag?: string }>();
+    return { value: resource?.value ?? null, etag: resource?._etag ?? null };
+  } catch (error) {
+    if ((error as { code?: number }).code === 404) return { value: null, etag: null };
+    throw error;
+  }
+}
+
+// A plain readState-then-writeState is a read-modify-write with no
+// isolation — two requests racing (two customers checking out at the same
+// instant, both bumping the same order counter or appending to the same
+// loyalty list) can both read the same starting point and one silently
+// clobbers the other's change on write. This does the same read-modify-
+// write, but guarded by the document's ETag: the write only succeeds if
+// nobody else changed it in between, and on a conflict (412 — someone else
+// won the race; 409 — someone else created it first) it just re-reads the
+// now-current value and retries `update` against that. Used for every
+// state document more than one request can plausibly touch at once.
+export async function updateStateAtomic<T>(
+  bakeryId: string,
+  key: string,
+  update: (current: T | null) => T,
+  maxAttempts = 5,
+): Promise<T> {
+  const container = await getAppStateContainer();
+  const id = `${bakeryId}:${key}`;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const { value, etag } = await readDocWithEtag<T>(id);
+    // Same legacy fallback readState relies on — an old Lavily document
+    // saved without the bakeryId prefix still needs to be picked up the
+    // first time this key is written under the new scoped id.
+    const current =
+      value === null && bakeryId === LAVILY_BAKERY_ID
+        ? await readDoc<T>(key)
+        : value;
+    const next = update(current);
+    try {
+      if (etag) {
+        await container
+          .item(id, id)
+          .replace(
+            { id, value: next },
+            { accessCondition: { type: 'IfMatch', condition: etag } },
+          );
+      } else {
+        await container.items.create({ id, value: next });
+      }
+      return next;
+    } catch (error) {
+      const code = (error as { code?: number }).code;
+      if ((code === 412 || code === 409) && attempt < maxAttempts) continue;
+      throw error;
+    }
+  }
+  throw new Error('update_conflict_retries_exhausted');
+}
+
 // The only reads that aren't a point-read-by-id — used sparingly (today
 // just listing a confeitaria's invites), since it's a cross-partition
 // query rather than a single-document lookup.

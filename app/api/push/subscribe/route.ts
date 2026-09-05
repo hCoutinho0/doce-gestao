@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { isCosmosConfigured, readState, writeState } from '@/lib/cosmos';
+import { isCosmosConfigured, updateStateAtomic } from '@/lib/cosmos';
 
 type PushSubscriptionRecord = {
   endpoint: string;
@@ -11,9 +11,11 @@ const SUBSCRIPTIONS_KEY = 'doce-push-subscriptions';
 
 // Kept out of the generic /api/data/[key] store on purpose: subscriptions
 // are added and removed one at a time, from whichever device the admin is
-// using — a full-array PUT of a stale client snapshot (the same class of
-// bug already found and fixed for loyalty this session) would silently
-// drop a subscription added from another device in between.
+// using. updateStateAtomic (not readState+writeState) closes the same
+// class of bug already found and fixed for loyalty this session — two
+// devices subscribing near-simultaneously, or the daily reminder cron
+// pruning an expired subscription at the same moment a new one is added,
+// must not let one write silently erase the other.
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user.bakeryId) {
@@ -29,15 +31,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'invalid_subscription' }, { status: 400 });
   }
 
-  const existing =
-    (await readState<PushSubscriptionRecord[]>(bakeryId, SUBSCRIPTIONS_KEY)) ?? [];
-  const withoutDuplicate = existing.filter(
-    (s) => s.endpoint !== subscription.endpoint,
+  await updateStateAtomic<PushSubscriptionRecord[]>(
+    bakeryId,
+    SUBSCRIPTIONS_KEY,
+    (current) => [
+      ...(current ?? []).filter((s) => s.endpoint !== subscription.endpoint),
+      subscription,
+    ],
   );
-  await writeState(bakeryId, SUBSCRIPTIONS_KEY, [
-    ...withoutDuplicate,
-    subscription,
-  ]);
 
   return NextResponse.json({ ok: true });
 }
@@ -56,12 +57,10 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'invalid_endpoint' }, { status: 400 });
   }
 
-  const existing =
-    (await readState<PushSubscriptionRecord[]>(bakeryId, SUBSCRIPTIONS_KEY)) ?? [];
-  await writeState(
+  await updateStateAtomic<PushSubscriptionRecord[]>(
     bakeryId,
     SUBSCRIPTIONS_KEY,
-    existing.filter((s) => s.endpoint !== body.endpoint),
+    (current) => (current ?? []).filter((s) => s.endpoint !== body.endpoint),
   );
 
   return NextResponse.json({ ok: true });

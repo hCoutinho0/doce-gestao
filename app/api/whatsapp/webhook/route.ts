@@ -16,6 +16,14 @@ const ORDERS_KEY = 'doce-orders';
 const CARDAPIO_URL =
   process.env.NEXTAUTH_URL ?? 'https://SEU-DOMINIO';
 
+// This bot is wired to one WhatsApp Business number (Lavily's own),
+// hardcoded to LAVILY_BAKERY_ID accordingly — it always looks up and
+// replies about Lavily's orders, regardless of who's texting. That's fine
+// while only Lavily has this connected; if another confeitaria ever gets
+// its own WhatsApp Business number, this needs a way to resolve which
+// bakeryId a given incoming number belongs to instead of the constant
+// below.
+
 // Meta's handshake to confirm we own this webhook — required once, when
 // the endpoint is registered in the Meta app dashboard.
 export function GET(request: Request) {
@@ -62,7 +70,9 @@ async function handleMessage(from: string, text: string) {
   const orderMatch = normalized.match(/(\d+)/);
 
   if (orderMatch && isCosmosConfigured()) {
-    const code = `#${orderMatch[1]}`;
+    // Order ids are always zero-padded to at least 2 digits (#01, #02...)
+    // — a customer typing "1" for "pedido 1" must still match "#01".
+    const code = `#${orderMatch[1].padStart(2, '0')}`;
     const orders = ((await readState<Order[]>(LAVILY_BAKERY_ID, ORDERS_KEY)) ??
       []) as Order[];
     const order = orders.find((o) => o.id === code);
@@ -89,10 +99,14 @@ async function handleMessage(from: string, text: string) {
 export async function POST(request: Request) {
   const rawBody = await request.text();
 
-  if (
-    process.env.WHATSAPP_APP_SECRET &&
-    !(await isValidSignature(request, rawBody))
-  ) {
+  // Fails closed: isValidSignature already returns false when the secret
+  // itself isn't configured, so there is no "signature checking is
+  // optional" branch here — a missing WHATSAPP_APP_SECRET means every
+  // request is rejected, not silently trusted. An unauthenticated caller
+  // could otherwise forge a webhook payload and make the bot relay
+  // arbitrary text to any phone number via the business's own WhatsApp
+  // number, or brute-force order numbers to read another customer's order.
+  if (!(await isValidSignature(request, rawBody))) {
     return NextResponse.json({ error: 'invalid_signature' }, { status: 401 });
   }
 

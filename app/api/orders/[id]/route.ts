@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { isCosmosConfigured, readState, writeState } from '@/lib/cosmos';
+import { isCosmosConfigured, updateStateAtomic } from '@/lib/cosmos';
 
 type OrderItem = { name: string; quantity: number; unitPrice: number };
 type Order = {
@@ -54,29 +54,27 @@ async function awardStamps(
   customerName: string,
   value: number,
 ): Promise<Customer | undefined> {
-  const customers = ((await readState<Customer[]>(bakeryId, CUSTOMERS_KEY)) ??
-    []) as Customer[];
-  const match = customers.find(
-    (c) => c.name.trim().toLowerCase() === customerName.toLowerCase(),
-  );
-  if (!match) return undefined;
-  const stamps = Math.min(
-    STAMPS_FOR_DISCOUNT,
-    match.stamps + stampsForValue(value),
-  );
-  const updated = customers.map((c) =>
-    c.id === match.id ? { ...c, stamps } : c,
-  );
-  await writeState(bakeryId, CUSTOMERS_KEY, updated);
-  return { ...match, stamps };
+  let awarded: Customer | undefined;
+  await updateStateAtomic<Customer[]>(bakeryId, CUSTOMERS_KEY, (current) => {
+    const customers = current ?? [];
+    const match = customers.find(
+      (c) => c.name.trim().toLowerCase() === customerName.toLowerCase(),
+    );
+    if (!match) {
+      awarded = undefined;
+      return customers;
+    }
+    const stamps = Math.min(
+      STAMPS_FOR_DISCOUNT,
+      match.stamps + stampsForValue(value),
+    );
+    awarded = { ...match, stamps };
+    return customers.map((c) => (c.id === match.id ? { ...c, stamps } : c));
+  });
+  return awarded;
 }
 
-async function logSale(
-  bakeryId: string,
-  order: Order,
-): Promise<FinanceItem> {
-  const finance = ((await readState<FinanceItem[]>(bakeryId, FINANCE_KEY)) ??
-    []) as FinanceItem[];
+async function logSale(bakeryId: string, order: Order): Promise<FinanceItem> {
   const entry: FinanceItem = {
     id: Date.now(),
     description: `Pedido ${order.id} - ${order.customer}`,
@@ -85,7 +83,10 @@ async function logSale(
     value: order.value,
     date: order.orderDate ?? new Date().toISOString().slice(0, 10),
   };
-  await writeState(bakeryId, FINANCE_KEY, [entry, ...finance]);
+  await updateStateAtomic<FinanceItem[]>(bakeryId, FINANCE_KEY, (current) => [
+    entry,
+    ...(current ?? []),
+  ]);
   return entry;
 }
 
@@ -93,7 +94,12 @@ async function logSale(
 // scoped to a single order — never a blind overwrite of a client's stale
 // in-memory copy of the whole list. That's what let a customer's order
 // vanish once already: two people's full-array PUTs raced and the loser's
-// snapshot (missing the other's new order) won.
+// snapshot (missing the other's new order) won. updateStateAtomic closes
+// the gap further with an ETag-guarded retry: the callback below is pure
+// (no side effects) and re-derives shouldLogFinance/shouldAwardStamps from
+// whatever the *current* document says on every attempt, so a write
+// conflict retry can never double-trigger logSale/awardStamps — only the
+// attempt that actually wins the write decides what fires next.
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -113,36 +119,49 @@ export async function PATCH(
   }
   const status = body.status.trim();
 
-  const orders = ((await readState<Order[]>(bakeryId, ORDERS_KEY)) ??
-    []) as Order[];
-  const target = orders.find((order) => order.id === id);
-  if (!target) {
+  let updatedOrder: Order | undefined;
+  let shouldLogFinance = false;
+  let shouldAwardStamps = false;
+
+  await updateStateAtomic<Order[]>(bakeryId, ORDERS_KEY, (current) => {
+    const orders = current ?? [];
+    const target = orders.find((order) => order.id === id);
+    if (!target) {
+      updatedOrder = undefined;
+      return orders;
+    }
+
+    let next: Order = { ...target, status };
+    shouldLogFinance = false;
+    shouldAwardStamps = false;
+    // Completing an order is the moment it actually counts as a sale —
+    // both the financeiro entry and the loyalty stamp fire on this
+    // transition, exactly once per order (guarded by these flags),
+    // regardless of how many times the status is changed afterwards.
+    if (status === 'Concluído') {
+      if (!target.financeLogged) {
+        shouldLogFinance = true;
+        next = { ...next, financeLogged: true };
+      }
+      if (!target.stampsAwarded) {
+        shouldAwardStamps = true;
+        next = { ...next, stampsAwarded: true };
+      }
+    }
+    updatedOrder = next;
+    return orders.map((order) => (order.id === id ? next : order));
+  });
+
+  if (!updatedOrder) {
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 
-  let updatedOrder: Order = { ...target, status };
-  let financeItem: FinanceItem | undefined;
-  let customer: Customer | undefined;
-
-  // Completing an order is the moment it actually counts as a sale — both
-  // the financeiro entry and the loyalty stamp fire here, exactly once per
-  // order (guarded by the flags below), regardless of how many times the
-  // status is changed afterwards.
-  if (status === 'Concluído') {
-    if (!target.financeLogged) {
-      financeItem = await logSale(bakeryId, updatedOrder);
-      updatedOrder = { ...updatedOrder, financeLogged: true };
-    }
-    if (!target.stampsAwarded) {
-      customer = await awardStamps(bakeryId, target.customer, target.value);
-      updatedOrder = { ...updatedOrder, stampsAwarded: true };
-    }
-  }
-
-  const updated = orders.map((order) =>
-    order.id === id ? updatedOrder : order,
-  );
-  await writeState(bakeryId, ORDERS_KEY, updated);
+  const financeItem = shouldLogFinance
+    ? await logSale(bakeryId, updatedOrder)
+    : undefined;
+  const customer = shouldAwardStamps
+    ? await awardStamps(bakeryId, updatedOrder.customer, updatedOrder.value)
+    : undefined;
 
   return NextResponse.json({ ok: true, order: updatedOrder, financeItem, customer });
 }
@@ -161,12 +180,8 @@ export async function DELETE(
   const bakeryId = session.user.bakeryId;
   const { id } = await params;
 
-  const orders = ((await readState<Order[]>(bakeryId, ORDERS_KEY)) ??
-    []) as Order[];
-  await writeState(
-    bakeryId,
-    ORDERS_KEY,
-    orders.filter((order) => order.id !== id),
+  await updateStateAtomic<Order[]>(bakeryId, ORDERS_KEY, (current) =>
+    (current ?? []).filter((order) => order.id !== id),
   );
 
   return NextResponse.json({ ok: true });

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { isCosmosConfigured, readState, writeState } from '@/lib/cosmos';
+import { isCosmosConfigured, updateStateAtomic } from '@/lib/cosmos';
 
 type Customer = {
   id: number;
@@ -12,9 +12,10 @@ type Customer = {
 
 const CUSTOMERS_KEY = 'doce-loyalty';
 
-// Same read-modify-write-one-record pattern as /api/orders/[id]: never a
-// blind overwrite of the whole list, since the public checkout can also be
-// creating/updating a customer record concurrently.
+// updateStateAtomic, not a plain read-then-write: never a blind overwrite
+// of the whole list, since the public checkout can also be creating/
+// updating a customer record concurrently — an ETag conflict here retries
+// against whatever is current instead of clobbering it.
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -36,21 +37,20 @@ export async function PATCH(
   if (!body.name?.trim()) {
     return NextResponse.json({ error: 'invalid_customer' }, { status: 400 });
   }
-
-  const customers = ((await readState<Customer[]>(bakeryId, CUSTOMERS_KEY)) ??
-    []) as Customer[];
   const customerId = Number(id);
-  const updated = customers.map((customer) =>
-    customer.id === customerId
-      ? {
-          ...customer,
-          name: body.name!.trim(),
-          phone: body.phone?.trim() ?? customer.phone,
-          ...(body.birthday ? { birthday: body.birthday } : {}),
-        }
-      : customer,
+
+  await updateStateAtomic<Customer[]>(bakeryId, CUSTOMERS_KEY, (current) =>
+    (current ?? []).map((customer) =>
+      customer.id === customerId
+        ? {
+            ...customer,
+            name: body.name!.trim(),
+            phone: body.phone?.trim() ?? customer.phone,
+            ...(body.birthday ? { birthday: body.birthday } : {}),
+          }
+        : customer,
+    ),
   );
-  await writeState(bakeryId, CUSTOMERS_KEY, updated);
 
   return NextResponse.json({ ok: true });
 }
@@ -70,12 +70,8 @@ export async function DELETE(
   const { id } = await params;
   const customerId = Number(id);
 
-  const customers = ((await readState<Customer[]>(bakeryId, CUSTOMERS_KEY)) ??
-    []) as Customer[];
-  await writeState(
-    bakeryId,
-    CUSTOMERS_KEY,
-    customers.filter((customer) => customer.id !== customerId),
+  await updateStateAtomic<Customer[]>(bakeryId, CUSTOMERS_KEY, (current) =>
+    (current ?? []).filter((customer) => customer.id !== customerId),
   );
 
   return NextResponse.json({ ok: true });

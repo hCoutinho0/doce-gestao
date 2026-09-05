@@ -1468,6 +1468,11 @@ function Orders({
     setQuantities({});
     setProductQuantities({});
     setProductPrices({});
+    // Otherwise a retroactive order built from an archived week silently
+    // leaves the picker parked on that old week — the next order (meant to
+    // use today's live cardápio) would keep building from stale items/
+    // prices unless the admin notices and clicks back manually.
+    setEditionIndex(0);
   };
   const changeStatus = async (id: string, status: string) => {
     const response = await fetch(`/api/orders/${encodeURIComponent(id)}`, {
@@ -2179,16 +2184,28 @@ function Pricing({
               </select>
             </Field>
           </Panel>
-          {selectedProduct && (
-            <RecipeEditor
-              key={selectedProduct.id}
-              product={selectedProduct}
-              stock={stock}
-              recipe={recipes.find((r) => r.productId === selectedProduct.id)}
-              onSave={saveRecipe}
-              onRemove={() => removeRecipe(selectedProduct.id)}
-            />
-          )}
+          {selectedProduct &&
+            (() => {
+              const recipe = recipes.find(
+                (r) => r.productId === selectedProduct.id,
+              );
+              return (
+                <RecipeEditor
+                  // Remounts (resetting all local form state) whenever the
+                  // product changes OR its recipe goes from
+                  // existing→removed — without the recipe half of this key,
+                  // clicking "Remover ficha técnica" left every field on
+                  // screen showing the just-deleted values, and clicking
+                  // "Salvar" again silently recreated it.
+                  key={`${selectedProduct.id}-${recipe ? 'has-recipe' : 'no-recipe'}`}
+                  product={selectedProduct}
+                  stock={stock}
+                  recipe={recipe}
+                  onSave={saveRecipe}
+                  onRemove={() => removeRecipe(selectedProduct.id)}
+                />
+              );
+            })()}
         </>
       ) : (
         <ProfitByProduct menuItems={menuItems} recipes={recipes} stock={stock} />
