@@ -204,18 +204,6 @@ type MenuItem = {
   weight?: { value: number; unit: 'kg' | 'g' | 'l' };
 };
 
-// A past weekly edition, archived when the admin starts a new one — the
-// live edition itself stays in doce-menu/doce-menu-week* exactly as
-// before, so the public cardápio and order pricing don't need to change.
-type MenuEdition = {
-  id: string;
-  weekTitle: string;
-  weekStart: string;
-  weekEnd: string;
-  items: MenuItem[];
-  archivedAt: string;
-};
-
 // A simple named product + flavor, independent of the weekly cardápio —
 // meant for things like custom cakes that aren't part of a given week's
 // published menu but still need to show up when building a pedido.
@@ -312,18 +300,6 @@ const fieldValue = (data: FormData, name: string) => {
   const value = data.get(name);
   return typeof value === 'string' ? value : '';
 };
-const MONTHS_PT = [
-  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
-  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
-];
-const formatWeekRange = (startIso: string, endIso: string) => {
-  const start = new Date(`${startIso}T00:00:00`);
-  const end = new Date(`${endIso}T00:00:00`);
-  if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
-    return `Semana de ${start.getDate()} a ${end.getDate()} de ${MONTHS_PT[start.getMonth()]}`;
-  }
-  return `Semana de ${start.getDate()} de ${MONTHS_PT[start.getMonth()]} a ${end.getDate()} de ${MONTHS_PT[end.getMonth()]}`;
-};
 type FormSubmit = {
   preventDefault: () => void;
   currentTarget: HTMLFormElement;
@@ -336,10 +312,6 @@ export default function Home() {
   const [stock, setStock] = useStoredState('doce-stock-v2', initialStock);
   const [finance, setFinance] = useStoredState('doce-finance', initialFinance);
   const [menuItems, setMenuItems] = useStoredState('doce-menu', initialMenu);
-  const [menuEditions, setMenuEditions] = useStoredState<MenuEdition[]>(
-    'doce-menu-editions',
-    [],
-  );
   const [products, setProducts] = useStoredState<Product[]>(
     'doce-products',
     [],
@@ -525,7 +497,6 @@ export default function Home() {
                 orders={orders}
                 setOrders={setOrders}
                 menuItems={menuItems}
-                menuEditions={menuEditions}
                 products={products}
                 customers={loyalty}
                 setFinance={setFinance}
@@ -549,8 +520,6 @@ export default function Home() {
               <DigitalMenu
                 items={menuItems}
                 setItems={setMenuItems}
-                editions={menuEditions}
-                setEditions={setMenuEditions}
                 bakeryId={session.bakeryId ?? ''}
               />
             )}
@@ -1511,7 +1480,6 @@ function Orders({
   orders,
   setOrders,
   menuItems,
-  menuEditions,
   products,
   customers,
   setFinance,
@@ -1520,7 +1488,6 @@ function Orders({
   orders: Order[];
   setOrders: (v: Order[] | ((o: Order[]) => Order[])) => void;
   menuItems: MenuItem[];
-  menuEditions: MenuEdition[];
   products: Product[];
   customers: LoyaltyItem[];
   setFinance: (v: FinanceItem[] | ((o: FinanceItem[]) => FinanceItem[])) => void;
@@ -1547,15 +1514,10 @@ function Orders({
     {},
   );
   const [submitting, setSubmitting] = useState(false);
-  // 0 = a edição ao vivo (menuItems); 1, 2... = doce-menu-editions[n - 1],
-  // uma semana arquivada — útil pra lançar um pedido retroativo com os
-  // itens/preços que valiam naquela época.
-  const [editionIndex, setEditionIndex] = useState(0);
   const [monthView, setMonthView] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
-  const [liveWeekTitle] = useStoredState('doce-menu-week', '');
 
   const salesStats = useMemo(() => {
     const now = new Date();
@@ -1569,17 +1531,7 @@ function Orders({
     };
   }, [orders]);
 
-  const viewedEdition =
-    editionIndex > 0 ? menuEditions[editionIndex - 1] : undefined;
-  const available = (viewedEdition ? viewedEdition.items : menuItems).filter(
-    (item) => viewedEdition || item.available,
-  );
-  const weekLabel = viewedEdition
-    ? viewedEdition.weekTitle ||
-      (viewedEdition.weekStart && viewedEdition.weekEnd
-        ? formatWeekRange(viewedEdition.weekStart, viewedEdition.weekEnd)
-        : 'Edição arquivada')
-    : liveWeekTitle || 'Semana atual';
+  const available = menuItems.filter((item) => item.available);
 
   const cartItems = available
     .filter((item) => quantities[item.id] > 0)
@@ -1667,7 +1619,6 @@ function Orders({
         date: formattedDate,
         value: total,
         status: 'Novo',
-        editionId: viewedEdition?.id,
         paymentMethod,
         paymentStatus: alreadyPaid ? 'Pago' : 'Pendente',
       }),
@@ -1693,11 +1644,6 @@ function Orders({
     setQuantities({});
     setProductQuantities({});
     setProductPrices({});
-    // Otherwise a retroactive order built from an archived week silently
-    // leaves the picker parked on that old week — the next order (meant to
-    // use today's live cardápio) would keep building from stale items/
-    // prices unless the admin notices and clicks back manually.
-    setEditionIndex(0);
   };
   const changeStatus = async (id: string, status: string) => {
     const response = await fetch(`/api/orders/${encodeURIComponent(id)}`, {
@@ -1918,41 +1864,12 @@ function Orders({
           </div>
           <div className="space-y-4">
             <div>
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-xs font-semibold text-muted-foreground">
-                  Produtos da semana
-                </p>
-                <div className="flex items-center gap-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon-sm"
-                    aria-label="Semana anterior"
-                    onClick={() =>
-                      setEditionIndex((i) => Math.min(menuEditions.length, i + 1))
-                    }
-                    disabled={editionIndex >= menuEditions.length}
-                  >
-                    <ChevronLeft />
-                  </Button>
-                  <span className="w-28 truncate text-center text-[11px] text-muted-foreground">
-                    {weekLabel}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon-sm"
-                    aria-label="Próxima semana"
-                    onClick={() => setEditionIndex((i) => Math.max(0, i - 1))}
-                    disabled={editionIndex === 0}
-                  >
-                    <ChevronRight />
-                  </Button>
-                </div>
-              </div>
+              <p className="mb-2 text-xs font-semibold text-muted-foreground">
+                Produtos do cardápio
+              </p>
               {available.length === 0 ? (
                 <p className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
-                  Nenhum produto publicado no cardápio desta semana.
+                  Nenhum produto publicado no cardápio.
                 </p>
               ) : (
                 <div className="max-h-60 space-y-1.5 overflow-y-auto rounded-xl border p-2">
@@ -3576,63 +3493,12 @@ function Finance({
 function DigitalMenu({
   items,
   setItems,
-  editions,
-  setEditions,
   bakeryId,
 }: {
   items: MenuItem[];
   setItems: (v: MenuItem[] | ((o: MenuItem[]) => MenuItem[])) => void;
-  editions: MenuEdition[];
-  setEditions: (v: MenuEdition[] | ((o: MenuEdition[]) => MenuEdition[])) => void;
   bakeryId: string;
 }) {
-  const [weekTitle, setWeekTitle] = useStoredState('doce-menu-week', '');
-  const [weekStart, setWeekStart] = useStoredState('doce-menu-week-start', '');
-  const [weekEnd, setWeekEnd] = useStoredState('doce-menu-week-end', '');
-  // 0 = a edição ao vivo (doce-menu / doce-menu-week*, o que já existia);
-  // 1, 2... = editions[n - 1], uma edição arquivada — as setinhas navegam
-  // entre elas, e "reabrir" uma arquivada permite editar os itens dela sem
-  // afetar o que está publicado no cardápio público.
-  const [editionIndex, setEditionIndex] = useState(0);
-  const archivedEdition = editionIndex > 0 ? editions[editionIndex - 1] : undefined;
-  const viewedItems = archivedEdition ? archivedEdition.items : items;
-  const updateViewedItems = (
-    updater: (old: MenuItem[]) => MenuItem[],
-  ) => {
-    if (!archivedEdition) {
-      setItems(updater);
-      return;
-    }
-    setEditions((old) =>
-      old.map((edition) =>
-        edition.id === archivedEdition.id
-          ? { ...edition, items: updater(edition.items) }
-          : edition,
-      ),
-    );
-  };
-  const archiveCurrentEdition = () => {
-    setEditions((old) => [
-      {
-        id: Date.now().toString(),
-        weekTitle,
-        weekStart,
-        weekEnd,
-        items,
-        archivedAt: new Date().toISOString(),
-      },
-      ...old,
-    ]);
-    setItems([]);
-    setWeekTitle('');
-    setWeekStart('');
-    setWeekEnd('');
-    setEditionIndex(0);
-  };
-
-  useEffect(() => {
-    if (weekStart && weekEnd) setWeekTitle(formatWeekRange(weekStart, weekEnd));
-  }, [weekStart, weekEnd, setWeekTitle]);
   const [pendingPhoto, setPendingPhoto] = useState('');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoError, setPhotoError] = useState('');
@@ -3664,7 +3530,7 @@ function DigitalMenu({
     e.preventDefault();
     const data = new FormData(e.currentTarget);
     const weightValue = Number(fieldValue(data, 'weightValue'));
-    updateViewedItems((old) => [
+    setItems((old) => [
       ...old,
       {
         id: Date.now(),
@@ -3691,7 +3557,7 @@ function DigitalMenu({
     <>
       <PageHeading
         title="Cardápio digital"
-        subtitle="Crie manualmente cada edição semanal, escolha os produtos e compartilhe com clientes."
+        subtitle="Gerencie os produtos publicados no cardápio dos clientes."
         action={
           <Link
             href={`/${bakeryId}/cardapio`}
@@ -3702,82 +3568,6 @@ function DigitalMenu({
           </Link>
         }
       />
-      <div className="mb-5 grid gap-5">
-        <Panel className="p-5">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="font-heading text-lg font-bold">
-                {archivedEdition ? 'Edição arquivada' : 'Edição da semana'}
-              </h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {archivedEdition
-                  ? 'Reabra e edite os produtos desta semana passada — não afeta o cardápio publicado.'
-                  : 'O título aparece imediatamente no cardápio enviado aos clientes.'}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon-sm"
-                aria-label="Semana anterior"
-                onClick={() =>
-                  setEditionIndex((i) => Math.min(editions.length, i + 1))
-                }
-                disabled={editionIndex >= editions.length}
-              >
-                <ChevronLeft />
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon-sm"
-                aria-label="Próxima semana"
-                onClick={() => setEditionIndex((i) => Math.max(0, i - 1))}
-                disabled={editionIndex === 0}
-              >
-                <ChevronRight />
-              </Button>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <Field label="Início da edição">
-              <input
-                type="date"
-                value={archivedEdition ? archivedEdition.weekStart : weekStart}
-                onChange={(e) => setWeekStart(e.target.value)}
-                disabled={Boolean(archivedEdition)}
-                className={inputClass}
-              />
-            </Field>
-            <Field label="Fim da edição">
-              <input
-                type="date"
-                value={archivedEdition ? archivedEdition.weekEnd : weekEnd}
-                min={weekStart || undefined}
-                onChange={(e) => setWeekEnd(e.target.value)}
-                disabled={Boolean(archivedEdition)}
-                className={inputClass}
-              />
-            </Field>
-          </div>
-          {(archivedEdition ? archivedEdition.weekTitle : weekTitle) && (
-            <p className="mt-3 text-xs font-semibold text-primary">
-              {archivedEdition ? archivedEdition.weekTitle : weekTitle}
-            </p>
-          )}
-          {!archivedEdition && (
-            <Button
-              type="button"
-              variant="outline"
-              className="mt-4"
-              onClick={archiveCurrentEdition}
-            >
-              Nova edição
-            </Button>
-          )}
-        </Panel>
-      </div>
       <Panel className="mb-5 p-5">
         <form
           onSubmit={addProduct}
@@ -3865,14 +3655,14 @@ function DigitalMenu({
       </Panel>
       <Panel className="overflow-hidden">
         <PanelTitle
-          title="Produtos da edição"
-          subtitle="Publique, oculte ou remova manualmente os itens desta semana"
+          title="Produtos do cardápio"
+          subtitle="Publique, oculte ou remova manualmente os itens"
         />
         <div className="divide-y">
-          {viewedItems.length === 0 && (
-            <Empty label="Nenhum produto cadastrado nesta edição ainda." />
+          {items.length === 0 && (
+            <Empty label="Nenhum produto cadastrado ainda." />
           )}
-          {viewedItems.map((item) => (
+          {items.map((item) => (
             <div key={item.id} className="flex items-center gap-4 px-5 py-4">
               {item.photoUrl ? (
                 <Image
@@ -3901,7 +3691,7 @@ function DigitalMenu({
               <Button
                 variant={item.available ? 'outline' : 'default'}
                 onClick={() =>
-                  updateViewedItems((old) =>
+                  setItems((old) =>
                     old.map((x) =>
                       x.id === item.id ? { ...x, available: !x.available } : x,
                     ),
@@ -3915,7 +3705,7 @@ function DigitalMenu({
                 size="icon-sm"
                 aria-label={`Excluir ${item.name}`}
                 onClick={() =>
-                  updateViewedItems((old) => old.filter((x) => x.id !== item.id))
+                  setItems((old) => old.filter((x) => x.id !== item.id))
                 }
               >
                 <Trash2 />

@@ -20,7 +20,7 @@ export async function generateMetadata({
       )
     : null;
   const bakeryName = profile?.name || 'Confeitaria';
-  const title = `Cardápio da Semana | ${bakeryName}`;
+  const title = `Cardápio | ${bakeryName}`;
   const description = 'Escolha doces artesanais, monte seu carrinho e envie sua encomenda.';
 
   return {
