@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import {
   Banknote,
   CakeSlice,
+  CalendarDays,
   CheckCircle2,
   CreditCard,
   Gift,
@@ -57,6 +58,7 @@ export default function CardapioPage() {
   const [customer, setCustomer] = useState('');
   const [phone, setPhone] = useState('');
   const [birthday, setBirthday] = useState('');
+  const [deliveryDate, setDeliveryDate] = useState('');
   const [notes, setNotes] = useState('');
   const [success, setSuccess] = useState('');
   const [stamps, setStamps] = useState(0);
@@ -136,9 +138,11 @@ export default function CardapioPage() {
           quantity: item.quantity,
         })),
         item: details,
-        // Data e horário de entrega saíram do checkout do cliente — a
-        // confeitaria combina isso depois, diretamente com o cliente.
-        date: 'A combinar com a confeitaria',
+        // Só a data de entrega vem do cliente — sem horário, a confeitaria
+        // combina isso depois diretamente com ele. Sem data (deliveryDate
+        // vazio), o pedido não entra nas métricas do mês.
+        deliveryDate,
+        date: deliveryDate.split('-').reverse().join('/'),
         status,
       }),
     });
@@ -155,6 +159,7 @@ export default function CardapioPage() {
     setCustomer('');
     setPhone('');
     setBirthday('');
+    setDeliveryDate('');
     setNotes('');
     setPayment('');
     setDeliveryCardType('Crédito');
@@ -164,6 +169,7 @@ export default function CardapioPage() {
     if (
       !customer.trim() ||
       !birthday ||
+      !deliveryDate ||
       !cartItems.length ||
       !payment ||
       invalidChange
@@ -472,6 +478,19 @@ export default function CardapioPage() {
                     />
                   </label>
                   <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
+                    Data da entrega
+                    <span className="relative">
+                      <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        required
+                        type="date"
+                        value={deliveryDate}
+                        onChange={(e) => setDeliveryDate(e.target.value)}
+                        className="h-10 w-full rounded-xl border bg-background pl-9 pr-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+                      />
+                    </span>
+                  </label>
+                  <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
                     Observações
                     <textarea
                       value={notes}
@@ -585,6 +604,7 @@ export default function CardapioPage() {
                       !cartItems.length ||
                       !customer.trim() ||
                       !birthday ||
+                      !deliveryDate ||
                       !payment ||
                       invalidChange
                     }
@@ -594,8 +614,8 @@ export default function CardapioPage() {
                     Confirmar pedido
                   </Button>
                   <p className="text-center text-[11px] text-muted-foreground">
-                    A confeitaria combina com você a data e o horário de
-                    entrega depois de receber o pedido.
+                    A confeitaria combina com você o horário de entrega
+                    depois de receber o pedido.
                   </p>
                 </div>
               </>
