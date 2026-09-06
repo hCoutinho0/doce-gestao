@@ -237,8 +237,13 @@ type Task = { id: number; text: string; done: boolean; createdAt: string };
 
 type RecipeLine = { id: number; stockId: number; quantity: number };
 type HiddenCost = { id: number; name: string; percentage: number };
+// productKind distingue de onde vem o produto sendo precificado — "menu"
+// (já publicado no cardápio, o comportamento original) ou "catalog" (um
+// produto só cadastrado em Produtos, ainda sem entrar no cardápio).
+// Ausente = "menu", para fichas técnicas salvas antes desse campo existir.
 type ProductRecipe = {
   productId: number;
+  productKind?: 'menu' | 'catalog';
   yieldCount: number;
   recipeItems: RecipeLine[];
   hiddenCosts: HiddenCost[];
@@ -507,6 +512,7 @@ export default function Home() {
               <Pricing
                 stock={stock}
                 menuItems={menuItems}
+                products={products}
                 recipes={recipes}
                 setRecipes={setRecipes}
               />
@@ -2351,34 +2357,61 @@ function computeRecipeCost(recipe: {
 function Pricing({
   stock,
   menuItems,
+  products,
   recipes,
   setRecipes,
 }: {
   stock: StockItem[];
   menuItems: MenuItem[];
+  products: Product[];
   recipes: ProductRecipe[];
   setRecipes: (v: ProductRecipe[] | ((o: ProductRecipe[]) => ProductRecipe[])) => void;
 }) {
   const [tab, setTab] = useState<'ficha' | 'lucro'>('ficha');
-  const [productId, setProductId] = useState<number | ''>(
+  // "menu" = produto já publicado no cardápio (fluxo original); "catalog" =
+  // produto cadastrado em Produtos, ainda sem entrar no cardápio — permite
+  // montar a ficha técnica e já saber o preço antes de publicar.
+  const [source, setSource] = useState<'menu' | 'catalog'>('menu');
+  const [menuProductId, setMenuProductId] = useState<number | ''>(
     menuItems[0]?.id ?? '',
   );
-  const selectedProduct = menuItems.find((m) => m.id === productId);
+  const [catalogProductId, setCatalogProductId] = useState<number | ''>(
+    products[0]?.id ?? '',
+  );
+  const selectedProduct: { id: number; name: string; price?: number } | undefined =
+    source === 'menu'
+      ? menuItems.find((m) => m.id === menuProductId)
+      : (() => {
+          const p = products.find((x) => x.id === catalogProductId);
+          return p ? { id: p.id, name: `${p.name} - ${p.flavor}`, price: p.price } : undefined;
+        })();
 
   const saveRecipe = (recipe: ProductRecipe) =>
     setRecipes((old) =>
-      old.some((r) => r.productId === recipe.productId)
-        ? old.map((r) => (r.productId === recipe.productId ? recipe : r))
+      old.some(
+        (r) => r.productId === recipe.productId && (r.productKind ?? 'menu') === (recipe.productKind ?? 'menu'),
+      )
+        ? old.map((r) =>
+            r.productId === recipe.productId && (r.productKind ?? 'menu') === (recipe.productKind ?? 'menu')
+              ? recipe
+              : r,
+          )
         : [...old, recipe],
     );
-  const removeRecipe = (productId: number) =>
-    setRecipes((old) => old.filter((r) => r.productId !== productId));
+  const removeRecipe = (productId: number, productKind: 'menu' | 'catalog') =>
+    setRecipes((old) =>
+      old.filter(
+        (r) => !(r.productId === productId && (r.productKind ?? 'menu') === productKind),
+      ),
+    );
+
+  const empty = source === 'menu' ? menuItems.length === 0 : products.length === 0;
 
   return (
     <>
       <PageHeading
         title="Ficha técnica e precificação"
-        subtitle="Uma ficha por produto do cardápio, com custo real e margem preservada."
+        subtitle="Uma ficha por produto, com custo real e margem preservada — no cardápio ou ainda só cadastrado."
         action={
           <div className="flex gap-2">
             <Button
@@ -2398,49 +2431,86 @@ function Pricing({
           </div>
         }
       />
-      {menuItems.length === 0 ? (
-        <Panel className="p-10 text-center text-sm text-muted-foreground">
-          Cadastre produtos no cardápio antes de criar fichas técnicas.
-        </Panel>
-      ) : tab === 'ficha' ? (
+      {tab === 'ficha' ? (
         <>
           <Panel className="mb-5 p-5">
-            <Field label="Produto do cardápio">
-              <select
-                value={productId}
-                onChange={(e) => setProductId(Number(e.target.value))}
-                className={inputClass}
+            <div className="mb-3 flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={source === 'menu' ? 'default' : 'outline'}
+                onClick={() => setSource('menu')}
               >
-                {menuItems.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} — {money(item.price)}
-                  </option>
-                ))}
-              </select>
-            </Field>
+                Produto do cardápio
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={source === 'catalog' ? 'default' : 'outline'}
+                onClick={() => setSource('catalog')}
+              >
+                Produto cadastrado (ainda fora do cardápio)
+              </Button>
+            </div>
+            {source === 'menu' ? (
+              <Field label="Produto do cardápio">
+                <select
+                  value={menuProductId}
+                  onChange={(e) => setMenuProductId(Number(e.target.value))}
+                  className={inputClass}
+                >
+                  {menuItems.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} — {money(item.price)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            ) : (
+              <Field label="Produto cadastrado">
+                <select
+                  value={catalogProductId}
+                  onChange={(e) => setCatalogProductId(Number(e.target.value))}
+                  className={inputClass}
+                >
+                  {products.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} - {item.flavor}
+                      {item.price ? ` — ${money(item.price)}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
           </Panel>
-          {selectedProduct &&
+          {empty ? (
+            <Panel className="p-10 text-center text-sm text-muted-foreground">
+              {source === 'menu'
+                ? 'Cadastre produtos no cardápio antes de criar fichas técnicas.'
+                : 'Cadastre um produto em "Produtos" antes de criar a ficha técnica.'}
+            </Panel>
+          ) : (
+            selectedProduct &&
             (() => {
               const recipe = recipes.find(
-                (r) => r.productId === selectedProduct.id,
+                (r) => r.productId === selectedProduct.id && (r.productKind ?? 'menu') === source,
               );
               return (
                 <RecipeEditor
-                  // Remounts (resetting all local form state) whenever the
-                  // product changes OR its recipe goes from
-                  // existing→removed — without the recipe half of this key,
-                  // clicking "Remover ficha técnica" left every field on
-                  // screen showing the just-deleted values, and clicking
-                  // "Salvar" again silently recreated it.
-                  key={`${selectedProduct.id}-${recipe ? 'has-recipe' : 'no-recipe'}`}
+                  // Remounts (resetting all local form state) sempre que o
+                  // produto, a origem ou a existência da ficha mudam — sem
+                  // isso, trocar de origem ou remover a ficha deixava o
+                  // formulário com valores antigos na tela.
+                  key={`${source}-${selectedProduct.id}-${recipe ? 'has-recipe' : 'no-recipe'}`}
                   product={selectedProduct}
                   stock={stock}
                   recipe={recipe}
-                  onSave={saveRecipe}
-                  onRemove={() => removeRecipe(selectedProduct.id)}
+                  onSave={(r) => saveRecipe({ ...r, productKind: source })}
+                  onRemove={() => removeRecipe(selectedProduct.id, source)}
                 />
               );
-            })()}
+            })()
+          )}
         </>
       ) : (
         <ProfitByProduct menuItems={menuItems} recipes={recipes} stock={stock} />
@@ -2456,7 +2526,7 @@ function RecipeEditor({
   onSave,
   onRemove,
 }: {
-  product: MenuItem;
+  product: { id: number; name: string; price?: number };
   stock: StockItem[];
   recipe: ProductRecipe | undefined;
   onSave: (recipe: ProductRecipe) => void;
@@ -2773,8 +2843,10 @@ function RecipeEditor({
               {money(unitPrice)}
             </p>
             <p className="mt-2 text-xs opacity-75">
-              {product.name} • rendimento de {yieldCount} un. • preço no
-              cardápio: {money(product.price)}
+              {product.name} • rendimento de {yieldCount} un. •{' '}
+              {product.price
+                ? `preço no cardápio: ${money(product.price)}`
+                : 'ainda fora do cardápio'}
             </p>
           </div>
           <div className="space-y-4 p-6">
@@ -2833,7 +2905,9 @@ function ProfitByProduct({
   stock: StockItem[];
 }) {
   const rows = menuItems.map((product) => {
-    const recipe = recipes.find((r) => r.productId === product.id);
+    const recipe = recipes.find(
+      (r) => r.productId === product.id && (r.productKind ?? 'menu') === 'menu',
+    );
     if (!recipe) return { product, recipe: null as ProductRecipe | null };
     const { baseCost } = computeRecipeCost(recipe, stock);
     const unitCost = baseCost / Math.max(1, recipe.yieldCount);
@@ -4083,6 +4157,24 @@ function Loyalty({
               </p>
             </div>
             <div className="flex gap-2 p-4">
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label={`Remover selo de ${client.name}`}
+                title="Remover selo"
+                disabled={client.stamps <= 0}
+                onClick={() =>
+                  setItems((old) =>
+                    old.map((x) =>
+                      x.id === client.id
+                        ? { ...x, stamps: Math.max(0, x.stamps - 1) }
+                        : x,
+                    ),
+                  )
+                }
+              >
+                <Minus />
+              </Button>
               <Button
                 className="flex-1"
                 disabled={client.stamps >= 10}
