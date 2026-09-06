@@ -134,3 +134,39 @@
     background: color-mix(in oklch, var(--primary), transparent 72%);
   }
 }
+
+/* Impressão da ficha técnica (Precificação): o bloco .print-ficha fica
+   fora da tela normalmente e só aparece no papel, escondendo o resto do
+   painel — sem isso o print sairia com a sidebar e os cartões inteiros. */
+.print-ficha {
+  display: none;
+}
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-ficha,
+  .print-ficha * {
+    visibility: visible;
+  }
+  .print-ficha {
+    display: block;
+    position: fixed;
+    inset: 0;
+    padding: 32px;
+    background: white;
+    color: black;
+  }
+  .print-ficha table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+  }
+  .print-ficha th,
+  .print-ficha td {
+    border: 1px solid #ccc;
+    padding: 6px 10px;
+    text-align: left;
+    font-size: 13px;
+  }
+}

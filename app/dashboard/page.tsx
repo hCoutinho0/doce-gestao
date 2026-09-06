@@ -38,6 +38,7 @@ import {
   Menu,
   PackageOpen,
   Pencil,
+  Printer,
   Plus,
   Search,
   Settings2,
@@ -90,6 +91,13 @@ type Order = {
 };
 const ORDER_STATUSES = ['Novo', 'Produção', 'Pronto', 'Entrega', 'Concluído'];
 const PAYMENT_METHODS = ['Pix', 'Cartão', 'Dinheiro', 'Presente'] as const;
+// `cost` é sempre o preço por `unit` (uma unidade/pacote comprado) — o
+// formulário de cadastro pede "valor pago" e calcula esse preço unitário na
+// hora, não pede o valor por unidade diretamente. `weight` é opcional e só
+// existe em ingredientes: o peso de UM pacote/unidade comprado (ex.: uma
+// lata de leite condensado com 395g) — é o que permite uma linha de receita
+// dizer "usei 200g disso" e cobrar só a fração correspondente do valor
+// pago, em vez do pacote inteiro.
 type StockItem = {
   id: number;
   name: string;
@@ -98,6 +106,7 @@ type StockItem = {
   min: number;
   cost: number;
   category?: 'Ingrediente' | 'Embalagem';
+  weight?: { value: number; unit: 'g' | 'kg' };
 };
 type FinanceItem = {
   id: number;
@@ -235,7 +244,15 @@ function pricePerBaseUnit(product: Product): string | null {
 // suggestions, just whatever the admin types.
 type Task = { id: number; text: string; done: boolean; createdAt: string };
 
-type RecipeLine = { id: number; stockId: number; quantity: number };
+// `unit` é a unidade em que ESSA linha da receita foi medida — pode ser
+// diferente da unidade em que o item foi comprado no estoque. É o que
+// permite comprar um pacote de 395g e usar só 200g numa receita.
+type RecipeLine = {
+  id: number;
+  stockId: number;
+  quantity: number;
+  unit: 'un' | 'g' | 'kg';
+};
 type HiddenCost = { id: number; name: string; percentage: number };
 // productKind distingue de onde vem o produto sendo precificado — "menu"
 // (já publicado no cardápio, o comportamento original) ou "catalog" (um
@@ -244,12 +261,20 @@ type HiddenCost = { id: number; name: string; percentage: number };
 type ProductRecipe = {
   productId: number;
   productKind?: 'menu' | 'catalog';
+  productName?: string;
   yieldCount: number;
   recipeItems: RecipeLine[];
   hiddenCosts: HiddenCost[];
   profit: number;
   cardFee: number;
   tax: number;
+  // Vendido por peso (ex.: bolo confeitado por kg) em vez de por unidade —
+  // muda o preço sugerido de "por unidade" para "por kg".
+  soldByWeight?: boolean;
+  // Perda de peso ao assar/cozinhar, opcional — reduz o peso final da
+  // receita antes de calcular o preço por kg (a água evapora, o peso cru
+  // não é o peso vendido).
+  weightLossPercent?: number;
 };
 type LoyaltyItem = {
   id: number;
@@ -2111,16 +2136,22 @@ function StockSection({
   const items = stock.filter(
     (item) => (item.category ?? 'Ingrediente') === category,
   );
+  const [weightUnit, setWeightUnit] = useState<'g' | 'kg'>('g');
 
   // Cadastrar um nome que já existe (na mesma categoria) é reposição: soma
-  // na quantidade do item existente em vez de criar uma linha duplicada —
-  // mesmo "match por nome" usado para clientes em /api/orders.
+  // na quantidade do item existente e recalcula o custo unitário como a
+  // média ponderada entre a compra antiga e a nova, em vez de criar uma
+  // linha duplicada — mesmo "match por nome" usado para clientes em
+  // /api/orders.
   const add = (e: FormSubmit) => {
     e.preventDefault();
     const d = new FormData(e.currentTarget);
     const name = fieldValue(d, 'name').trim();
     const qty = Number(fieldValue(d, 'qty'));
-    if (!name || !Number.isFinite(qty)) return;
+    const purchaseValue = Number(fieldValue(d, 'purchaseValue'));
+    if (!name || !Number.isFinite(qty) || qty <= 0) return;
+    const weightValue =
+      category === 'Ingrediente' ? Number(fieldValue(d, 'weightValue')) : 0;
     setStock((old) => {
       const match = old.find(
         (x) =>
@@ -2128,8 +2159,19 @@ function StockSection({
           x.name.trim().toLowerCase() === name.toLowerCase(),
       );
       if (match) {
+        const newQty = +(match.qty + qty).toFixed(3);
+        const newCost = +((match.cost * match.qty + purchaseValue) / newQty).toFixed(4);
         return old.map((x) =>
-          x.id === match.id ? { ...x, qty: +(x.qty + qty).toFixed(2) } : x,
+          x.id === match.id
+            ? {
+                ...x,
+                qty: newQty,
+                cost: newCost,
+                ...(weightValue > 0 && !x.weight
+                  ? { weight: { value: weightValue, unit: weightUnit } }
+                  : {}),
+              }
+            : x,
         );
       }
       return [
@@ -2139,21 +2181,28 @@ function StockSection({
           name,
           category,
           qty,
-          unit: fieldValue(d, 'unit'),
-          min: Number(fieldValue(d, 'min')),
-          cost: Number(fieldValue(d, 'cost')),
+          unit: 'un',
+          min: Number(fieldValue(d, 'min')) || 0,
+          cost: qty > 0 ? +(purchaseValue / qty).toFixed(4) : 0,
+          ...(weightValue > 0
+            ? { weight: { value: weightValue, unit: weightUnit } }
+            : {}),
         },
       ];
     });
     e.currentTarget.reset();
+    setWeightUnit('g');
   };
 
   return (
     <>
       <PageHeading title={title} subtitle={subtitle} />
       <Panel className="mb-5 p-5">
-        <form onSubmit={add} className="grid gap-3 md:grid-cols-6">
-          <Field label="Item">
+        <form
+          onSubmit={add}
+          className={`grid gap-3 ${category === 'Ingrediente' ? 'md:grid-cols-6' : 'md:grid-cols-5'}`}
+        >
+          <Field label="Nome">
             <input
               required
               name="name"
@@ -2161,39 +2210,55 @@ function StockSection({
               placeholder="Repita um nome já cadastrado para repor"
             />
           </Field>
-          <Field label="Quantidade">
+          {category === 'Ingrediente' && (
+            <Field label="Peso do pacote">
+              <div className="flex gap-1">
+                <input
+                  name="weightValue"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className={`${inputClass} w-20`}
+                  placeholder="Ex.: 395"
+                />
+                <select
+                  value={weightUnit}
+                  onChange={(e) => setWeightUnit(e.target.value as 'g' | 'kg')}
+                  className={inputClass}
+                >
+                  <option value="g">g</option>
+                  <option value="kg">kg</option>
+                </select>
+              </div>
+            </Field>
+          )}
+          <Field label={category === 'Ingrediente' ? 'Quantidade' : 'Quantidade comprada'}>
             <input
               required
               name="qty"
               type="number"
               step="0.01"
+              min="0.01"
               className={inputClass}
+              placeholder="Nº de pacotes/unidades"
             />
-          </Field>
-          <Field label="Unidade">
-            <select name="unit" className={inputClass}>
-              <option>kg</option>
-              <option>g</option>
-              <option>un</option>
-              <option>L</option>
-              <option>ml</option>
-            </select>
           </Field>
           <Field label="Mínimo">
             <input
-              required
               name="min"
               type="number"
               step="0.01"
               className={inputClass}
+              placeholder="Alerta de estoque baixo"
             />
           </Field>
-          <Field label="Custo unitário">
+          <Field label="Valor pago (R$)">
             <input
               required
-              name="cost"
+              name="purchaseValue"
               type="number"
               step="0.01"
+              min="0"
               className={inputClass}
             />
           </Field>
@@ -2212,13 +2277,18 @@ function StockSection({
       <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {items.map((item) => {
           const low = item.qty < item.min;
+          const gCost = gramCostOf(item);
           return (
             <Panel key={item.id} className="p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold">{item.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    Custo: {money(item.cost)} / {item.unit}
+                    {money(item.cost)} / unidade
+                    {item.weight
+                      ? ` (${item.weight.value}${item.weight.unit})`
+                      : ''}
+                    {gCost != null ? ` • ${money(gCost)}/g` : ''}
                   </p>
                 </div>
                 <div className="flex items-center gap-1">
@@ -2312,6 +2382,41 @@ function Stock({
   );
 }
 
+// Preço por grama de um item de estoque — usado quando uma linha de receita
+// mede em g/kg em vez de "un". Prioriza o peso do pacote cadastrado (novo
+// modelo: valor pago ÷ (quantidade × peso do pacote)); sem isso, cai para a
+// própria unidade de estoque do item quando ela já é de peso (kg/g) —
+// mantém funcionando o estoque cadastrado antes desse campo existir.
+function gramCostOf(item: StockItem): number | null {
+  if (item.weight?.value) {
+    const grams =
+      item.weight.unit === 'kg' ? item.weight.value * 1000 : item.weight.value;
+    return grams > 0 ? item.cost / grams : null;
+  }
+  if (item.unit === 'kg') return item.cost / 1000;
+  if (item.unit === 'g') return item.cost;
+  return null;
+}
+
+function lineCost(item: StockItem, quantity: number, unit: RecipeLine['unit']): number {
+  if (unit === 'un') return quantity * item.cost;
+  const grams = unit === 'kg' ? quantity * 1000 : quantity;
+  const gCost = gramCostOf(item);
+  return gCost != null ? grams * gCost : 0;
+}
+
+// Peso, em gramas, que essa linha contribui pro peso total da receita.
+// Uma linha em "un" só soma peso se o item tiver o peso do pacote
+// cadastrado (1 unidade = o pacote inteiro); embalagens nunca contam.
+function lineWeightGrams(item: StockItem, quantity: number, unit: RecipeLine['unit']): number {
+  if (unit === 'kg') return quantity * 1000;
+  if (unit === 'g') return quantity;
+  if (item.weight?.value) {
+    return quantity * (item.weight.unit === 'kg' ? item.weight.value * 1000 : item.weight.value);
+  }
+  return 0;
+}
+
 function computeRecipeCost(recipe: {
   recipeItems: RecipeLine[];
   hiddenCosts: HiddenCost[];
@@ -2322,20 +2427,20 @@ function computeRecipeCost(recipe: {
       stockItem: stock.find((entry) => entry.id === item.stockId),
     }))
     .filter((item) => item.stockItem);
-  const ingredientCost = enrichedItems
-    .filter(
-      (item) => (item.stockItem?.category ?? 'Ingrediente') === 'Ingrediente',
-    )
-    .reduce(
-      (sum, item) => sum + item.quantity * (item.stockItem?.cost ?? 0),
-      0,
-    );
-  const packagingCost = enrichedItems
-    .filter((item) => item.stockItem?.category === 'Embalagem')
-    .reduce(
-      (sum, item) => sum + item.quantity * (item.stockItem?.cost ?? 0),
-      0,
-    );
+  const ingredientLines = enrichedItems.filter(
+    (item) => (item.stockItem?.category ?? 'Ingrediente') === 'Ingrediente',
+  );
+  const packagingLines = enrichedItems.filter(
+    (item) => item.stockItem?.category === 'Embalagem',
+  );
+  const ingredientCost = ingredientLines.reduce(
+    (sum, item) => sum + lineCost(item.stockItem!, item.quantity, item.unit),
+    0,
+  );
+  const packagingCost = packagingLines.reduce(
+    (sum, item) => sum + lineCost(item.stockItem!, item.quantity, item.unit),
+    0,
+  );
   const directCost = ingredientCost + packagingCost;
   const hiddenPercentage = recipe.hiddenCosts.reduce(
     (sum, item) => sum + item.percentage,
@@ -2343,6 +2448,10 @@ function computeRecipeCost(recipe: {
   );
   const hiddenTotal = (directCost * hiddenPercentage) / 100;
   const baseCost = directCost + hiddenTotal;
+  const recipeWeightGrams = ingredientLines.reduce(
+    (sum, item) => sum + lineWeightGrams(item.stockItem!, item.quantity, item.unit),
+    0,
+  );
   return {
     enrichedItems,
     ingredientCost,
@@ -2351,6 +2460,7 @@ function computeRecipeCost(recipe: {
     hiddenPercentage,
     hiddenTotal,
     baseCost,
+    recipeWeightGrams,
   };
 }
 
@@ -2519,6 +2629,12 @@ function Pricing({
   );
 }
 
+const RECIPE_LINE_UNITS: { value: RecipeLine['unit']; label: string }[] = [
+  { value: 'un', label: 'un' },
+  { value: 'g', label: 'g' },
+  { value: 'kg', label: 'kg' },
+];
+
 function RecipeEditor({
   product,
   stock,
@@ -2532,6 +2648,9 @@ function RecipeEditor({
   onSave: (recipe: ProductRecipe) => void;
   onRemove: () => void;
 }) {
+  const [productName, setProductName] = useState(
+    recipe?.productName ?? product.name,
+  );
   const [yieldCount, setYieldCount] = useState(recipe?.yieldCount ?? 1);
   const [recipeItems, setRecipeItems] = useState<RecipeLine[]>(
     recipe?.recipeItems ?? [],
@@ -2544,16 +2663,21 @@ function RecipeEditor({
   const [profit, setProfit] = useState(recipe?.profit ?? 100);
   const [cardFee, setCardFee] = useState(recipe?.cardFee ?? 4.99);
   const [tax, setTax] = useState(recipe?.tax ?? 3);
+  const [soldByWeight, setSoldByWeight] = useState(recipe?.soldByWeight ?? false);
+  const [weightLossPercent, setWeightLossPercent] = useState(
+    recipe?.weightLossPercent ?? 0,
+  );
+  const [lineUnit, setLineUnit] = useState<RecipeLine['unit']>('un');
   const [justSaved, setJustSaved] = useState(false);
 
   const {
     enrichedItems,
     ingredientCost,
     packagingCost,
-    directCost,
     hiddenPercentage,
     hiddenTotal,
     baseCost,
+    recipeWeightGrams,
   } = computeRecipeCost({ recipeItems, hiddenCosts }, stock);
   // Ordem pedida: custo (ingredientes + embalagens + gastos invisíveis) ->
   // soma o lucro pretendido sobre esse custo -> só depois soma taxa de
@@ -2564,23 +2688,34 @@ function RecipeEditor({
   const feesAmount = priceBeforeFees * ((cardFee + tax) / 100);
   const totalPrice = priceBeforeFees + feesAmount;
   const unitPrice = totalPrice / Math.max(1, yieldCount);
+  // "Fixos" é a fatia de gastos indiretos (aluguel, marketing...) alocada
+  // por %, que não muda com o quanto se produz. "Variáveis" é embalagem —
+  // escala junto com cada unidade feita. Ingredientes fica separado por já
+  // ser pedido como sua própria categoria.
+  const fixedCost = hiddenTotal;
+  const variableCost = packagingCost;
+  const finalWeightGrams =
+    recipeWeightGrams * (1 - Math.min(99, Math.max(0, weightLossPercent)) / 100);
+  const pricePerKg = finalWeightGrams > 0 ? totalPrice / (finalWeightGrams / 1000) : 0;
 
   const addStockItem = (e: FormSubmit) => {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
     const stockId = Number(fieldValue(data, 'stockId'));
     const quantity = Number(fieldValue(data, 'quantity'));
+    const unit = lineUnit;
     setRecipeItems((old) => {
-      const found = old.find((item) => item.stockId === stockId);
+      const found = old.find((item) => item.stockId === stockId && item.unit === unit);
       return found
         ? old.map((item) =>
-            item.stockId === stockId
+            item.stockId === stockId && item.unit === unit
               ? { ...item, quantity: item.quantity + quantity }
               : item,
           )
-        : [...old, { id: Date.now(), stockId, quantity }];
+        : [...old, { id: Date.now(), stockId, quantity, unit }];
     });
     e.currentTarget.reset();
+    setLineUnit('un');
     setJustSaved(false);
   };
   const addHiddenCost = (e: FormSubmit) => {
@@ -2600,12 +2735,15 @@ function RecipeEditor({
   const save = () => {
     onSave({
       productId: product.id,
+      productName: productName.trim() || product.name,
       yieldCount,
       recipeItems,
       hiddenCosts,
       profit,
       cardFee,
       tax,
+      soldByWeight,
+      ...(weightLossPercent > 0 ? { weightLossPercent } : {}),
     });
     setJustSaved(true);
   };
@@ -2615,12 +2753,16 @@ function RecipeEditor({
       <div className="space-y-5">
         <Panel className="p-5">
           <div className="grid gap-4 sm:grid-cols-[1fr_150px]">
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground">
-                Produto
-              </p>
-              <p className="font-heading text-lg font-bold">{product.name}</p>
-            </div>
+            <Field label="Nome do produto">
+              <input
+                value={productName}
+                onChange={(e) => {
+                  setProductName(e.target.value);
+                  setJustSaved(false);
+                }}
+                className={inputClass}
+              />
+            </Field>
             <NumberField
               label="Rendimento (un.)"
               value={yieldCount}
@@ -2630,17 +2772,75 @@ function RecipeEditor({
               }}
             />
           </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
+                Vendido por peso (kg)?
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={soldByWeight ? 'default' : 'outline'}
+                  onClick={() => {
+                    setSoldByWeight(true);
+                    setJustSaved(false);
+                  }}
+                >
+                  Sim
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={!soldByWeight ? 'default' : 'outline'}
+                  onClick={() => {
+                    setSoldByWeight(false);
+                    setJustSaved(false);
+                  }}
+                >
+                  Não
+                </Button>
+              </div>
+            </div>
+            <NumberField
+              label="Perda de peso ao assar/cozinhar (%, opcional)"
+              value={weightLossPercent}
+              setValue={(v) => {
+                setWeightLossPercent(v);
+                setJustSaved(false);
+              }}
+            />
+          </div>
+          <div className="mt-4 rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
+            Peso total da receita:{' '}
+            <strong className="text-foreground">
+              {recipeWeightGrams >= 1000
+                ? `${(recipeWeightGrams / 1000).toFixed(3)} kg`
+                : `${recipeWeightGrams.toFixed(0)} g`}
+            </strong>
+            {weightLossPercent > 0 && (
+              <>
+                {' '}
+                • depois da perda:{' '}
+                <strong className="text-foreground">
+                  {finalWeightGrams >= 1000
+                    ? `${(finalWeightGrams / 1000).toFixed(3)} kg`
+                    : `${finalWeightGrams.toFixed(0)} g`}
+                </strong>
+              </>
+            )}
+          </div>
         </Panel>
         <Panel className="overflow-hidden">
           <PanelTitle
-            title="Itens consumidos na receita"
-            subtitle="A lista vem diretamente do estoque, incluindo embalagens"
+            title="Ingredientes da ficha técnica"
+            subtitle="Escolha do estoque, a quantidade e a unidade usada nesta receita"
           />
           <form
             onSubmit={addStockItem}
-            className="grid gap-3 border-b bg-muted/25 p-4 sm:grid-cols-[1fr_170px_auto]"
+            className="grid gap-3 border-b bg-muted/25 p-4 sm:grid-cols-[1fr_120px_100px_auto]"
           >
-            <Field label="Item do estoque">
+            <Field label="Ingrediente ou embalagem do estoque">
               <select
                 required
                 name="stockId"
@@ -2658,7 +2858,8 @@ function RecipeEditor({
                     )
                     .map((item) => (
                       <option key={item.id} value={item.id}>
-                        {item.name} — {money(item.cost)}/{item.unit}
+                        {item.name} — {money(item.cost)}/un
+                        {item.weight ? ` (${item.weight.value}${item.weight.unit})` : ''}
                       </option>
                     ))}
                 </optgroup>
@@ -2667,13 +2868,13 @@ function RecipeEditor({
                     .filter((item) => item.category === 'Embalagem')
                     .map((item) => (
                       <option key={item.id} value={item.id}>
-                        {item.name} — {money(item.cost)}/{item.unit}
+                        {item.name} — {money(item.cost)}/un
                       </option>
                     ))}
                 </optgroup>
               </select>
             </Field>
-            <Field label="Quantidade utilizada">
+            <Field label="Quantidade">
               <input
                 required
                 name="quantity"
@@ -2682,6 +2883,19 @@ function RecipeEditor({
                 step="0.001"
                 className={inputClass}
               />
+            </Field>
+            <Field label="Unidade">
+              <select
+                value={lineUnit}
+                onChange={(e) => setLineUnit(e.target.value as RecipeLine['unit'])}
+                className={inputClass}
+              >
+                {RECIPE_LINE_UNITS.map((u) => (
+                  <option key={u.value} value={u.value}>
+                    {u.label}
+                  </option>
+                ))}
+              </select>
             </Field>
             <div className="flex items-end">
               <Button type="submit" className="h-10">
@@ -2705,13 +2919,15 @@ function RecipeEditor({
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {item.quantity} {item.stockItem?.unit} ×{' '}
-                    {money(item.stockItem?.cost ?? 0)} • saldo{' '}
-                    {item.stockItem?.qty} {item.stockItem?.unit}
+                    {item.quantity} {item.unit} usado(s) • pacote de{' '}
+                    {money(item.stockItem?.cost ?? 0)}
+                    {item.stockItem?.weight
+                      ? ` (${item.stockItem.weight.value}${item.stockItem.weight.unit})`
+                      : ''}
                   </p>
                 </div>
                 <strong className="text-sm">
-                  {money(item.quantity * (item.stockItem?.cost ?? 0))}
+                  {money(lineCost(item.stockItem!, item.quantity, item.unit))}
                 </strong>
                 <Button
                   variant="ghost"
@@ -2743,7 +2959,7 @@ function RecipeEditor({
         <Panel className="overflow-hidden">
           <PanelTitle
             title="Gastos invisíveis em porcentagem"
-            subtitle="Cada percentual é aplicado sobre ingredientes + embalagens"
+            subtitle="Cada percentual é aplicado sobre ingredientes + embalagens — vira o custo fixo abaixo"
           />
           <form
             onSubmit={addHiddenCost}
@@ -2780,7 +2996,7 @@ function RecipeEditor({
                   {item.name}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {money((directCost * item.percentage) / 100)}
+                  {money(((ingredientCost + packagingCost) * item.percentage) / 100)}
                 </span>
                 <strong className="text-sm">{item.percentage}%</strong>
                 <Button
@@ -2796,6 +3012,27 @@ function RecipeEditor({
                 </Button>
               </div>
             ))}
+          </div>
+        </Panel>
+        <Panel className="p-5">
+          <PanelTitle title="Custos divididos" subtitle="" />
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-xl bg-muted p-3">
+              <p className="text-[10px] uppercase text-muted-foreground">Ingredientes</p>
+              <p className="mt-1 font-bold">{money(ingredientCost)}</p>
+            </div>
+            <div className="rounded-xl bg-muted p-3">
+              <p className="text-[10px] uppercase text-muted-foreground">Custos fixos</p>
+              <p className="mt-1 font-bold">{money(fixedCost)}</p>
+            </div>
+            <div className="rounded-xl bg-muted p-3">
+              <p className="text-[10px] uppercase text-muted-foreground">Custos variáveis</p>
+              <p className="mt-1 font-bold">{money(variableCost)}</p>
+            </div>
+            <div className="rounded-xl bg-secondary p-3">
+              <p className="text-[10px] uppercase text-primary">Custo total</p>
+              <p className="mt-1 font-bold text-primary">{money(baseCost)}</p>
+            </div>
           </div>
         </Panel>
       </div>
@@ -2838,12 +3075,14 @@ function RecipeEditor({
         </Panel>
         <Panel className="overflow-hidden">
           <div className="bg-gradient-to-br from-primary to-[#8f4fb8] p-6 text-primary-foreground">
-            <p className="text-sm opacity-80">Preço sugerido por unidade</p>
+            <p className="text-sm opacity-80">
+              {soldByWeight ? 'Preço sugerido por kg' : 'Preço sugerido por unidade'}
+            </p>
             <p className="mt-2 font-heading text-4xl font-bold">
-              {money(unitPrice)}
+              {money(soldByWeight ? pricePerKg : unitPrice)}
             </p>
             <p className="mt-2 text-xs opacity-75">
-              {product.name} • rendimento de {yieldCount} un. •{' '}
+              {productName} • rendimento de {yieldCount} un. •{' '}
               {product.price
                 ? `preço no cardápio: ${money(product.price)}`
                 : 'ainda fora do cardápio'}
@@ -2878,6 +3117,14 @@ function RecipeEditor({
             >
               {justSaved ? <Check /> : null} {justSaved ? 'Ficha salva' : 'Salvar ficha técnica'}
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full rounded-xl"
+              onClick={() => window.print()}
+            >
+              <Printer /> Imprimir ficha técnica
+            </Button>
             {recipe && (
               <Button
                 type="button"
@@ -2890,6 +3137,36 @@ function RecipeEditor({
             )}
           </div>
         </Panel>
+      </div>
+      <div className="print-ficha">
+        <h1>{productName}</h1>
+        <p>Rendimento: {yieldCount} un.{soldByWeight ? ' • Vendido por kg' : ''}</p>
+        <p>
+          Peso da receita: {recipeWeightGrams >= 1000 ? `${(recipeWeightGrams / 1000).toFixed(3)} kg` : `${recipeWeightGrams.toFixed(0)} g`}
+          {weightLossPercent > 0 && ` (após perda de ${weightLossPercent}%: ${finalWeightGrams >= 1000 ? `${(finalWeightGrams / 1000).toFixed(3)} kg` : `${finalWeightGrams.toFixed(0)} g`})`}
+        </p>
+        <h2>Ingredientes</h2>
+        <table>
+          <thead>
+            <tr><th>Item</th><th>Quantidade</th><th>Custo</th></tr>
+          </thead>
+          <tbody>
+            {enrichedItems.map((item) => (
+              <tr key={item.id}>
+                <td>{item.stockItem?.name}</td>
+                <td>{item.quantity} {item.unit}</td>
+                <td>{money(lineCost(item.stockItem!, item.quantity, item.unit))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <h2>Custos</h2>
+        <p>Ingredientes: {money(ingredientCost)}</p>
+        <p>Custos fixos: {money(fixedCost)}</p>
+        <p>Custos variáveis: {money(variableCost)}</p>
+        <p>Custo total: {money(baseCost)}</p>
+        <p>Margem de lucro: {profit}%</p>
+        <h2>{soldByWeight ? `Preço sugerido por kg: ${money(pricePerKg)}` : `Preço sugerido por unidade: ${money(unitPrice)}`}</h2>
       </div>
     </div>
   );
