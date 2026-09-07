@@ -54,6 +54,13 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { BAKERY_KEY, type BakeryProfile } from '@/lib/bakery';
 import { useUserSession, signOut } from '@/lib/auth';
 import type { Invite } from '@/lib/tenant';
@@ -202,6 +209,10 @@ type MenuItem = {
   emoji: string;
   photoUrl?: string;
   weight?: { value: number; unit: 'kg' | 'g' | 'l' };
+  // Marca de qual item do catálogo (Produtos) este veio, quando publicado
+  // por lá — evita publicar o mesmo produto duas vezes. É uma cópia, não
+  // um vínculo: editar o produto depois não atualiza o item já publicado.
+  sourceProductId?: number;
 };
 
 // A simple named product + flavor, independent of the weekly cardápio —
@@ -213,6 +224,7 @@ type Product = {
   flavor: string;
   price?: number;
   weight?: { value: number; unit: 'g' | 'kg' | 'ml' | 'l' | 'unidade' };
+  photoUrl?: string;
 };
 
 // Grams/ml are the base units so kg and l (×1000) compare on the same
@@ -241,7 +253,6 @@ type RecipeLine = {
   quantity: number;
   unit: 'un' | 'g' | 'kg';
 };
-type HiddenCost = { id: number; name: string; percentage: number };
 // productKind distingue de onde vem o produto sendo precificado — "menu"
 // (já publicado no cardápio, o comportamento original) ou "catalog" (um
 // produto só cadastrado em Produtos, ainda sem entrar no cardápio).
@@ -252,10 +263,24 @@ type ProductRecipe = {
   productName?: string;
   yieldCount: number;
   recipeItems: RecipeLine[];
-  hiddenCosts: HiddenCost[];
+  // Único percentual de custos fixos/variáveis (aluguel, embalagem
+  // avulsa, marketing...), aplicado sobre ingredientes+embalagens da
+  // receita — substitui a antiga lista de "gastos invisíveis" nomeados.
+  overheadPercent: number;
   profit: number;
-  cardFee: number;
-  tax: number;
+  // Taxa única de cartão/iFood — substitui os antigos cardFee+tax
+  // separados.
+  feePercent: number;
+  // Preço de venda: começa igual à sugestão (custo + margem), mas o
+  // usuário pode digitar um valor diferente (ex.: arredondar) — uma vez
+  // editado, para de seguir a sugestão automaticamente.
+  sellPrice?: number;
+  // Adicional cobrado fora da precificação (ex.: embalagem especial sob
+  // pedido) — soma só no preço final, não entra na distribuição de lucro.
+  extraCharge?: number;
+  // Como o "lucro disponível" (preço de venda − custo total) se divide.
+  proLaborePercent?: number;
+  companyPercent?: number;
   // Vendido por peso (ex.: bolo confeitado por kg) em vez de por unidade —
   // muda o preço sugerido de "por unidade" para "por kg".
   soldByWeight?: boolean;
@@ -497,7 +522,6 @@ export default function Home() {
                 orders={orders}
                 setOrders={setOrders}
                 menuItems={menuItems}
-                products={products}
                 customers={loyalty}
                 setFinance={setFinance}
                 setLoyalty={setLoyalty}
@@ -524,7 +548,12 @@ export default function Home() {
               />
             )}
             {view === 'products' && (
-              <ProductsCatalog items={products} setItems={setProducts} />
+              <ProductsCatalog
+                items={products}
+                setItems={setProducts}
+                menuItems={menuItems}
+                setMenuItems={setMenuItems}
+              />
             )}
             {view === 'customers' && (
               <Customers
@@ -1480,7 +1509,6 @@ function Orders({
   orders,
   setOrders,
   menuItems,
-  products,
   customers,
   setFinance,
   setLoyalty,
@@ -1488,7 +1516,6 @@ function Orders({
   orders: Order[];
   setOrders: (v: Order[] | ((o: Order[]) => Order[])) => void;
   menuItems: MenuItem[];
-  products: Product[];
   customers: LoyaltyItem[];
   setFinance: (v: FinanceItem[] | ((o: FinanceItem[]) => FinanceItem[])) => void;
   setLoyalty: (v: LoyaltyItem[] | ((o: LoyaltyItem[]) => LoyaltyItem[])) => void;
@@ -1507,12 +1534,6 @@ function Orders({
     useState<Order['paymentMethod']>('Pix');
   const [alreadyPaid, setAlreadyPaid] = useState(false);
   const [quantities, setQuantities] = useState<Record<number, number>>({});
-  const [productQuantities, setProductQuantities] = useState<
-    Record<number, number>
-  >({});
-  const [productPrices, setProductPrices] = useState<Record<number, string>>(
-    {},
-  );
   const [submitting, setSubmitting] = useState(false);
   const [monthView, setMonthView] = useState(() => {
     const now = new Date();
@@ -1536,21 +1557,7 @@ function Orders({
   const cartItems = available
     .filter((item) => quantities[item.id] > 0)
     .map((item) => ({ ...item, quantity: quantities[item.id] }));
-  const productCartItems = products
-    .filter(
-      (product) =>
-        (productQuantities[product.id] ?? 0) > 0 &&
-        Number(productPrices[product.id]) > 0,
-    )
-    .map((product) => ({
-      id: product.id,
-      name: `${product.name} - ${product.flavor}`,
-      price: Number(productPrices[product.id]),
-      quantity: productQuantities[product.id],
-    }));
-  const total =
-    cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0) +
-    productCartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const total = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const customerName =
     customerChoice === NEW_CUSTOMER
       ? newName.trim()
@@ -1561,15 +1568,10 @@ function Orders({
     Boolean(orderDate) &&
     Boolean(deliveryDate) &&
     Boolean(deliveryTime) &&
-    cartItems.length + productCartItems.length > 0;
+    cartItems.length > 0;
 
   const changeQuantity = (id: number, delta: number) =>
     setQuantities((old) => ({
-      ...old,
-      [id]: Math.max(0, (old[id] ?? 0) + delta),
-    }));
-  const changeProductQuantity = (id: number, delta: number) =>
-    setProductQuantities((old) => ({
       ...old,
       [id]: Math.max(0, (old[id] ?? 0) + delta),
     }));
@@ -1588,7 +1590,7 @@ function Orders({
   const add = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
-    const description = [...cartItems, ...productCartItems]
+    const description = cartItems
       .map((item) => `${item.quantity}× ${item.name}`)
       .join(', ');
     const formattedDate = `${deliveryDate.split('-').reverse().join('/')} às ${deliveryTime}`;
@@ -1600,17 +1602,10 @@ function Orders({
         phone: customerChoice === NEW_CUSTOMER ? newPhone.trim() : undefined,
         birthday:
           customerChoice === NEW_CUSTOMER ? newBirthday : undefined,
-        items: [
-          ...cartItems.map((item) => ({
-            name: item.name,
-            quantity: item.quantity,
-          })),
-          ...productCartItems.map((item) => ({
-            name: item.name,
-            quantity: item.quantity,
-            unitPrice: item.price,
-          })),
-        ],
+        items: cartItems.map((item) => ({
+          name: item.name,
+          quantity: item.quantity,
+        })),
         item: description,
         notes: notes.trim() || undefined,
         orderDate,
@@ -1642,8 +1637,6 @@ function Orders({
     setPaymentMethod('Pix');
     setAlreadyPaid(false);
     setQuantities({});
-    setProductQuantities({});
-    setProductPrices({});
   };
   const changeStatus = async (id: string, status: string) => {
     const response = await fetch(`/api/orders/${encodeURIComponent(id)}`, {
@@ -1912,71 +1905,6 @@ function Orders({
                 </div>
               )}
             </div>
-            <div>
-              <p className="mb-2 text-xs font-semibold text-muted-foreground">
-                Produtos cadastrados
-              </p>
-              {products.length === 0 ? (
-                <p className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
-                  Nenhum produto cadastrado ainda. Cadastre em &ldquo;Produtos&rdquo;.
-                </p>
-              ) : (
-                <div className="max-h-60 space-y-1.5 overflow-y-auto rounded-xl border p-2">
-                  {products.map((product) => (
-                    <div
-                      key={product.id}
-                      className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/40"
-                    >
-                      <span className="flex-1 truncate text-sm">
-                        {product.name}{' '}
-                        <span className="text-xs text-muted-foreground">
-                          {product.flavor}
-                        </span>
-                      </span>
-                      {(productQuantities[product.id] ?? 0) > 0 && (
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={productPrices[product.id] ?? ''}
-                          onChange={(e) =>
-                            setProductPrices((old) => ({
-                              ...old,
-                              [product.id]: e.target.value,
-                            }))
-                          }
-                          placeholder="Preço"
-                          className="h-8 w-20 rounded-lg border bg-background px-2 text-xs outline-none focus:border-primary"
-                        />
-                      )}
-                      <div className="flex items-center gap-1">
-                        <Button
-                          type="button"
-                          size="icon-sm"
-                          variant="ghost"
-                          onClick={() => changeProductQuantity(product.id, -1)}
-                          aria-label={`Diminuir ${product.name}`}
-                        >
-                          <Minus />
-                        </Button>
-                        <span className="w-5 text-center text-sm font-semibold">
-                          {productQuantities[product.id] ?? 0}
-                        </span>
-                        <Button
-                          type="button"
-                          size="icon-sm"
-                          variant="ghost"
-                          onClick={() => changeProductQuantity(product.id, 1)}
-                          aria-label={`Aumentar ${product.name}`}
-                        >
-                          <Plus />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         </div>
         <div className="mt-4 flex items-center justify-between border-t pt-4">
@@ -2054,6 +1982,7 @@ function StockSection({
     (item) => (item.category ?? 'Ingrediente') === category,
   );
   const [weightUnit, setWeightUnit] = useState<'g' | 'kg'>('g');
+  const [open, setOpen] = useState(false);
 
   // Cadastrar um nome que já existe (na mesma categoria) é reposição: soma
   // na quantidade do item existente e recalcula o custo unitário como a
@@ -2109,83 +2038,110 @@ function StockSection({
     });
     e.currentTarget.reset();
     setWeightUnit('g');
+    setOpen(false);
   };
 
   return (
     <>
-      <PageHeading title={title} subtitle={subtitle} />
-      <Panel className="mb-5 p-5">
-        <form
-          onSubmit={add}
-          className={`grid gap-3 ${category === 'Ingrediente' ? 'md:grid-cols-6' : 'md:grid-cols-5'}`}
-        >
-          <Field label="Nome">
-            <input
-              required
-              name="name"
-              className={inputClass}
-              placeholder="Repita um nome já cadastrado para repor"
-            />
-          </Field>
-          {category === 'Ingrediente' && (
-            <Field label="Peso do pacote">
-              <div className="flex gap-1">
-                <input
-                  name="weightValue"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  className={`${inputClass} w-20`}
-                  placeholder="Ex.: 395"
-                />
-                <select
-                  value={weightUnit}
-                  onChange={(e) => setWeightUnit(e.target.value as 'g' | 'kg')}
-                  className={inputClass}
-                >
-                  <option value="g">g</option>
-                  <option value="kg">kg</option>
-                </select>
-              </div>
-            </Field>
-          )}
-          <Field label={category === 'Ingrediente' ? 'Quantidade' : 'Quantidade comprada'}>
-            <input
-              required
-              name="qty"
-              type="number"
-              step="0.01"
-              min="0.01"
-              className={inputClass}
-              placeholder="Nº de pacotes/unidades"
-            />
-          </Field>
-          <Field label="Mínimo">
-            <input
-              name="min"
-              type="number"
-              step="0.01"
-              className={inputClass}
-              placeholder="Alerta de estoque baixo"
-            />
-          </Field>
-          <Field label="Valor pago (R$)">
-            <input
-              required
-              name="purchaseValue"
-              type="number"
-              step="0.01"
-              min="0"
-              className={inputClass}
-            />
-          </Field>
-          <div className="flex items-end">
-            <Button type="submit" className="h-10 w-full rounded-xl">
-              <Plus /> Adicionar / repor
-            </Button>
-          </div>
-        </form>
-      </Panel>
+      <PageHeading
+        title={title}
+        subtitle={subtitle}
+        action={
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger render={<Button className="h-10 rounded-xl" />}>
+              <Plus /> Novo {category === 'Ingrediente' ? 'ingrediente' : 'embalagem'}
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>
+                  Novo {category === 'Ingrediente' ? 'ingrediente' : 'embalagem'}
+                </DialogTitle>
+              </DialogHeader>
+              <form onSubmit={add} className="grid gap-3">
+                <Field label="Nome">
+                  <input
+                    required
+                    name="name"
+                    className={inputClass}
+                    placeholder={
+                      category === 'Ingrediente' ? 'Ex.: Leite condensado' : 'Ex.: Saquinho plástico'
+                    }
+                  />
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label={category === 'Ingrediente' ? 'Quantidade' : 'Quantidade comprada'}>
+                    <input
+                      required
+                      name="qty"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      defaultValue="1"
+                      className={inputClass}
+                    />
+                  </Field>
+                  {category === 'Ingrediente' ? (
+                    <Field label="Peso do pacote">
+                      <div className="flex gap-1">
+                        <input
+                          name="weightValue"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          className={`${inputClass} w-full`}
+                          placeholder="Ex.: 395"
+                        />
+                        <select
+                          value={weightUnit}
+                          onChange={(e) => setWeightUnit(e.target.value as 'g' | 'kg')}
+                          className={inputClass}
+                        >
+                          <option value="g">g</option>
+                          <option value="kg">kg</option>
+                        </select>
+                      </div>
+                    </Field>
+                  ) : (
+                    <Field label="Mínimo (opcional)">
+                      <input
+                        name="min"
+                        type="number"
+                        step="0.01"
+                        className={inputClass}
+                        placeholder="Alerta de estoque baixo"
+                      />
+                    </Field>
+                  )}
+                </div>
+                <Field label="Valor pago (R$)">
+                  <input
+                    required
+                    name="purchaseValue"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className={inputClass}
+                  />
+                </Field>
+                {category === 'Ingrediente' && (
+                  <Field label="Mínimo (opcional)">
+                    <input
+                      name="min"
+                      type="number"
+                      step="0.01"
+                      className={inputClass}
+                      placeholder="Alerta de estoque baixo"
+                    />
+                  </Field>
+                )}
+                <Button type="submit" className="w-full justify-self-end rounded-xl sm:w-auto">
+                  Salvar
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        }
+      />
       {items.length === 0 && (
         <Panel className="mb-8 p-10 text-center text-sm text-muted-foreground">
           Nenhum item cadastrado ainda.
@@ -2336,7 +2292,7 @@ function lineWeightGrams(item: StockItem, quantity: number, unit: RecipeLine['un
 
 function computeRecipeCost(recipe: {
   recipeItems: RecipeLine[];
-  hiddenCosts: HiddenCost[];
+  overheadPercent: number;
 }, stock: StockItem[]) {
   const enrichedItems = recipe.recipeItems
     .map((item) => ({
@@ -2358,13 +2314,11 @@ function computeRecipeCost(recipe: {
     (sum, item) => sum + lineCost(item.stockItem!, item.quantity, item.unit),
     0,
   );
+  // "Custo dos ingredientes" na tela de Custos junta ingredientes e
+  // embalagens da receita — são as mesmas linhas da tabela de itens.
   const directCost = ingredientCost + packagingCost;
-  const hiddenPercentage = recipe.hiddenCosts.reduce(
-    (sum, item) => sum + item.percentage,
-    0,
-  );
-  const hiddenTotal = (directCost * hiddenPercentage) / 100;
-  const baseCost = directCost + hiddenTotal;
+  const overheadTotal = (directCost * (recipe.overheadPercent || 0)) / 100;
+  const baseCost = directCost + overheadTotal;
   const recipeWeightGrams = ingredientLines.reduce(
     (sum, item) => sum + lineWeightGrams(item.stockItem!, item.quantity, item.unit),
     0,
@@ -2374,8 +2328,7 @@ function computeRecipeCost(recipe: {
     ingredientCost,
     packagingCost,
     directCost,
-    hiddenPercentage,
-    hiddenTotal,
+    overheadTotal,
     baseCost,
     recipeWeightGrams,
   };
@@ -2534,6 +2487,9 @@ function Pricing({
                   recipe={recipe}
                   onSave={(r) => saveRecipe({ ...r, productKind: source })}
                   onRemove={() => removeRecipe(selectedProduct.id, source)}
+                  onBack={() =>
+                    source === 'menu' ? setMenuProductId('') : setCatalogProductId('')
+                  }
                 />
               );
             })()
@@ -2558,12 +2514,14 @@ function RecipeEditor({
   recipe,
   onSave,
   onRemove,
+  onBack,
 }: {
   product: { id: number; name: string; price?: number };
   stock: StockItem[];
   recipe: ProductRecipe | undefined;
   onSave: (recipe: ProductRecipe) => void;
   onRemove: () => void;
+  onBack: () => void;
 }) {
   const [productName, setProductName] = useState(
     recipe?.productName ?? product.name,
@@ -2572,48 +2530,57 @@ function RecipeEditor({
   const [recipeItems, setRecipeItems] = useState<RecipeLine[]>(
     recipe?.recipeItems ?? [],
   );
-  const [hiddenCosts, setHiddenCosts] = useState<HiddenCost[]>(
-    recipe?.hiddenCosts ?? [],
+  const [overheadPercent, setOverheadPercent] = useState(
+    recipe?.overheadPercent ?? 0,
   );
   // Margem inicial em 100%: a confeitaria começa cobrindo o dobro do custo,
   // e ajusta para baixo caso ache melhor — nunca o contrário.
   const [profit, setProfit] = useState(recipe?.profit ?? 100);
-  const [cardFee, setCardFee] = useState(recipe?.cardFee ?? 4.99);
-  const [tax, setTax] = useState(recipe?.tax ?? 3);
+  const [feePercent, setFeePercent] = useState(recipe?.feePercent ?? 7.99);
+  const [extraCharge, setExtraCharge] = useState(recipe?.extraCharge ?? 0);
+  const [proLaborePercent, setProLaborePercent] = useState(
+    recipe?.proLaborePercent ?? 80,
+  );
+  const [companyPercent, setCompanyPercent] = useState(
+    recipe?.companyPercent ?? 20,
+  );
   const [soldByWeight, setSoldByWeight] = useState(recipe?.soldByWeight ?? false);
   const [weightLossPercent, setWeightLossPercent] = useState(
     recipe?.weightLossPercent ?? 0,
   );
   const [lineUnit, setLineUnit] = useState<RecipeLine['unit']>('un');
   const [justSaved, setJustSaved] = useState(false);
+  // Preço de venda: começa igual à sugestão (custo + margem) e continua
+  // acompanhando ela enquanto o usuário não digitar um valor diferente —
+  // a partir daí, para de seguir e vira só o que foi digitado.
+  const [priceTouched, setPriceTouched] = useState(Boolean(recipe?.sellPrice));
+  const [manualPrice, setManualPrice] = useState(recipe?.sellPrice ?? 0);
 
   const {
     enrichedItems,
-    ingredientCost,
-    packagingCost,
-    hiddenPercentage,
-    hiddenTotal,
+    directCost,
+    overheadTotal,
     baseCost,
     recipeWeightGrams,
-  } = computeRecipeCost({ recipeItems, hiddenCosts }, stock);
-  // Ordem pedida: custo (ingredientes + embalagens + gastos invisíveis) ->
-  // soma o lucro pretendido sobre esse custo -> só depois soma taxa de
-  // cartão/impostos sobre o preço já com lucro. Taxas nunca "comem" a
-  // margem nem travam a conta — são só um adicional opcional no fim.
-  const profitAmount = baseCost * (profit / 100);
-  const priceBeforeFees = baseCost + profitAmount;
-  const feesAmount = priceBeforeFees * ((cardFee + tax) / 100);
-  const totalPrice = priceBeforeFees + feesAmount;
-  const unitPrice = totalPrice / Math.max(1, yieldCount);
-  // "Fixos" é a fatia de gastos indiretos (aluguel, marketing...) alocada
-  // por %, que não muda com o quanto se produz. "Variáveis" é embalagem —
-  // escala junto com cada unidade feita. Ingredientes fica separado por já
-  // ser pedido como sua própria categoria.
-  const fixedCost = hiddenTotal;
-  const variableCost = packagingCost;
+  } = computeRecipeCost({ recipeItems, overheadPercent }, stock);
+  const suggestedPrice = baseCost * (1 + profit / 100);
+  const sellPrice = priceTouched ? manualPrice : suggestedPrice;
+  const feesAmount = sellPrice * (feePercent / 100);
+  const priceWithFees = sellPrice + feesAmount + extraCharge;
+  const availableProfit = sellPrice - baseCost;
+  const proLaboreValue = (availableProfit * proLaborePercent) / 100;
+  const companyValue = (availableProfit * companyPercent) / 100;
+  const profitMargin = sellPrice > 0 ? (availableProfit / sellPrice) * 100 : 0;
   const finalWeightGrams =
     recipeWeightGrams * (1 - Math.min(99, Math.max(0, weightLossPercent)) / 100);
-  const pricePerKg = finalWeightGrams > 0 ? totalPrice / (finalWeightGrams / 1000) : 0;
+  const perUnitDivisor = soldByWeight
+    ? finalWeightGrams > 0
+      ? finalWeightGrams / 1000
+      : 0
+    : Math.max(1, yieldCount);
+  const costPerUnit = perUnitDivisor > 0 ? baseCost / perUnitDivisor : 0;
+  const sellPricePerUnit = perUnitDivisor > 0 ? sellPrice / perUnitDivisor : 0;
+  const priceWithFeesPerUnit = perUnitDivisor > 0 ? priceWithFees / perUnitDivisor : 0;
 
   const addStockItem = (e: FormSubmit) => {
     e.preventDefault();
@@ -2635,432 +2602,402 @@ function RecipeEditor({
     setLineUnit('un');
     setJustSaved(false);
   };
-  const addHiddenCost = (e: FormSubmit) => {
-    e.preventDefault();
-    const data = new FormData(e.currentTarget);
-    setHiddenCosts((old) => [
-      ...old,
-      {
-        id: Date.now(),
-        name: fieldValue(data, 'name'),
-        percentage: Number(fieldValue(data, 'percentage')),
-      },
-    ]);
-    e.currentTarget.reset();
-    setJustSaved(false);
-  };
   const save = () => {
     onSave({
       productId: product.id,
       productName: productName.trim() || product.name,
       yieldCount,
       recipeItems,
-      hiddenCosts,
+      overheadPercent,
       profit,
-      cardFee,
-      tax,
+      feePercent,
+      sellPrice,
+      ...(extraCharge > 0 ? { extraCharge } : {}),
+      proLaborePercent,
+      companyPercent,
       soldByWeight,
       ...(weightLossPercent > 0 ? { weightLossPercent } : {}),
     });
     setJustSaved(true);
   };
+  const weightLabel = (grams: number) =>
+    grams >= 1000 ? `${(grams / 1000).toFixed(3)} kg` : `${grams.toFixed(0)} g`;
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_380px]">
-      <div className="space-y-5">
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-2 flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+          >
+            <ChevronLeft className="size-3.5" /> Início
+          </button>
+          <Field label="Nome do produto">
+            <input
+              value={productName}
+              onChange={(e) => {
+                setProductName(e.target.value);
+                setJustSaved(false);
+              }}
+              className="font-heading h-auto border-none bg-transparent p-0 text-2xl font-bold outline-none focus:ring-0 sm:text-3xl"
+            />
+          </Field>
+        </div>
+        <Button type="button" variant="outline" onClick={() => window.print()}>
+          <Printer /> Imprimir ficha técnica
+        </Button>
+      </div>
+
+      <Panel className="overflow-hidden">
+        <div className="flex items-center justify-between border-b px-5 py-4">
+          <div>
+            <h2 className="font-heading font-bold">Ingredientes da ficha técnica</h2>
+            <p className="text-xs text-muted-foreground">
+              Escolha do estoque, a quantidade e a unidade usada nesta receita
+            </p>
+          </div>
+        </div>
+        <form
+          onSubmit={addStockItem}
+          className="grid gap-3 border-b bg-muted/25 p-4 sm:grid-cols-[1fr_120px_100px_auto]"
+        >
+          <Field label="Ingrediente ou embalagem do estoque">
+            <select required name="stockId" className={inputClass} defaultValue="">
+              <option value="" disabled>
+                Selecione...
+              </option>
+              <optgroup label="Ingredientes">
+                {stock
+                  .filter((item) => (item.category ?? 'Ingrediente') === 'Ingrediente')
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} — {money(item.cost)}/un
+                      {item.weight ? ` (${item.weight.value}${item.weight.unit})` : ''}
+                    </option>
+                  ))}
+              </optgroup>
+              <optgroup label="Embalagens">
+                {stock
+                  .filter((item) => item.category === 'Embalagem')
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} — {money(item.cost)}/un
+                    </option>
+                  ))}
+              </optgroup>
+            </select>
+          </Field>
+          <Field label="Quantidade">
+            <input
+              required
+              name="quantity"
+              type="number"
+              min="0.001"
+              step="0.001"
+              className={inputClass}
+            />
+          </Field>
+          <Field label="Unidade">
+            <select
+              value={lineUnit}
+              onChange={(e) => setLineUnit(e.target.value as RecipeLine['unit'])}
+              className={inputClass}
+            >
+              {RECIPE_LINE_UNITS.map((u) => (
+                <option key={u.value} value={u.value}>
+                  {u.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <div className="flex items-end">
+            <Button type="submit" className="h-10 w-full">
+              <Plus /> Adicionar item
+            </Button>
+          </div>
+        </form>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-left text-sm">
+            <thead className="bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="px-5 py-3">Ingrediente</th>
+                <th className="px-3 py-3">Qtd.</th>
+                <th className="px-3 py-3">Un.</th>
+                <th className="px-3 py-3">Peso</th>
+                <th className="px-3 py-3">Custo</th>
+                <th className="px-3 py-3">
+                  <span className="sr-only">Remover</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {enrichedItems.map((item) => (
+                <tr key={item.id}>
+                  <td className="px-5 py-3">
+                    <p className="font-medium">{item.stockItem?.name}</p>
+                    <Badge variant="outline" className="mt-0.5">
+                      {item.stockItem?.category ?? 'Ingrediente'}
+                    </Badge>
+                  </td>
+                  <td className="px-3 py-3">{item.quantity}</td>
+                  <td className="px-3 py-3">{item.unit}</td>
+                  <td className="px-3 py-3">
+                    {weightLabel(lineWeightGrams(item.stockItem!, item.quantity, item.unit))}
+                  </td>
+                  <td className="px-3 py-3 font-semibold">
+                    {money(lineCost(item.stockItem!, item.quantity, item.unit))}
+                  </td>
+                  <td className="px-3 py-3">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Excluir ${item.stockItem?.name}`}
+                      onClick={() => {
+                        setRecipeItems((old) => old.filter((x) => x.id !== item.id));
+                        setJustSaved(false);
+                      }}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            {enrichedItems.length > 0 && (
+              <tfoot className="bg-muted/35 text-sm font-bold">
+                <tr>
+                  <td className="px-5 py-3">Totais</td>
+                  <td className="px-3 py-3" colSpan={2}>
+                    <span className="sr-only">—</span>
+                  </td>
+                  <td className="px-3 py-3">{weightLabel(recipeWeightGrams)}</td>
+                  <td className="px-3 py-3">{money(directCost)}</td>
+                  <td className="px-3 py-3">
+                    <span className="sr-only">—</span>
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+          {enrichedItems.length === 0 && (
+            <Empty label="Nenhum ingrediente adicionado ainda." />
+          )}
+        </div>
+      </Panel>
+
+      <Panel className="p-5">
+        <PanelTitle title="Percentuais" subtitle="" />
+        <div className="mt-4 grid gap-4 sm:grid-cols-4">
+          <NumberField
+            label="Custos fixos/variáveis (%)"
+            value={overheadPercent}
+            setValue={(v) => {
+              setOverheadPercent(v);
+              setJustSaved(false);
+            }}
+          />
+          <NumberField
+            label="Lucro geral (%)"
+            value={profit}
+            setValue={(v) => {
+              setProfit(v);
+              setJustSaved(false);
+            }}
+          />
+          <NumberField
+            label="Taxa cartão/iFood (%)"
+            value={feePercent}
+            setValue={(v) => {
+              setFeePercent(v);
+              setJustSaved(false);
+            }}
+          />
+          <NumberField
+            label="Rendimento (un)"
+            value={yieldCount}
+            setValue={(v) => {
+              setYieldCount(v);
+              setJustSaved(false);
+            }}
+          />
+        </div>
+      </Panel>
+
+      <div className="grid gap-5 lg:grid-cols-2">
         <Panel className="p-5">
-          <div className="grid gap-4 sm:grid-cols-[1fr_150px]">
-            <Field label="Nome do produto">
+          <PanelTitle title="Custos" subtitle="" />
+          <div className="mt-4 space-y-3 text-sm">
+            <CalcLine label="Custo dos ingredientes" value={money(directCost)} />
+            <CalcLine label="Custos fixos e variáveis" value={money(overheadTotal)} />
+            <div className="flex justify-between rounded-xl bg-secondary p-3">
+              <span className="text-sm font-semibold text-primary">
+                Custo total da receita
+              </span>
+              <strong className="text-primary">{money(baseCost)}</strong>
+            </div>
+          </div>
+        </Panel>
+        <Panel className="p-5">
+          <PanelTitle title="Formação do Preço" subtitle="" />
+          <div className="mt-4 space-y-3">
+            <Field label="Preço de venda">
               <input
-                value={productName}
+                type="number"
+                step="0.01"
+                min="0"
+                value={sellPrice.toFixed(2)}
                 onChange={(e) => {
-                  setProductName(e.target.value);
+                  setPriceTouched(true);
+                  setManualPrice(Number(e.target.value));
                   setJustSaved(false);
                 }}
-                className={inputClass}
+                className={`${inputClass} border-primary`}
               />
             </Field>
+            <div className="flex justify-between rounded-xl bg-primary/10 p-3">
+              <span className="text-sm font-semibold text-primary">Preço com taxa</span>
+              <strong className="text-primary">{money(priceWithFees)}</strong>
+            </div>
+            <CalcLine label="Valor das taxas" value={money(feesAmount)} />
             <NumberField
-              label="Rendimento (un.)"
-              value={yieldCount}
+              label="Adicional por fora da precificação (opcional)"
+              value={extraCharge}
               setValue={(v) => {
-                setYieldCount(v);
+                setExtraCharge(v);
                 setJustSaved(false);
               }}
             />
           </div>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div>
-              <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
-                Vendido por peso (kg)?
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={soldByWeight ? 'default' : 'outline'}
-                  onClick={() => {
-                    setSoldByWeight(true);
+        </Panel>
+        <Panel className="p-5">
+          <PanelTitle title="Distribuição do Resultado" subtitle="" />
+          <div className="mt-4 space-y-3">
+            <div className="flex justify-between rounded-xl bg-secondary p-3">
+              <span className="text-sm font-semibold text-primary">Lucro disponível</span>
+              <strong className="text-primary">{money(availableProfit)}</strong>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <NumberField
+                  label="Pró-labore (%)"
+                  value={proLaborePercent}
+                  setValue={(v) => {
+                    setProLaborePercent(v);
                     setJustSaved(false);
                   }}
-                >
-                  Sim
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={!soldByWeight ? 'default' : 'outline'}
-                  onClick={() => {
-                    setSoldByWeight(false);
+                />
+                <p className="mt-1 text-xs text-muted-foreground">{money(proLaboreValue)}</p>
+              </div>
+              <div>
+                <NumberField
+                  label="Lucro da empresa (%)"
+                  value={companyPercent}
+                  setValue={(v) => {
+                    setCompanyPercent(v);
                     setJustSaved(false);
                   }}
-                >
-                  Não
-                </Button>
+                />
+                <p className="mt-1 text-xs text-muted-foreground">{money(companyValue)}</p>
               </div>
             </div>
+            <CalcLine label="Margem de lucro do produto" value={`${profitMargin.toFixed(0)}%`} />
+          </div>
+        </Panel>
+        <Panel className="p-5">
+          <PanelTitle
+            title="Valores por Unidade"
+            subtitle={soldByWeight ? 'Por kg' : 'Por unidade'}
+          />
+          <div className="mt-4 space-y-3">
+            <CalcLine label="Custo por unidade" value={money(costPerUnit)} />
+            <CalcLine label="Preço de venda por unidade" value={money(sellPricePerUnit)} />
+            <CalcLine label="Preço por unidade com taxa" value={money(priceWithFeesPerUnit)} />
+          </div>
+        </Panel>
+      </div>
+
+      <Panel className="p-5">
+        <PanelTitle title="Peso da Receita" subtitle="" />
+        <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_auto]">
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Peso somado dos ingredientes</span>
+              <strong>{weightLabel(recipeWeightGrams)}</strong>
+            </div>
+            <div className="flex justify-between rounded-xl bg-secondary p-3">
+              <span className="font-semibold text-primary">Peso final da receita</span>
+              <strong className="text-primary">{weightLabel(finalWeightGrams)}</strong>
+            </div>
             <NumberField
-              label="Perda de peso ao assar/cozinhar (%, opcional)"
+              label="Redução na produção (%)"
               value={weightLossPercent}
               setValue={(v) => {
                 setWeightLossPercent(v);
                 setJustSaved(false);
               }}
             />
-          </div>
-          <div className="mt-4 rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
-            Peso total da receita:{' '}
-            <strong className="text-foreground">
-              {recipeWeightGrams >= 1000
-                ? `${(recipeWeightGrams / 1000).toFixed(3)} kg`
-                : `${recipeWeightGrams.toFixed(0)} g`}
-            </strong>
-            {weightLossPercent > 0 && (
-              <>
-                {' '}
-                • depois da perda:{' '}
-                <strong className="text-foreground">
-                  {finalWeightGrams >= 1000
-                    ? `${(finalWeightGrams / 1000).toFixed(3)} kg`
-                    : `${finalWeightGrams.toFixed(0)} g`}
-                </strong>
-              </>
-            )}
-          </div>
-        </Panel>
-        <Panel className="overflow-hidden">
-          <PanelTitle
-            title="Ingredientes da ficha técnica"
-            subtitle="Escolha do estoque, a quantidade e a unidade usada nesta receita"
-          />
-          <form
-            onSubmit={addStockItem}
-            className="grid gap-3 border-b bg-muted/25 p-4 sm:grid-cols-[1fr_120px_100px_auto]"
-          >
-            <Field label="Ingrediente ou embalagem do estoque">
-              <select
-                required
-                name="stockId"
-                className={inputClass}
-                defaultValue=""
-              >
-                <option value="" disabled>
-                  Selecione...
-                </option>
-                <optgroup label="Ingredientes">
-                  {stock
-                    .filter(
-                      (item) =>
-                        (item.category ?? 'Ingrediente') === 'Ingrediente',
-                    )
-                    .map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name} — {money(item.cost)}/un
-                        {item.weight ? ` (${item.weight.value}${item.weight.unit})` : ''}
-                      </option>
-                    ))}
-                </optgroup>
-                <optgroup label="Embalagens">
-                  {stock
-                    .filter((item) => item.category === 'Embalagem')
-                    .map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name} — {money(item.cost)}/un
-                      </option>
-                    ))}
-                </optgroup>
-              </select>
-            </Field>
-            <Field label="Quantidade">
-              <input
-                required
-                name="quantity"
-                type="number"
-                min="0.001"
-                step="0.001"
-                className={inputClass}
-              />
-            </Field>
-            <Field label="Unidade">
-              <select
-                value={lineUnit}
-                onChange={(e) => setLineUnit(e.target.value as RecipeLine['unit'])}
-                className={inputClass}
-              >
-                {RECIPE_LINE_UNITS.map((u) => (
-                  <option key={u.value} value={u.value}>
-                    {u.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <div className="flex items-end">
-              <Button type="submit" className="h-10">
-                <Plus /> Adicionar
-              </Button>
-            </div>
-          </form>
-          <div className="divide-y">
-            {enrichedItems.map((item) => (
-              <div
-                key={item.id}
-                className="grid grid-cols-[1fr_auto_auto] items-center gap-4 px-5 py-3.5"
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold">
-                      {item.stockItem?.name}
-                    </p>
-                    <Badge variant="outline">
-                      {item.stockItem?.category ?? 'Ingrediente'}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {item.quantity} {item.unit} usado(s) • pacote de{' '}
-                    {money(item.stockItem?.cost ?? 0)}
-                    {item.stockItem?.weight
-                      ? ` (${item.stockItem.weight.value}${item.stockItem.weight.unit})`
-                      : ''}
-                  </p>
-                </div>
-                <strong className="text-sm">
-                  {money(lineCost(item.stockItem!, item.quantity, item.unit))}
-                </strong>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`Excluir ${item.stockItem?.name}`}
-                  onClick={() => {
-                    setRecipeItems((old) =>
-                      old.filter((x) => x.id !== item.id),
-                    );
-                    setJustSaved(false);
-                  }}
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-            ))}
-          </div>
-          <div className="grid grid-cols-2 gap-3 bg-muted/35 px-5 py-4 text-sm">
-            <span>
-              Ingredientes{' '}
-              <strong className="float-right">{money(ingredientCost)}</strong>
-            </span>
-            <span>
-              Embalagens{' '}
-              <strong className="float-right">{money(packagingCost)}</strong>
-            </span>
-          </div>
-        </Panel>
-        <Panel className="overflow-hidden">
-          <PanelTitle
-            title="Gastos invisíveis em porcentagem"
-            subtitle="Cada percentual é aplicado sobre ingredientes + embalagens — vira o custo fixo abaixo"
-          />
-          <form
-            onSubmit={addHiddenCost}
-            className="grid gap-3 border-b bg-muted/25 p-4 sm:grid-cols-[1fr_180px_auto]"
-          >
-            <Field label="Descrição">
-              <input
-                required
-                name="name"
-                className={inputClass}
-                placeholder="Ex.: Marketing"
-              />
-            </Field>
-            <Field label="Percentual">
-              <input
-                required
-                name="percentage"
-                type="number"
-                min="0"
-                step="0.01"
-                className={inputClass}
-              />
-            </Field>
-            <div className="flex items-end">
-              <Button type="submit" className="h-10">
-                <Plus /> Adicionar gasto
-              </Button>
-            </div>
-          </form>
-          <div className="divide-y">
-            {hiddenCosts.map((item) => (
-              <div key={item.id} className="flex items-center gap-4 px-5 py-3.5">
-                <span className="flex-1 text-sm font-medium">
-                  {item.name}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {money(((ingredientCost + packagingCost) * item.percentage) / 100)}
-                </span>
-                <strong className="text-sm">{item.percentage}%</strong>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`Excluir ${item.name}`}
-                  onClick={() => {
-                    setHiddenCosts((old) => old.filter((x) => x.id !== item.id));
-                    setJustSaved(false);
-                  }}
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-            ))}
-          </div>
-        </Panel>
-        <Panel className="p-5">
-          <PanelTitle title="Custos divididos" subtitle="" />
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-xl bg-muted p-3">
-              <p className="text-[10px] uppercase text-muted-foreground">Ingredientes</p>
-              <p className="mt-1 font-bold">{money(ingredientCost)}</p>
-            </div>
-            <div className="rounded-xl bg-muted p-3">
-              <p className="text-[10px] uppercase text-muted-foreground">Custos fixos</p>
-              <p className="mt-1 font-bold">{money(fixedCost)}</p>
-            </div>
-            <div className="rounded-xl bg-muted p-3">
-              <p className="text-[10px] uppercase text-muted-foreground">Custos variáveis</p>
-              <p className="mt-1 font-bold">{money(variableCost)}</p>
-            </div>
-            <div className="rounded-xl bg-secondary p-3">
-              <p className="text-[10px] uppercase text-primary">Custo total</p>
-              <p className="mt-1 font-bold text-primary">{money(baseCost)}</p>
-            </div>
-          </div>
-        </Panel>
-      </div>
-      <div className="space-y-5 xl:sticky xl:top-24 xl:self-start">
-        <Panel className="p-5">
-          <h2 className="font-heading text-lg font-bold">
-            Lucro e taxas da venda
-          </h2>
-          <div className="mt-4 grid gap-4">
-            <NumberField
-              label="Margem de lucro desejada (%)"
-              value={profit}
-              setValue={(v) => {
-                setProfit(v);
-                setJustSaved(false);
-              }}
-            />
-            <NumberField
-              label="Taxa do cartão / gateway (%)"
-              value={cardFee}
-              setValue={(v) => {
-                setCardFee(v);
-                setJustSaved(false);
-              }}
-            />
-            <NumberField
-              label="Impostos sobre a venda (%)"
-              value={tax}
-              setValue={(v) => {
-                setTax(v);
-                setJustSaved(false);
-              }}
-            />
-          </div>
-          <p className="mt-4 rounded-xl bg-secondary/60 p-3 text-xs text-secondary-foreground">
-            Ordem do cálculo: custo (ingredientes + embalagens + gastos
-            invisíveis) → soma o lucro pretendido → só depois soma taxa de
-            cartão e impostos, se houver. As taxas nunca reduzem sua margem.
-          </p>
-        </Panel>
-        <Panel className="overflow-hidden">
-          <div className="bg-gradient-to-br from-primary to-[#8f4fb8] p-6 text-primary-foreground">
-            <p className="text-sm opacity-80">
-              {soldByWeight ? 'Preço sugerido por kg' : 'Preço sugerido por unidade'}
-            </p>
-            <p className="mt-2 font-heading text-4xl font-bold">
-              {money(soldByWeight ? pricePerKg : unitPrice)}
-            </p>
-            <p className="mt-2 text-xs opacity-75">
-              {productName} • rendimento de {yieldCount} un. •{' '}
-              {product.price
-                ? `preço no cardápio: ${money(product.price)}`
-                : 'ainda fora do cardápio'}
+            <p className="text-[11px] text-muted-foreground">
+              Perda de peso ao cozinhar/assar (opcional).
             </p>
           </div>
-          <div className="space-y-4 p-6">
-            <CalcLine label="Ingredientes" value={money(ingredientCost)} />
-            <CalcLine label="Embalagens" value={money(packagingCost)} />
-            <CalcLine
-              label={`Gastos invisíveis (${hiddenPercentage}%)`}
-              value={money(hiddenTotal)}
-            />
-            <CalcLine label="Custo total da receita" value={money(baseCost)} />
-            <CalcLine
-              label="Lucro estimado"
-              value={money(profitAmount)}
-            />
-            <CalcLine
-              label="Preço com lucro (antes de taxas)"
-              value={money(priceBeforeFees)}
-            />
-            <CalcLine
-              label={`Taxas de cartão / impostos (${(cardFee + tax).toFixed(2)}%)`}
-              value={money(feesAmount)}
-            />
-            <CalcLine label="Venda da receita inteira" value={money(totalPrice)} />
-            <Button
-              type="button"
-              disabled={!enrichedItems.length}
-              className="mt-2 w-full rounded-xl"
-              onClick={save}
-            >
-              {justSaved ? <Check /> : null} {justSaved ? 'Ficha salva' : 'Salvar ficha técnica'}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full rounded-xl"
-              onClick={() => window.print()}
-            >
-              <Printer /> Imprimir ficha técnica
-            </Button>
-            {recipe && (
+          <div>
+            <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
+              É um produto vendido por kg?
+            </p>
+            <div className="flex gap-2">
               <Button
                 type="button"
-                variant="outline"
-                className="w-full rounded-xl"
-                onClick={onRemove}
+                size="sm"
+                variant={soldByWeight ? 'default' : 'outline'}
+                onClick={() => {
+                  setSoldByWeight(true);
+                  setJustSaved(false);
+                }}
               >
-                <Trash2 /> Remover ficha técnica
+                Sim
               </Button>
-            )}
+              <Button
+                type="button"
+                size="sm"
+                variant={!soldByWeight ? 'default' : 'outline'}
+                onClick={() => {
+                  setSoldByWeight(false);
+                  setJustSaved(false);
+                }}
+              >
+                Não
+              </Button>
+            </div>
           </div>
-        </Panel>
+        </div>
+      </Panel>
+
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Button
+          type="button"
+          disabled={!enrichedItems.length}
+          className="h-11 flex-1 rounded-xl"
+          onClick={save}
+        >
+          {justSaved ? <Check /> : null} {justSaved ? 'Precificação salva' : 'Salvar precificação'}
+        </Button>
+        {recipe && (
+          <Button type="button" variant="outline" className="h-11 rounded-xl" onClick={onRemove}>
+            <Trash2 /> Remover ficha técnica
+          </Button>
+        )}
       </div>
+
       <div className="print-ficha">
         <h1>{productName}</h1>
-        <p>Rendimento: {yieldCount} un.{soldByWeight ? ' • Vendido por kg' : ''}</p>
         <p>
-          Peso da receita: {recipeWeightGrams >= 1000 ? `${(recipeWeightGrams / 1000).toFixed(3)} kg` : `${recipeWeightGrams.toFixed(0)} g`}
-          {weightLossPercent > 0 && ` (após perda de ${weightLossPercent}%: ${finalWeightGrams >= 1000 ? `${(finalWeightGrams / 1000).toFixed(3)} kg` : `${finalWeightGrams.toFixed(0)} g`})`}
+          Rendimento: {yieldCount} un.{soldByWeight ? ' • Vendido por kg' : ''}
+        </p>
+        <p>
+          Peso da receita: {weightLabel(recipeWeightGrams)}
+          {weightLossPercent > 0 && ` (após perda de ${weightLossPercent}%: ${weightLabel(finalWeightGrams)})`}
         </p>
         <h2>Ingredientes</h2>
         <table>
@@ -3078,12 +3015,11 @@ function RecipeEditor({
           </tbody>
         </table>
         <h2>Custos</h2>
-        <p>Ingredientes: {money(ingredientCost)}</p>
-        <p>Custos fixos: {money(fixedCost)}</p>
-        <p>Custos variáveis: {money(variableCost)}</p>
+        <p>Custo dos ingredientes: {money(directCost)}</p>
+        <p>Custos fixos e variáveis: {money(overheadTotal)}</p>
         <p>Custo total: {money(baseCost)}</p>
         <p>Margem de lucro: {profit}%</p>
-        <h2>{soldByWeight ? `Preço sugerido por kg: ${money(pricePerKg)}` : `Preço sugerido por unidade: ${money(unitPrice)}`}</h2>
+        <h2>{soldByWeight ? `Preço por kg: ${money(sellPricePerUnit)}` : `Preço por unidade: ${money(sellPricePerUnit)}`}</h2>
       </div>
     </div>
   );
@@ -3721,13 +3657,44 @@ function DigitalMenu({
 function ProductsCatalog({
   items,
   setItems,
+  menuItems,
+  setMenuItems,
 }: {
   items: Product[];
   setItems: (v: Product[] | ((o: Product[]) => Product[])) => void;
+  menuItems: MenuItem[];
+  setMenuItems: (v: MenuItem[] | ((o: MenuItem[]) => MenuItem[])) => void;
 }) {
   const [weightUnit, setWeightUnit] = useState<
     'g' | 'kg' | 'ml' | 'l' | 'unidade'
   >('g');
+  const [pendingPhoto, setPendingPhoto] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState('');
+  const uploadPhoto: NonNullable<ComponentProps<'input'>['onChange']> = (
+    event,
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) {
+      setPhotoError('Escolha uma imagem de até 4 MB.');
+      return;
+    }
+    setPhotoError('');
+    setUploadingPhoto(true);
+    const body = new FormData();
+    body.append('file', file);
+    fetch('/api/upload', { method: 'POST', body })
+      .then((response) => {
+        if (!response.ok) throw new Error('upload_failed');
+        return response.json() as Promise<{ url: string }>;
+      })
+      .then(({ url }) => setPendingPhoto(url))
+      .catch(() =>
+        setPhotoError('Não foi possível enviar a foto. Tente novamente.'),
+      )
+      .finally(() => setUploadingPhoto(false));
+  };
   const add = (e: FormSubmit) => {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
@@ -3746,16 +3713,39 @@ function ProductsCatalog({
         ...(weightValue > 0
           ? { weight: { value: weightValue, unit: weightUnit } }
           : {}),
+        ...(pendingPhoto ? { photoUrl: pendingPhoto } : {}),
       },
     ]);
     e.currentTarget.reset();
     setWeightUnit('g');
+    setPendingPhoto('');
+  };
+  const publish = (product: Product) => {
+    if (!product.price) return;
+    const weight =
+      product.weight && (product.weight.unit === 'kg' || product.weight.unit === 'g' || product.weight.unit === 'l')
+        ? { value: product.weight.value, unit: product.weight.unit }
+        : undefined;
+    setMenuItems((old) => [
+      ...old,
+      {
+        id: Date.now(),
+        name: `${product.name} — ${product.flavor}`,
+        category: 'Catálogo',
+        price: product.price!,
+        available: true,
+        emoji: '🧁',
+        ...(product.photoUrl ? { photoUrl: product.photoUrl } : {}),
+        ...(weight ? { weight } : {}),
+        sourceProductId: product.id,
+      },
+    ]);
   };
   return (
     <>
       <PageHeading
         title="Produtos"
-        subtitle="Cadastre produtos com sabor para usar rapidamente na hora de montar um pedido."
+        subtitle="Cadastre produtos com sabor e foto — depois publique no cardápio da semana."
       />
       <Panel className="mb-5 p-5">
         <form onSubmit={add} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto_auto]">
@@ -3811,46 +3801,108 @@ function ProductsCatalog({
             </div>
           </Field>
           <div className="flex items-end">
-            <Button type="submit" className="h-10 w-full sm:w-auto">
+            <Button type="submit" className="h-10 w-full sm:w-auto" disabled={uploadingPhoto}>
               <Plus /> Cadastrar
             </Button>
+          </div>
+          <div className="sm:col-span-5">
+            <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-4 text-center transition hover:border-primary/50">
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={uploadPhoto}
+                disabled={uploadingPhoto}
+                className="hidden"
+              />
+              {uploadingPhoto ? (
+                <LoaderCircle className="size-6 animate-spin text-muted-foreground" />
+              ) : pendingPhoto ? (
+                <Image
+                  src={pendingPhoto}
+                  alt="Pré-visualização"
+                  width={48}
+                  height={48}
+                  unoptimized
+                  className="size-12 rounded-lg object-cover"
+                />
+              ) : (
+                <Upload className="size-6 text-muted-foreground" />
+              )}
+              <span className="text-xs text-muted-foreground">
+                Foto do produto (opcional)
+              </span>
+            </label>
+            {photoError && (
+              <p className="mt-1 text-xs text-destructive">{photoError}</p>
+            )}
           </div>
         </form>
       </Panel>
       <Panel className="overflow-hidden">
         <PanelTitle
           title={`${items.length} produtos`}
-          subtitle="Aparecem em Pedidos, na seção Produtos cadastrados"
+          subtitle="Publique no cardápio da semana quando quiser vender por lá"
         />
         <div className="divide-y">
           {items.length === 0 && (
             <Empty label="Nenhum produto cadastrado ainda." />
           )}
-          {items.map((product) => (
-            <div key={product.id} className="flex items-center gap-4 px-5 py-4">
-              <div className="flex-1">
-                <p className="font-semibold">{product.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {product.flavor}
-                  {product.price ? ` • ${money(product.price)}` : ''}
-                  {product.weight
-                    ? ` • ${product.weight.value}${product.weight.unit === 'unidade' ? ' un' : product.weight.unit}`
-                    : ''}
-                  {pricePerBaseUnit(product) ? ` • ${pricePerBaseUnit(product)}` : ''}
-                </p>
+          {items.map((product) => {
+            const published = menuItems.some(
+              (m) => m.sourceProductId === product.id,
+            );
+            return (
+              <div key={product.id} className="flex items-center gap-4 px-5 py-4">
+                {product.photoUrl ? (
+                  <Image
+                    src={product.photoUrl}
+                    alt={product.name}
+                    width={44}
+                    height={44}
+                    unoptimized
+                    className="size-11 shrink-0 rounded-xl object-cover"
+                  />
+                ) : (
+                  <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-secondary text-2xl">
+                    🧁
+                  </span>
+                )}
+                <div className="flex-1">
+                  <p className="font-semibold">{product.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {product.flavor}
+                    {product.price ? ` • ${money(product.price)}` : ''}
+                    {product.weight
+                      ? ` • ${product.weight.value}${product.weight.unit === 'unidade' ? ' un' : product.weight.unit}`
+                      : ''}
+                    {pricePerBaseUnit(product) ? ` • ${pricePerBaseUnit(product)}` : ''}
+                  </p>
+                </div>
+                <Button
+                  variant={published ? 'outline' : 'default'}
+                  disabled={published || !product.price}
+                  title={
+                    !product.price && !published
+                      ? 'Cadastre um valor para publicar'
+                      : undefined
+                  }
+                  onClick={() => publish(product)}
+                >
+                  {published ? 'Já no cardápio' : 'Publicar no cardápio'}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Excluir ${product.name}`}
+                  onClick={() =>
+                    setItems((old) => old.filter((x) => x.id !== product.id))
+                  }
+                >
+                  <Trash2 />
+                </Button>
               </div>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Excluir ${product.name}`}
-                onClick={() =>
-                  setItems((old) => old.filter((x) => x.id !== product.id))
-                }
-              >
-                <Trash2 />
-              </Button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </Panel>
     </>
