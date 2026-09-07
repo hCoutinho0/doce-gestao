@@ -120,6 +120,50 @@
   --sidebar-ring: oklch(0.72 0.14 300);
 }
 
+/* Estoque e Precificação (ficha técnica) seguem uma referência visual à
+   parte que o usuário mandou — creme quente, terracota/rosa-velho como cor
+   de ação e títulos serifados — em vez do roxo/lilás do resto do painel.
+   Escopado a esta classe (em vez de mudar os tokens globais) para não
+   arrastar o resto do app (Pedidos, Financeiro, etc.) para uma identidade
+   visual diferente sem que isso tenha sido pedido. Como o Dialog usa portal
+   pro <body>, os modais precisam levar esta classe explicitamente também,
+   não basta envolver a árvore local. */
+.ficha-theme {
+  --font-heading: var(--font-lora);
+  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --background: oklch(0.98 0.014 70);
+  --foreground: oklch(0.32 0.02 40);
+  --card: oklch(0.995 0.008 70);
+  --card-foreground: oklch(0.32 0.02 40);
+  --popover: oklch(0.995 0.008 70);
+  --popover-foreground: oklch(0.32 0.02 40);
+  --primary: oklch(0.64 0.09 25);
+  --primary-foreground: oklch(0.99 0.006 70);
+  --secondary: oklch(0.93 0.02 60);
+  --secondary-foreground: oklch(0.4 0.03 35);
+  --muted: oklch(0.94 0.02 60);
+  --muted-foreground: oklch(0.52 0.02 40);
+  --accent: oklch(0.9 0.03 50);
+  --accent-foreground: oklch(0.4 0.04 30);
+  --border: oklch(0.9 0.018 55);
+  --input: oklch(0.96 0.014 60);
+  --ring: oklch(0.64 0.09 25);
+}
+.ficha-theme .font-nums {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+/* Tailwind's `@theme inline` bakes the `font-heading` utility to a literal
+   font-family at build time (from the :root value), so overriding the
+   `--font-heading` custom property alone on `.ficha-theme` has no effect on
+   elements already using that utility — this rule re-points them directly. */
+.ficha-theme .font-heading {
+  font-family: var(--font-lora), serif;
+}
+.ficha-theme .ficha-star {
+  color: oklch(0.7 0.13 70);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

@@ -1,10 +1,18 @@
 import type { Metadata } from 'next';
-import { Plus_Jakarta_Sans } from 'next/font/google';
+import { Plus_Jakarta_Sans, Lora } from 'next/font/google';
 import { Providers } from './providers';
 import './globals.css';
 
 const jakarta = Plus_Jakarta_Sans({
   variable: '--font-jakarta',
+  subsets: ['latin'],
+});
+
+// Usada só dentro de `.ficha-theme` (Estoque e Precificação) — a serifada
+// que aparece nas capturas de referência do usuário, sem trocar a
+// identidade visual roxa do resto do painel.
+const lora = Lora({
+  variable: '--font-lora',
   subsets: ['latin'],
 });
 
@@ -24,5 +32,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="pt-BR" className={jakarta.variable}><body className="antialiased"><Providers>{children}</Providers></body></html>;
+  return <html lang="pt-BR" className={`${jakarta.variable} ${lora.variable}`}><body className="antialiased"><Providers>{children}</Providers></body></html>;
 }

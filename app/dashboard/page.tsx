@@ -909,7 +909,7 @@ function Field({
   label,
   children,
 }: {
-  label: string;
+  label: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -1321,16 +1321,21 @@ function PanelTitle({
   title,
   subtitle,
   action,
+  icon,
 }: {
   title: string;
   subtitle: string;
   action?: React.ReactNode;
+  icon?: string;
 }) {
   return (
     <div className="flex items-center justify-between border-b px-5 py-4">
       <div>
-        <h2 className="font-heading font-bold">{title}</h2>
-        <p className="text-xs text-muted-foreground">{subtitle}</p>
+        <h2 className="font-heading font-bold">
+          {icon ? <span className="mr-1.5">{icon}</span> : null}
+          {title}
+        </h2>
+        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
       </div>
       {action}
     </div>
@@ -2051,7 +2056,7 @@ function StockSection({
             <DialogTrigger render={<Button className="h-10 rounded-xl" />}>
               <Plus /> Novo {category === 'Ingrediente' ? 'ingrediente' : 'embalagem'}
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="ficha-theme">
               <DialogHeader>
                 <DialogTitle>
                   Novo {category === 'Ingrediente' ? 'ingrediente' : 'embalagem'}
@@ -2156,7 +2161,7 @@ function StockSection({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold">{item.name}</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="font-nums text-xs text-muted-foreground">
                     {money(item.cost)} / unidade
                     {item.weight
                       ? ` (${item.weight.value}${item.weight.unit})`
@@ -2181,13 +2186,13 @@ function StockSection({
                 </div>
               </div>
               <div className="my-5 flex items-end justify-between">
-                <p className="font-heading text-3xl font-bold">
+                <p className="font-nums text-3xl font-bold">
                   {item.qty}{' '}
-                  <span className="text-base font-medium text-muted-foreground">
+                  <span className="font-sans text-base font-medium text-muted-foreground">
                     {item.unit}
                   </span>
                 </p>
-                <p className="text-xs text-muted-foreground">mín. {item.min}</p>
+                <p className="font-nums text-xs text-muted-foreground">mín. {item.min}</p>
               </div>
               <div className="flex gap-2">
                 <Button
@@ -2236,7 +2241,7 @@ function Stock({
   setStock: (v: StockItem[] | ((o: StockItem[]) => StockItem[])) => void;
 }) {
   return (
-    <>
+    <div className="ficha-theme">
       <StockSection
         category="Ingrediente"
         title="Ingredientes"
@@ -2251,7 +2256,7 @@ function Stock({
         stock={stock}
         setStock={setStock}
       />
-    </>
+    </div>
   );
 }
 
@@ -2388,7 +2393,7 @@ function Pricing({
   const empty = source === 'menu' ? menuItems.length === 0 : products.length === 0;
 
   return (
-    <>
+    <div className="ficha-theme">
       <PageHeading
         title="Ficha técnica e precificação"
         subtitle="Uma ficha por produto, com custo real e margem preservada — no cardápio ou ainda só cadastrado."
@@ -2498,7 +2503,7 @@ function Pricing({
       ) : (
         <ProfitByProduct menuItems={menuItems} recipes={recipes} stock={stock} />
       )}
-    </>
+    </div>
   );
 }
 
@@ -2625,7 +2630,7 @@ function RecipeEditor({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b pb-4">
         <div>
           <button
             type="button"
@@ -2741,12 +2746,12 @@ function RecipeEditor({
                       {item.stockItem?.category ?? 'Ingrediente'}
                     </Badge>
                   </td>
-                  <td className="px-3 py-3">{item.quantity}</td>
+                  <td className="px-3 py-3 font-nums">{item.quantity}</td>
                   <td className="px-3 py-3">{item.unit}</td>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-3 font-nums">
                     {weightLabel(lineWeightGrams(item.stockItem!, item.quantity, item.unit))}
                   </td>
-                  <td className="px-3 py-3 font-semibold">
+                  <td className="px-3 py-3 font-nums font-semibold">
                     {money(lineCost(item.stockItem!, item.quantity, item.unit))}
                   </td>
                   <td className="px-3 py-3">
@@ -2772,8 +2777,8 @@ function RecipeEditor({
                   <td className="px-3 py-3" colSpan={2}>
                     <span className="sr-only">—</span>
                   </td>
-                  <td className="px-3 py-3">{weightLabel(recipeWeightGrams)}</td>
-                  <td className="px-3 py-3">{money(directCost)}</td>
+                  <td className="px-3 py-3 font-nums">{weightLabel(recipeWeightGrams)}</td>
+                  <td className="px-3 py-3 font-nums">{money(directCost)}</td>
                   <td className="px-3 py-3">
                     <span className="sr-only">—</span>
                   </td>
@@ -2827,22 +2832,22 @@ function RecipeEditor({
 
       <div className="grid gap-5 lg:grid-cols-2">
         <Panel className="p-5">
-          <PanelTitle title="Custos" subtitle="" />
+          <PanelTitle title="Custos" subtitle="" icon="📦" />
           <div className="mt-4 space-y-3 text-sm">
             <CalcLine label="Custo dos ingredientes" value={money(directCost)} />
             <CalcLine label="Custos fixos e variáveis" value={money(overheadTotal)} />
-            <div className="flex justify-between rounded-xl bg-secondary p-3">
-              <span className="text-sm font-semibold text-primary">
-                Custo total da receita
+            <div className="flex justify-between rounded-xl bg-muted p-3">
+              <span className="text-sm font-semibold">
+                <span className="ficha-star">★</span> Custo total da receita
               </span>
-              <strong className="text-primary">{money(baseCost)}</strong>
+              <strong className="font-nums">{money(baseCost)}</strong>
             </div>
           </div>
         </Panel>
         <Panel className="p-5">
-          <PanelTitle title="Formação do Preço" subtitle="" />
+          <PanelTitle title="Formação do Preço" subtitle="" icon="💰" />
           <div className="mt-4 space-y-3">
-            <Field label="Preço de venda">
+            <Field label={<><span className="ficha-star">★</span> Preço de venda</>}>
               <input
                 type="number"
                 step="0.01"
@@ -2853,12 +2858,12 @@ function RecipeEditor({
                   setManualPrice(Number(e.target.value));
                   setJustSaved(false);
                 }}
-                className={`${inputClass} border-primary`}
+                className={`${inputClass} font-nums border-primary`}
               />
             </Field>
-            <div className="flex justify-between rounded-xl bg-primary/10 p-3">
-              <span className="text-sm font-semibold text-primary">Preço com taxa</span>
-              <strong className="text-primary">{money(priceWithFees)}</strong>
+            <div className="flex justify-between rounded-xl bg-primary p-3 text-primary-foreground">
+              <span className="text-sm font-semibold">Preço com taxa</span>
+              <strong className="font-nums">{money(priceWithFees)}</strong>
             </div>
             <CalcLine label="Valor das taxas" value={money(feesAmount)} />
             <NumberField
@@ -2872,11 +2877,11 @@ function RecipeEditor({
           </div>
         </Panel>
         <Panel className="p-5">
-          <PanelTitle title="Distribuição do Resultado" subtitle="" />
+          <PanelTitle title="Distribuição do Resultado" subtitle="" icon="📊" />
           <div className="mt-4 space-y-3">
-            <div className="flex justify-between rounded-xl bg-secondary p-3">
-              <span className="text-sm font-semibold text-primary">Lucro disponível</span>
-              <strong className="text-primary">{money(availableProfit)}</strong>
+            <div className="flex justify-between rounded-xl bg-muted p-3">
+              <span className="text-sm font-semibold">Lucro disponível</span>
+              <strong className="font-nums">{money(availableProfit)}</strong>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -2909,6 +2914,7 @@ function RecipeEditor({
           <PanelTitle
             title="Valores por Unidade"
             subtitle={soldByWeight ? 'Por kg' : 'Por unidade'}
+            icon="📐"
           />
           <div className="mt-4 space-y-3">
             <CalcLine label="Custo por unidade" value={money(costPerUnit)} />
@@ -2919,16 +2925,18 @@ function RecipeEditor({
       </div>
 
       <Panel className="p-5">
-        <PanelTitle title="Peso da Receita" subtitle="" />
+        <PanelTitle title="Peso da Receita" subtitle="" icon="⚖️" />
         <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_auto]">
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Peso somado dos ingredientes</span>
-              <strong>{weightLabel(recipeWeightGrams)}</strong>
+              <strong className="font-nums">{weightLabel(recipeWeightGrams)}</strong>
             </div>
-            <div className="flex justify-between rounded-xl bg-secondary p-3">
-              <span className="font-semibold text-primary">Peso final da receita</span>
-              <strong className="text-primary">{weightLabel(finalWeightGrams)}</strong>
+            <div className="flex justify-between rounded-xl bg-muted p-3">
+              <span className="font-semibold">
+                <span className="ficha-star">★</span> Peso final da receita
+              </span>
+              <strong className="font-nums">{weightLabel(finalWeightGrams)}</strong>
             </div>
             <NumberField
               label="Redução na produção (%)"
@@ -3124,7 +3132,7 @@ function NumberField({
         onChange={(e) => setValue(Number(e.target.value))}
         type="number"
         step="0.01"
-        className={inputClass}
+        className={`${inputClass} font-nums`}
       />
     </Field>
   );
@@ -3133,7 +3141,7 @@ function CalcLine({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between border-b pb-3 text-sm">
       <span className="text-muted-foreground">{label}</span>
-      <strong>{value}</strong>
+      <strong className="font-nums">{value}</strong>
     </div>
   );
 }
