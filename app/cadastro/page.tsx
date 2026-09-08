@@ -145,6 +145,10 @@ export default function CadastroPage() {
   // Skip straight to the personal-info step with its name prefilled.
   useEffect(() => {
     if (sessionLoading) return;
+    if (session?.accountConflict) {
+      window.location.replace('/login?error=account_conflict');
+      return;
+    }
     if (session && !session.needsOnboarding) {
       window.location.replace('/dashboard');
       return;

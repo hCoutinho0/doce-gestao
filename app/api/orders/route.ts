@@ -1,11 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import {
-  isCosmosConfigured,
-  readState,
-  updateStateAtomic,
-  LAVILY_BAKERY_ID,
-} from '@/lib/cosmos';
+import { isCosmosConfigured, readState, updateStateAtomic } from '@/lib/cosmos';
+import { checkRateLimit, clientIp } from '@/lib/rateLimit';
 
 type OrderItem = { name: string; quantity: number; unitPrice: number };
 type Order = {
@@ -214,6 +210,14 @@ export async function POST(request: Request) {
   // /{bakeryId}/cardapio page) since there's no session to read it from.
   const session = await auth();
   const isAuthenticated = Boolean(session?.user.bakeryId);
+  // Only the anonymous public-checkout path is throttled — an admin
+  // lançando pedidos manually all day is expected traffic, not abuse.
+  if (
+    !isAuthenticated &&
+    !checkRateLimit(`order:${clientIp(request)}`, 20, 60 * 60 * 1000)
+  ) {
+    return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
+  }
 
   const body = (await request.json()) as {
     bakeryId?: string;
@@ -233,11 +237,29 @@ export async function POST(request: Request) {
     paymentMethod?: 'Pix' | 'Cartão' | 'Dinheiro' | 'Presente';
     paymentStatus?: 'Pago' | 'Pendente';
   };
-  const bakeryId =
-    session?.user.bakeryId ?? body.bakeryId?.trim() ?? LAVILY_BAKERY_ID;
+  // Never falls back to a fixed confeitaria: an anonymous request that
+  // omits bakeryId (malformed, or a bare curl/script hitting this route
+  // directly) used to silently land on LAVILY_BAKERY_ID, which meant
+  // anyone on the internet could inject a fake order — and a fake loyalty
+  // customer — straight into Lavily's real, live order book with zero
+  // authentication. Every caller must now name a real confeitaria.
+  const bakeryId = session?.user.bakeryId ?? body.bakeryId?.trim();
+  if (!bakeryId) {
+    return NextResponse.json({ error: 'missing_bakery' }, { status: 400 });
+  }
 
   if (!body.customer?.trim() || !body.date?.trim()) {
     return NextResponse.json({ error: 'invalid_order' }, { status: 400 });
+  }
+
+  // An anonymous order must name a confeitaria that actually exists — this
+  // also means priceItems() below always resolves against a real menu
+  // instead of silently pricing everything at zero for a typo'd/guessed id.
+  if (!isAuthenticated) {
+    const bakeryExists = await readState<unknown>(bakeryId, 'doce-bakery-profile');
+    if (!bakeryExists) {
+      return NextResponse.json({ error: 'bakery_not_found' }, { status: 404 });
+    }
   }
 
   let items: OrderItem[] | undefined;

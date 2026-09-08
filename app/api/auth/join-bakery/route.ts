@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { auth } from '@/auth';
 import { isCosmosConfigured } from '@/lib/cosmos';
 import { isValidCpfCnpj } from '@/lib/cpfCnpj';
+import { checkRateLimit, clientIp } from '@/lib/rateLimit';
 import { getInvite, getUserByEmail, saveInvite, upsertUser } from '@/lib/tenant';
 import type { AuthProvider, Gender } from '@/lib/tenant';
 
@@ -13,6 +14,9 @@ import type { AuthProvider, Gender } from '@/lib/tenant';
 export async function POST(request: Request) {
   if (!isCosmosConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
+  }
+  if (!checkRateLimit(`join:${clientIp(request)}`, 8, 60 * 60 * 1000)) {
+    return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
   }
 
   const body = (await request.json()) as {

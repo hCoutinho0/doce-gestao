@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { auth } from '@/auth';
 import { isCosmosConfigured, writeState } from '@/lib/cosmos';
 import { isValidCpfCnpj } from '@/lib/cpfCnpj';
+import { checkRateLimit, clientIp } from '@/lib/rateLimit';
 import { generateBakeryId, getUserByEmail, upsertUser } from '@/lib/tenant';
 import type { AuthProvider, Gender } from '@/lib/tenant';
 import type { BakeryProfile } from '@/lib/bakery';
@@ -13,6 +14,9 @@ import type { BakeryProfile } from '@/lib/bakery';
 export async function POST(request: Request) {
   if (!isCosmosConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
+  }
+  if (!checkRateLimit(`signup:${clientIp(request)}`, 5, 60 * 60 * 1000)) {
+    return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
   }
 
   const body = (await request.json()) as {

@@ -12,6 +12,7 @@ export type UserSession = {
   initials: string;
   bakeryId: string | null;
   needsOnboarding: boolean;
+  accountConflict: boolean;
   provider: 'microsoft-entra-id' | 'google' | 'credentials' | null;
 };
 
@@ -39,6 +40,7 @@ export function useUserSession(): {
       initials: data.user.initials,
       bakeryId: data.user.bakeryId,
       needsOnboarding: data.user.needsOnboarding,
+      accountConflict: data.user.accountConflict,
       provider: data.user.provider,
     },
     isLoading: false,

@@ -4,6 +4,7 @@ import Credentials from 'next-auth/providers/credentials';
 import Google from 'next-auth/providers/google';
 import MicrosoftEntraID from 'next-auth/providers/microsoft-entra-id';
 import { LAVILY_BAKERY_ID } from '@/lib/cosmos';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { getUserByEmail, upsertUser } from '@/lib/tenant';
 import type { UserRole, Gender } from '@/lib/tenant';
 
@@ -17,6 +18,7 @@ declare module 'next-auth' {
       initials: string;
       bakeryId: string | null;
       needsOnboarding: boolean;
+      accountConflict: boolean;
       provider: 'microsoft-entra-id' | 'google' | 'credentials' | null;
     };
   }
@@ -35,11 +37,13 @@ type ResolvedAccount = {
   role: UserRole;
   gender?: Gender;
   needsOnboarding: boolean;
+  accountConflict?: boolean;
 };
 
 async function resolveAccount(
   email: string,
   entraRoles: string[] | null,
+  incomingProvider: string | undefined,
 ): Promise<ResolvedAccount> {
   if (entraRoles) {
     const hasProduction = entraRoles.includes(PRODUCTION_APP_ROLE);
@@ -75,6 +79,26 @@ async function resolveAccount(
   }
   const user = await getUserByEmail(email);
   if (user) {
+    // A password-based account never verified that its owner actually
+    // controls that email address — anyone could have registered
+    // someone else's business email with a password of their own choosing,
+    // then waited for the real owner to eventually try "Entrar com
+    // Google/Microsoft" with that same email. Without this check, that
+    // real (provider-verified) login would silently be handed the
+    // impostor's bakeryId — landing the real owner inside, and typing
+    // their real business data into, a confeitaria the impostor
+    // registered and still holds the password for. An OAuth login is only
+    // ever trusted to attach to an existing account when that account was
+    // itself created by an OAuth provider (which already verified the
+    // email), never one created by email+senha.
+    if (user.provider === 'credentials' && incomingProvider !== 'credentials') {
+      return {
+        bakeryId: null,
+        role: 'admin',
+        needsOnboarding: false,
+        accountConflict: true,
+      };
+    }
     return {
       bakeryId: user.bakeryId,
       role: user.role,
@@ -106,6 +130,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const password =
           typeof credentials?.password === 'string' ? credentials.password : '';
         if (!email || !password) return null;
+        // Keyed by email, not IP: the point is to stop unlimited password
+        // guesses against one account, including a distributed attempt
+        // spread across many IPs — bcrypt's own cost slows a single guess
+        // down, but does nothing to cap how many guesses get made.
+        if (!checkRateLimit(`login:${email}`, 10, 15 * 60 * 1000)) return null;
         const user = await getUserByEmail(email);
         if (!user?.passwordHash) return null;
         const valid = await bcrypt.compare(password, user.passwordHash);
@@ -136,12 +165,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               ? ((profile as { roles: unknown[] }).roles as string[])
               : []
             : null;
-        const resolved = await resolveAccount(token.email, entraRoles);
+        const incomingProvider =
+          account?.provider ?? (token as { provider?: string }).provider;
+        const resolved = await resolveAccount(token.email, entraRoles, incomingProvider);
         (token as { bakeryId?: string | null }).bakeryId = resolved.bakeryId;
         (token as { role?: UserRole }).role = resolved.role;
         (token as { gender?: Gender }).gender = resolved.gender;
         (token as { needsOnboarding?: boolean }).needsOnboarding =
           resolved.needsOnboarding;
+        (token as { accountConflict?: boolean }).accountConflict =
+          resolved.accountConflict ?? false;
       }
       if (account) {
         (token as { provider?: string }).provider = account.provider;
@@ -164,6 +197,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         (token as { bakeryId?: string | null }).bakeryId ?? null;
       session.user.needsOnboarding = Boolean(
         (token as { needsOnboarding?: boolean }).needsOnboarding,
+      );
+      session.user.accountConflict = Boolean(
+        (token as { accountConflict?: boolean }).accountConflict,
       );
       session.user.provider =
         (token as {

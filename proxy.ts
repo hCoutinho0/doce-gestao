@@ -19,6 +19,13 @@ export default auth((req) => {
     const loginUrl = new URL('/login', req.nextUrl.origin);
     return NextResponse.redirect(loginUrl);
   }
+  if (req.auth?.user?.accountConflict) {
+    // This email already has a password-based account belonging to someone
+    // else's session — never reachable to /dashboard with no bakeryId.
+    const loginUrl = new URL('/login', req.nextUrl.origin);
+    loginUrl.searchParams.set('error', 'account_conflict');
+    return NextResponse.redirect(loginUrl);
+  }
   if (req.auth?.user?.needsOnboarding) {
     return NextResponse.redirect(new URL('/cadastro', req.nextUrl.origin));
   }

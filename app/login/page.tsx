@@ -11,6 +11,7 @@ import {
   LogIn,
   Mail,
 } from 'lucide-react';
+import { signOut as nextAuthSignOut } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { GoogleIcon, MicrosoftIcon } from '@/components/brand-icons';
 import { useUserSession } from '@/lib/auth';
@@ -29,9 +30,28 @@ export default function LoginPage() {
   const [submittingCredentials, setSubmittingCredentials] = useState(false);
   const [error, setError] = useState('');
 
+  const ACCOUNT_CONFLICT_MESSAGE =
+    'Este email já está cadastrado com senha em outra conta. Entre com email e senha, ou fale com contato@confeitto.com.br.';
+
   useEffect(() => {
-    if (isLoading || !session) return;
-    window.location.replace(session.needsOnboarding ? '/cadastro' : '/dashboard');
+    if (isLoading) return;
+    // Either the proxy just bounced an OAuth login back here (query
+    // string) or the session it left behind still carries the conflict —
+    // either way, a password-based account already exists for this email:
+    // never reachable to /dashboard (no bakeryId to show), and never
+    // silently attached to whatever confeitaria that other account
+    // belongs to. Sign this half-session back out instead of bouncing
+    // forever between here and the proxy redirect.
+    const flaggedByUrl =
+      new URLSearchParams(window.location.search).get('error') === 'account_conflict';
+    if (flaggedByUrl || session?.accountConflict) {
+      setError(ACCOUNT_CONFLICT_MESSAGE);
+      if (session?.accountConflict) void nextAuthSignOut({ redirect: false });
+      return;
+    }
+    if (session) {
+      window.location.replace(session.needsOnboarding ? '/cadastro' : '/dashboard');
+    }
   }, [isLoading, session]);
 
   const submitCredentials = async (event: FormSubmit) => {

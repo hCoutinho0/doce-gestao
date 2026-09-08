@@ -10,9 +10,6 @@ const ALLOWED_KEYS = new Set([
   'doce-stock-v2',
   'doce-finance',
   'doce-menu',
-  'doce-menu-week',
-  'doce-menu-week-start',
-  'doce-menu-week-end',
   'doce-menu-editions',
   'doce-loyalty',
   'doce-bakery-profile',
@@ -21,16 +18,26 @@ const ALLOWED_KEYS = new Set([
   'doce-tasks',
 ]);
 
+// The dashboard hides Financeiro, Precificação, Produtos, Clientes and
+// Fidelidade from a "Produção" account entirely — but that's just the UI.
+// Without a matching check here, that same account could still read or
+// overwrite any of it with a plain fetch() to this route (open devtools,
+// no admin role needed). Every key not listed below is fair game for any
+// signed-in role; these five are admin-only in both directions.
+const ADMIN_ONLY_KEYS = new Set([
+  'doce-finance',
+  'doce-bakery-profile',
+  'doce-pricing',
+  'doce-products',
+  'doce-loyalty',
+]);
+
 // The public cardápio (no login) needs the published menu and the bakery's
 // branding to render at all — everything else is internal panel data. Each
 // confeitaria's own /{bakeryId}/cardapio passes its bakeryId explicitly via
 // query string; LAVILY_BAKERY_ID is only a fallback for a caller that omits
 // it (there shouldn't be one left after the move to per-confeitaria pages).
-const PUBLIC_READ_KEYS = new Set([
-  'doce-menu',
-  'doce-menu-week',
-  'doce-bakery-profile',
-]);
+const PUBLIC_READ_KEYS = new Set(['doce-menu', 'doce-bakery-profile']);
 
 export async function GET(
   request: Request,
@@ -61,6 +68,9 @@ export async function GET(
     const session = await auth();
     if (!session?.user.bakeryId) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
+    if (ADMIN_ONLY_KEYS.has(key) && session.user.role !== 'admin') {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
     bakeryId = session.user.bakeryId;
   }
@@ -93,6 +103,9 @@ export async function PUT(
   const session = await auth();
   if (!session?.user.bakeryId) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+  if (ADMIN_ONLY_KEYS.has(key) && session.user.role !== 'admin') {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
   if (!isCosmosConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });

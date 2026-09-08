@@ -3,11 +3,14 @@ import { auth } from '@/auth';
 import { isStorageConfigured, uploadImage } from '@/lib/storage';
 
 const MAX_SIZE = 4 * 1024 * 1024; // 4 MB
+// SVG deliberately excluded: it's XML, and can embed a <script> that runs
+// if the raw blob URL is ever opened directly (shared, pasted, opened in a
+// new tab) instead of only rendered inside an <img> — a stored-XSS vector
+// no product/cardápio photo needs to accept.
 const ALLOWED_TYPES: Record<string, string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
   'image/webp': 'webp',
-  'image/svg+xml': 'svg',
 };
 
 // Only the signed-in panel (admin/production) can upload photos — the
