@@ -2574,6 +2574,7 @@ function RecipeEditor({
     recipe?.weightLossPercent ?? 0,
   );
   const [lineUnit, setLineUnit] = useState<RecipeLine['unit']>('un');
+  const [addItemOpen, setAddItemOpen] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   // Preço de venda: começa igual à sugestão (custo + margem) e continua
   // acompanhando ela enquanto o usuário não digitar um valor diferente —
@@ -2626,6 +2627,7 @@ function RecipeEditor({
     e.currentTarget.reset();
     setLineUnit('un');
     setJustSaved(false);
+    setAddItemOpen(false);
   };
   const save = () => {
     onSave({
@@ -2683,66 +2685,73 @@ function RecipeEditor({
               Escolha do estoque, a quantidade e a unidade usada nesta receita
             </p>
           </div>
-        </div>
-        <form
-          onSubmit={addStockItem}
-          className="grid gap-3 border-b bg-muted/25 p-4 sm:grid-cols-[1fr_120px_100px_auto]"
-        >
-          <Field label="Ingrediente ou embalagem do estoque">
-            <select required name="stockId" className={inputClass} defaultValue="">
-              <option value="" disabled>
-                Selecione...
-              </option>
-              <optgroup label="Ingredientes">
-                {stock
-                  .filter((item) => (item.category ?? 'Ingrediente') === 'Ingrediente')
-                  .map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name} — {money(item.cost)}/un
-                      {item.weight ? ` (${item.weight.value}${item.weight.unit})` : ''}
-                    </option>
-                  ))}
-              </optgroup>
-              <optgroup label="Embalagens">
-                {stock
-                  .filter((item) => item.category === 'Embalagem')
-                  .map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name} — {money(item.cost)}/un
-                    </option>
-                  ))}
-              </optgroup>
-            </select>
-          </Field>
-          <Field label="Quantidade">
-            <input
-              required
-              name="quantity"
-              type="number"
-              min="0.001"
-              step="0.001"
-              className={inputClass}
-            />
-          </Field>
-          <Field label="Unidade">
-            <select
-              value={lineUnit}
-              onChange={(e) => setLineUnit(e.target.value as RecipeLine['unit'])}
-              className={inputClass}
-            >
-              {RECIPE_LINE_UNITS.map((u) => (
-                <option key={u.value} value={u.value}>
-                  {u.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <div className="flex items-end">
-            <Button type="submit" className="h-10 w-full">
+          <Dialog open={addItemOpen} onOpenChange={setAddItemOpen}>
+            <DialogTrigger render={<Button className="rounded-xl" />}>
               <Plus /> Adicionar item
-            </Button>
-          </div>
-        </form>
+            </DialogTrigger>
+            <DialogContent className="ficha-theme">
+              <DialogHeader>
+                <DialogTitle>Adicionar item</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={addStockItem} className="grid gap-3">
+                <Field label="Ingrediente ou embalagem do estoque">
+                  <select required name="stockId" className={inputClass} defaultValue="">
+                    <option value="" disabled>
+                      Selecione...
+                    </option>
+                    <optgroup label="Ingredientes">
+                      {stock
+                        .filter((item) => (item.category ?? 'Ingrediente') === 'Ingrediente')
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} — {money(item.cost)}/un
+                            {item.weight ? ` (${item.weight.value}${item.weight.unit})` : ''}
+                          </option>
+                        ))}
+                    </optgroup>
+                    <optgroup label="Embalagens">
+                      {stock
+                        .filter((item) => item.category === 'Embalagem')
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} — {money(item.cost)}/un
+                          </option>
+                        ))}
+                    </optgroup>
+                  </select>
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Quantidade">
+                    <input
+                      required
+                      name="quantity"
+                      type="number"
+                      min="0.001"
+                      step="0.001"
+                      className={inputClass}
+                    />
+                  </Field>
+                  <Field label="Unidade">
+                    <select
+                      value={lineUnit}
+                      onChange={(e) => setLineUnit(e.target.value as RecipeLine['unit'])}
+                      className={inputClass}
+                    >
+                      {RECIPE_LINE_UNITS.map((u) => (
+                        <option key={u.value} value={u.value}>
+                          {u.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
+                <Button type="submit" className="w-full justify-self-end rounded-xl sm:w-auto">
+                  Adicionar
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] text-left text-sm">
             <thead className="bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
