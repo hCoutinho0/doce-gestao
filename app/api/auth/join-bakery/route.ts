@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   if (!isCosmosConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
-  if (!checkRateLimit(`join:${clientIp(request)}`, 8, 60 * 60 * 1000)) {
+  if (!(await checkRateLimit(`join:${clientIp(request)}`, 8, 60 * 60 * 1000))) {
     return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
   }
 

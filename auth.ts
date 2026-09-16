@@ -134,7 +134,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // guesses against one account, including a distributed attempt
         // spread across many IPs — bcrypt's own cost slows a single guess
         // down, but does nothing to cap how many guesses get made.
-        if (!checkRateLimit(`login:${email}`, 10, 15 * 60 * 1000)) return null;
+        if (!(await checkRateLimit(`login:${email}`, 10, 15 * 60 * 1000))) return null;
         const user = await getUserByEmail(email);
         if (!user?.passwordHash) return null;
         const valid = await bcrypt.compare(password, user.passwordHash);

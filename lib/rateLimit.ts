@@ -1,39 +1,38 @@
-// A minimal in-memory sliding-window limiter — no external dependency, no
-// infra to provision. Good enough to blunt casual brute force / spam
-// scripts today; it resets on every cold start/redeploy and doesn't
-// coordinate across instances if the app ever scales out to more than one,
-// so it's not a substitute for a shared store (Redis/Upstash) once traffic
-// justifies one — see the security audit for that note.
+import { updateGlobalAtomic } from '@/lib/cosmos';
+
+// A sliding-window limiter backed by the same Cosmos container as
+// everything else — buckets live at `ratelimit:{key}` documents, guarded
+// by the existing ETag-based atomic update, so it coordinates correctly
+// across every instance the app runs on (an in-memory Map couldn't).
+// Each bucket sets its own `ttl`, so Cosmos deletes it once the window is
+// long past — no manual sweep needed, no unbounded growth from one-off
+// keys (an IP that never comes back).
 type Bucket = { count: number; resetAt: number };
-
-const buckets = new Map<string, Bucket>();
-
-// Keeps the map from growing forever under sustained abuse from many
-// distinct keys (IPs/emails) — cheap opportunistic sweep, not a timer.
-function sweep(now: number) {
-  if (buckets.size < 5000) return;
-  for (const [key, bucket] of buckets) {
-    if (now > bucket.resetAt) buckets.delete(key);
-  }
-}
 
 // Returns true when the call is allowed, false when the key has hit its
 // limit for the current window.
-export function checkRateLimit(
+export async function checkRateLimit(
   key: string,
   limit: number,
   windowMs: number,
-): boolean {
+): Promise<boolean> {
   const now = Date.now();
-  sweep(now);
-  const bucket = buckets.get(key);
-  if (!bucket || now > bucket.resetAt) {
-    buckets.set(key, { count: 1, resetAt: now + windowMs });
-    return true;
-  }
-  if (bucket.count >= limit) return false;
-  bucket.count += 1;
-  return true;
+  let allowed = true;
+  await updateGlobalAtomic<Bucket>(
+    `ratelimit:${key}`,
+    (current) => {
+      if (!current || now > current.resetAt) {
+        return { count: 1, resetAt: now + windowMs };
+      }
+      if (current.count >= limit) {
+        allowed = false;
+        return current;
+      }
+      return { count: current.count + 1, resetAt: current.resetAt };
+    },
+    { ttlSeconds: Math.ceil(windowMs / 1000) + 60 },
+  );
+  return allowed;
 }
 
 // Best-effort caller IP behind Azure's proxy — the header is a

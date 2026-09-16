@@ -39,6 +39,10 @@ export function getAppStateContainer(): Promise<Container> {
       const { container } = await database.containers.createIfNotExists({
         id: CONTAINER_ID,
         partitionKey: { paths: ['/id'] },
+        // -1 means "off by default" — a document only expires if it sets
+        // its own `ttl` field (the rate-limit buckets do; every other
+        // document type doesn't, so this changes nothing for them.
+        defaultTtl: -1,
       });
       return container;
     })();
@@ -160,6 +164,40 @@ export async function updateStateAtomic<T>(
           );
       } else {
         await container.items.create({ id, value: next });
+      }
+      return next;
+    } catch (error) {
+      const code = (error as { code?: number }).code;
+      if ((code === 412 || code === 409) && attempt < maxAttempts) continue;
+      throw error;
+    }
+  }
+  throw new Error('update_conflict_retries_exhausted');
+}
+
+// Same read-modify-write-with-ETag pattern as updateStateAtomic, but for
+// documents that aren't scoped to a confeitaria (no bakeryId, no legacy
+// Lavily fallback) — used for the rate-limit buckets below. `ttlSeconds`
+// asks Cosmos to auto-delete the document once it's stale, so buckets for
+// one-off keys (an IP that never comes back) don't accumulate forever.
+export async function updateGlobalAtomic<T>(
+  id: string,
+  update: (current: T | null) => T,
+  options: { maxAttempts?: number; ttlSeconds?: number } = {},
+): Promise<T> {
+  const { maxAttempts = 5, ttlSeconds } = options;
+  const container = await getAppStateContainer();
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const { value, etag } = await readDocWithEtag<T>(id);
+    const next = update(value);
+    const doc = ttlSeconds != null ? { id, value: next, ttl: ttlSeconds } : { id, value: next };
+    try {
+      if (etag) {
+        await container
+          .item(id, id)
+          .replace(doc, { accessCondition: { type: 'IfMatch', condition: etag } });
+      } else {
+        await container.items.create(doc);
       }
       return next;
     } catch (error) {

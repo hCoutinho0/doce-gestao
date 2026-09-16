@@ -214,7 +214,7 @@ export async function POST(request: Request) {
   // lançando pedidos manually all day is expected traffic, not abuse.
   if (
     !isAuthenticated &&
-    !checkRateLimit(`order:${clientIp(request)}`, 20, 60 * 60 * 1000)
+    !(await checkRateLimit(`order:${clientIp(request)}`, 20, 60 * 60 * 1000))
   ) {
     return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
   }

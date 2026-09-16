@@ -23,7 +23,10 @@ import {
   BellOff,
   CakeSlice,
   Check,
+  CheckCircle2,
   ChevronLeft,
+  Circle,
+  CircleHelp,
   ClipboardList,
   ChevronRight,
   CircleDollarSign,
@@ -55,6 +58,12 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -75,7 +84,8 @@ type View =
   | 'products'
   | 'customers'
   | 'loyalty'
-  | 'team';
+  | 'team'
+  | 'help';
 type OrderItem = { name: string; quantity: number; unitPrice: number };
 type Order = {
   id: string;
@@ -256,12 +266,17 @@ type RecipeLine = {
   quantity: number;
   unit: 'un' | 'g' | 'kg';
 };
-// productKind distingue de onde vem o produto sendo precificado — "menu"
-// (já publicado no cardápio, o comportamento original) ou "catalog" (um
-// produto só cadastrado em Produtos, ainda sem entrar no cardápio).
-// Ausente = "menu", para fichas técnicas salvas antes desse campo existir.
+// Uma receita é uma entidade própria — não depende de já existir um
+// produto no cardápio ou em Produtos para ser criada. `productId`/
+// `productKind` só aparecem quando ela foi vinculada a um item real (na
+// criação, opcionalmente, ou depois via "Precificar produto"); uma receita
+// avulsa não tem nenhum dos dois. `id` é a chave própria da receita —
+// receitas salvas antes desse campo existir não têm `id`, só `productId`
+// (sempre presente nelas, já que só dava pra criar vinculado); nesse caso
+// `productId` também serve de `id`, ver `recipeKey`.
 type ProductRecipe = {
-  productId: number;
+  id?: number;
+  productId?: number;
   productKind?: 'menu' | 'catalog';
   productName?: string;
   yieldCount: number;
@@ -321,6 +336,7 @@ const navItems: { label: string; icon: typeof LayoutDashboard; view: View }[] =
     { label: 'Clientes', icon: Users, view: 'customers' },
     { label: 'Fidelidade', icon: Gift, view: 'loyalty' },
     { label: 'Equipe', icon: UserPlus, view: 'team' },
+    { label: 'Ajuda', icon: CircleHelp, view: 'help' },
   ];
 const money = (value: number) =>
   value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -383,7 +399,7 @@ export default function Home() {
   const visibleNavItems =
     session?.role === 'production'
       ? navItems.filter((item) =>
-          ['dashboard', 'orders', 'stock', 'menu'].includes(item.view),
+          ['dashboard', 'orders', 'stock', 'menu', 'help'].includes(item.view),
         )
       : navItems;
   const pageTitle = navItems.find((item) => item.view === view)?.label ?? '';
@@ -518,8 +534,12 @@ export default function Home() {
                 firstName={session.name.trim().split(/\s+/)[0] || 'por aí'}
                 tasks={tasks}
                 setTasks={setTasks}
+                stock={stock}
+                recipes={recipes}
+                menuItems={menuItems}
               />
             )}
+            {view === 'help' && <HelpCenter />}
             {view === 'orders' && (
               <Orders
                 orders={orders}
@@ -535,7 +555,9 @@ export default function Home() {
               <Pricing
                 stock={stock}
                 menuItems={menuItems}
+                setMenuItems={setMenuItems}
                 products={products}
+                setProducts={setProducts}
                 recipes={recipes}
                 setRecipes={setRecipes}
               />
@@ -936,6 +958,9 @@ function Dashboard({
   firstName,
   tasks,
   setTasks,
+  stock,
+  recipes,
+  menuItems,
 }: {
   orders: Order[];
   activeOrdersCount: number;
@@ -947,6 +972,9 @@ function Dashboard({
   firstName: string;
   tasks: Task[];
   setTasks: (v: Task[] | ((o: Task[]) => Task[])) => void;
+  stock: StockItem[];
+  recipes: ProductRecipe[];
+  menuItems: MenuItem[];
 }) {
   const entries = finance
     .filter((item) => item.type === 'Entrada')
@@ -975,6 +1003,13 @@ function Dashboard({
             <Plus /> Novo pedido
           </Button>
         }
+      />
+      <OnboardingChecklist
+        hasStock={stock.length > 0}
+        hasRecipe={recipes.length > 0}
+        hasPublishedMenuItem={menuItems.some((m) => m.available)}
+        hasOrder={orders.length > 0}
+        setView={setView}
       />
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
@@ -1134,6 +1169,135 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
+// Steps computed from real data (never their own separate checkbox state) —
+// a step reads "done" the moment the thing it describes actually exists, so
+// it can't drift from what the confeitaria has actually set up. Only the
+// "dispensar" choice is stored, under 'doce-onboarding'.
+function OnboardingChecklist({
+  hasStock,
+  hasRecipe,
+  hasPublishedMenuItem,
+  hasOrder,
+  setView,
+}: {
+  hasStock: boolean;
+  hasRecipe: boolean;
+  hasPublishedMenuItem: boolean;
+  hasOrder: boolean;
+  setView: (v: View) => void;
+}) {
+  const [state, setState] = useStoredState<{ dismissed: boolean }>(
+    'doce-onboarding',
+    { dismissed: false },
+  );
+
+  const steps: {
+    label: string;
+    done: boolean;
+    view: View;
+    cta: string;
+  }[] = [
+    {
+      label: 'Cadastre seu primeiro ingrediente ou embalagem',
+      done: hasStock,
+      view: 'stock',
+      cta: 'Ir para Estoque',
+    },
+    {
+      label: 'Monte a ficha técnica de um produto',
+      done: hasRecipe,
+      view: 'pricing',
+      cta: 'Ir para Precificação',
+    },
+    {
+      label: 'Publique um produto no cardápio online',
+      done: hasPublishedMenuItem,
+      view: 'menu',
+      cta: 'Ir para Cardápio',
+    },
+    {
+      label: 'Lance o primeiro pedido',
+      done: hasOrder,
+      view: 'orders',
+      cta: 'Ir para Pedidos',
+    },
+  ];
+  const doneCount = steps.filter((s) => s.done).length;
+  const allDone = doneCount === steps.length;
+
+  if (state.dismissed || allDone) return null;
+
+  return (
+    <Panel className="p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-heading text-lg font-bold">Primeiros passos</h2>
+          <p className="text-xs text-muted-foreground">
+            {doneCount} de {steps.length} concluídos — leva menos de 10
+            minutos para deixar tudo pronto.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setState({ dismissed: true })}
+        >
+          Dispensar
+        </Button>
+      </div>
+      <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-primary transition-all"
+          style={{ width: `${(doneCount / steps.length) * 100}%` }}
+        />
+      </div>
+      <div className="mt-4 divide-y">
+        {steps.map((step) => (
+          <div
+            key={step.label}
+            className="flex items-center justify-between gap-3 py-2.5"
+          >
+            <div className="flex items-center gap-2.5">
+              {step.done ? (
+                <CheckCircle2 className="size-[18px] shrink-0 text-primary" />
+              ) : (
+                <Circle className="size-[18px] shrink-0 text-muted-foreground/40" />
+              )}
+              <span
+                className={`text-sm ${step.done ? 'text-muted-foreground line-through' : 'font-medium'}`}
+              >
+                {step.label}
+              </span>
+            </div>
+            {!step.done && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setView(step.view)}
+              >
+                {step.cta} <ArrowUpRight />
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">
+        Ficou com dúvida em algum passo?{' '}
+        <button
+          type="button"
+          onClick={() => setView('help')}
+          className="font-semibold text-primary hover:underline"
+        >
+          Veja a Ajuda
+        </button>
+        .
+      </p>
+    </Panel>
+  );
+}
+
 function TasksPanel({
   tasks,
   setTasks,
@@ -1286,6 +1450,135 @@ function TasksPanel({
         </div>
       )}
     </Panel>
+  );
+}
+
+type FaqEntry = { q: string; a: string };
+type FaqSection = { title: string; entries: FaqEntry[] };
+
+const FAQ_SECTIONS: FaqSection[] = [
+  {
+    title: 'Pedidos',
+    entries: [
+      {
+        q: 'Como eu lanço um pedido novo?',
+        a: 'Vá em Pedidos, escolha (ou digite) o nome do cliente, selecione os produtos do cardápio, defina data de entrega e forma de pagamento, e clique em Lançar pedido.',
+      },
+      {
+        q: 'Os produtos não aparecem para eu escolher no pedido',
+        a: 'A tela de Pedidos só mostra produtos já publicados no Cardápio. Publique o produto em Cardápio, ou em Produtos → Publicar no cardápio.',
+      },
+    ],
+  },
+  {
+    title: 'Estoque',
+    entries: [
+      {
+        q: 'Como cadastro um ingrediente ou embalagem?',
+        a: 'Em Estoque, clique em Novo ingrediente (ou Novo embalagem) e preencha nome, quantidade, peso do pacote e valor pago — o sistema calcula sozinho o custo por grama ou por unidade.',
+      },
+      {
+        q: "Para que serve o campo 'Local de compra'?",
+        a: 'É só controle de fornecedor — ajuda a lembrar onde repor depois. Não entra em nenhum cálculo de custo ou preço.',
+      },
+      {
+        q: 'Como faço para repor um item que já cadastrei?',
+        a: 'Cadastre de novo com o mesmo nome, a nova quantidade e o novo valor pago. O sistema soma ao estoque existente e recalcula a média ponderada do custo — não precisa apagar o item antigo.',
+      },
+    ],
+  },
+  {
+    title: 'Precificação',
+    entries: [
+      {
+        q: 'Como crio a ficha técnica de um produto?',
+        a: 'Em Precificação, escolha o produto (do cardápio ou só cadastrado), use + Adicionar item para puxar ingredientes do estoque, e preencha os percentuais de custos fixos, lucro e taxa de cartão/iFood. O preço de venda sugerido aparece sozinho.',
+      },
+      {
+        q: 'Por que o preço de venda não muda mais quando edito os percentuais?',
+        a: 'Assim que você edita o preço de venda manualmente (por exemplo, para arredondar), ele para de seguir a sugestão automática — assim um ajuste manual seu nunca é perdido só porque outro campo mudou.',
+      },
+    ],
+  },
+  {
+    title: 'Financeiro',
+    entries: [
+      {
+        q: 'O que é o Rateio do mês?',
+        a: 'Divide automaticamente as entradas já recebidas no mês entre pró-labore, empresa e reserva emergencial, nos percentuais que você define.',
+      },
+      {
+        q: 'Preciso lançar as vendas de pedidos manualmente no financeiro?',
+        a: 'Não — quando um pedido é marcado como pago, a entrada correspondente já aparece sozinha no Financeiro.',
+      },
+    ],
+  },
+  {
+    title: 'Cardápio',
+    entries: [
+      {
+        q: 'Como meus clientes acessam o cardápio online?',
+        a: 'Cada confeitaria tem um link próprio (confeitto.com.br/sua-confeitaria/cardapio) — copie e compartilhe direto do WhatsApp ou Instagram.',
+      },
+      {
+        q: 'Publiquei um produto mas ele não aparece no cardápio',
+        a: 'Confira se o produto está marcado como Disponível — um produto indisponível fica automaticamente oculto do cardápio público, mesmo já publicado.',
+      },
+    ],
+  },
+  {
+    title: 'Produtos',
+    entries: [
+      {
+        q: 'Qual a diferença entre Produtos e Cardápio?',
+        a: 'Produtos é o catálogo interno, com fotos. Cardápio é o que os clientes realmente veem. Publicar um produto manda uma cópia dele para o cardápio — editar o produto depois não atualiza o que já foi publicado.',
+      },
+    ],
+  },
+  {
+    title: 'Fidelidade e equipe',
+    entries: [
+      {
+        q: 'Como funciona o programa de fidelidade?',
+        a: 'Cada cliente acumula carimbos conforme os pedidos que faz. Você define quantos carimbos valem o prêmio em Fidelidade.',
+      },
+      {
+        q: 'Como convido alguém para a minha equipe?',
+        a: 'Em Equipe, gere um convite escolhendo o papel (Administradora ou Produção) e envie o código — a pessoa usa esse código na tela de cadastro.',
+      },
+      {
+        q: 'Qual a diferença entre os papéis Administradora e Produção?',
+        a: 'Produção só enxerga Pedidos, Estoque e Cardápio. Financeiro, Precificação, Produtos, Clientes e Fidelidade ficam visíveis só para Administradoras.',
+      },
+    ],
+  },
+];
+
+function HelpCenter() {
+  return (
+    <div className="space-y-7">
+      <PageHeading
+        title="Ajuda"
+        subtitle="Respostas rápidas para as dúvidas mais comuns de quem está começando com o Confeitto."
+      />
+      <div className="grid gap-5 lg:grid-cols-2">
+        {FAQ_SECTIONS.map((section) => (
+          <Panel key={section.title} className="p-5">
+            <h2 className="font-heading font-bold">{section.title}</h2>
+            <Accordion className="mt-2">
+              {section.entries.map((entry) => (
+                <AccordionItem key={entry.q} value={entry.q}>
+                  <AccordionTrigger>{entry.q}</AccordionTrigger>
+                  <AccordionContent>
+                    <p className="text-muted-foreground">{entry.a}</p>
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          </Panel>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -2005,8 +2298,7 @@ function StockSection({
     const purchaseValue = Number(fieldValue(d, 'purchaseValue'));
     const supplier = fieldValue(d, 'supplier').trim();
     if (!name || !Number.isFinite(qty) || qty <= 0) return;
-    const weightValue =
-      category === 'Ingrediente' ? Number(fieldValue(d, 'weightValue')) : 0;
+    const weightValue = Number(fieldValue(d, 'weightValue'));
     setStock((old) => {
       const match = old.find(
         (x) =>
@@ -2040,7 +2332,7 @@ function StockSection({
           category,
           qty,
           unit: 'un',
-          min: Number(fieldValue(d, 'min')) || 0,
+          min: 0,
           cost: qty > 0 ? +(purchaseValue / qty).toFixed(4) : 0,
           ...(supplier ? { supplier } : {}),
           ...(weightValue > 0
@@ -2093,38 +2385,26 @@ function StockSection({
                       className={inputClass}
                     />
                   </Field>
-                  {category === 'Ingrediente' ? (
-                    <Field label="Peso do pacote">
-                      <div className="flex gap-1">
-                        <input
-                          name="weightValue"
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          className={`${inputClass} w-full`}
-                          placeholder="Ex.: 395"
-                        />
-                        <select
-                          value={weightUnit}
-                          onChange={(e) => setWeightUnit(e.target.value as 'g' | 'kg')}
-                          className={inputClass}
-                        >
-                          <option value="g">g</option>
-                          <option value="kg">kg</option>
-                        </select>
-                      </div>
-                    </Field>
-                  ) : (
-                    <Field label="Mínimo (opcional)">
+                  <Field label="Peso (opcional)">
+                    <div className="flex gap-1">
                       <input
-                        name="min"
+                        name="weightValue"
                         type="number"
                         step="0.01"
-                        className={inputClass}
-                        placeholder="Alerta de estoque baixo"
+                        min="0"
+                        className={`${inputClass} w-full`}
+                        placeholder="Ex.: 395"
                       />
-                    </Field>
-                  )}
+                      <select
+                        value={weightUnit}
+                        onChange={(e) => setWeightUnit(e.target.value as 'g' | 'kg')}
+                        className={inputClass}
+                      >
+                        <option value="g">g</option>
+                        <option value="kg">kg</option>
+                      </select>
+                    </div>
+                  </Field>
                 </div>
                 <Field label="Valor pago (R$)">
                   <input
@@ -2136,17 +2416,6 @@ function StockSection({
                     className={inputClass}
                   />
                 </Field>
-                {category === 'Ingrediente' && (
-                  <Field label="Mínimo (opcional)">
-                    <input
-                      name="min"
-                      type="number"
-                      step="0.01"
-                      className={inputClass}
-                      placeholder="Alerta de estoque baixo"
-                    />
-                  </Field>
-                )}
                 <Field label="Local de compra (opcional)">
                   <input
                     name="supplier"
@@ -2359,64 +2628,78 @@ function computeRecipeCost(recipe: {
   };
 }
 
+// Identidade de uma receita: `id` quando existe, senão `productId` (toda
+// receita salva antes de `id` existir tinha, obrigatoriamente, um
+// productId — só dava pra criar já vinculada a um produto).
+function recipeKey(recipe: ProductRecipe): number {
+  return recipe.id ?? recipe.productId!;
+}
+
 function Pricing({
   stock,
   menuItems,
+  setMenuItems,
   products,
+  setProducts,
   recipes,
   setRecipes,
 }: {
   stock: StockItem[];
   menuItems: MenuItem[];
+  setMenuItems: (v: MenuItem[] | ((o: MenuItem[]) => MenuItem[])) => void;
   products: Product[];
+  setProducts: (v: Product[] | ((o: Product[]) => Product[])) => void;
   recipes: ProductRecipe[];
   setRecipes: (v: ProductRecipe[] | ((o: ProductRecipe[]) => ProductRecipe[])) => void;
 }) {
   const [tab, setTab] = useState<'ficha' | 'lucro'>('ficha');
-  // "menu" = produto já publicado no cardápio (fluxo original); "catalog" =
-  // produto cadastrado em Produtos, ainda sem entrar no cardápio — permite
-  // montar a ficha técnica e já saber o preço antes de publicar.
-  const [source, setSource] = useState<'menu' | 'catalog'>('menu');
-  const [menuProductId, setMenuProductId] = useState<number | ''>(
-    menuItems[0]?.id ?? '',
-  );
-  const [catalogProductId, setCatalogProductId] = useState<number | ''>(
-    products[0]?.id ?? '',
-  );
-  const selectedProduct: { id: number; name: string; price?: number } | undefined =
-    source === 'menu'
-      ? menuItems.find((m) => m.id === menuProductId)
-      : (() => {
-          const p = products.find((x) => x.id === catalogProductId);
-          return p ? { id: p.id, name: `${p.name} - ${p.flavor}`, price: p.price } : undefined;
-        })();
+  const [selectedKey, setSelectedKey] = useState<number | null>(null);
 
-  const saveRecipe = (recipe: ProductRecipe) =>
+  const saveRecipe = (recipe: ProductRecipe) => {
+    const key = recipeKey(recipe);
     setRecipes((old) =>
-      old.some(
-        (r) => r.productId === recipe.productId && (r.productKind ?? 'menu') === (recipe.productKind ?? 'menu'),
-      )
-        ? old.map((r) =>
-            r.productId === recipe.productId && (r.productKind ?? 'menu') === (recipe.productKind ?? 'menu')
-              ? recipe
-              : r,
-          )
+      old.some((r) => recipeKey(r) === key)
+        ? old.map((r) => (recipeKey(r) === key ? recipe : r))
         : [...old, recipe],
     );
-  const removeRecipe = (productId: number, productKind: 'menu' | 'catalog') =>
-    setRecipes((old) =>
-      old.filter(
-        (r) => !(r.productId === productId && (r.productKind ?? 'menu') === productKind),
-      ),
-    );
+    setSelectedKey(key);
+  };
+  const removeRecipe = (key: number) => {
+    setRecipes((old) => old.filter((r) => recipeKey(r) !== key));
+    setSelectedKey(null);
+  };
+  const createRecipe = (input: {
+    name: string;
+    productId?: number;
+    productKind?: 'menu' | 'catalog';
+  }) => {
+    const id = Date.now();
+    const fresh: ProductRecipe = {
+      id,
+      productName: input.name,
+      ...(input.productId != null
+        ? { productId: input.productId, productKind: input.productKind }
+        : {}),
+      yieldCount: 1,
+      recipeItems: [],
+      overheadPercent: 0,
+      profit: 100,
+      feePercent: 7.99,
+      proLaborePercent: 80,
+      companyPercent: 20,
+      soldByWeight: false,
+    };
+    setRecipes((old) => [...old, fresh]);
+    setSelectedKey(id);
+  };
 
-  const empty = source === 'menu' ? menuItems.length === 0 : products.length === 0;
+  const selectedRecipe = recipes.find((r) => recipeKey(r) === selectedKey);
 
   return (
     <div className="ficha-theme">
       <PageHeading
         title="Ficha técnica e precificação"
-        subtitle="Uma ficha por produto, com custo real e margem preservada — no cardápio ou ainda só cadastrado."
+        subtitle="Suas receitas, com custo real e margem preservada — vincular a um produto é opcional."
         action={
           <div className="flex gap-2">
             <Button
@@ -2437,93 +2720,216 @@ function Pricing({
         }
       />
       {tab === 'ficha' ? (
-        <>
-          <Panel className="mb-5 p-5">
-            <div className="mb-3 flex gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant={source === 'menu' ? 'default' : 'outline'}
-                onClick={() => setSource('menu')}
-              >
-                Produto do cardápio
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={source === 'catalog' ? 'default' : 'outline'}
-                onClick={() => setSource('catalog')}
-              >
-                Produto cadastrado (ainda fora do cardápio)
-              </Button>
-            </div>
-            {source === 'menu' ? (
-              <Field label="Produto do cardápio">
-                <select
-                  value={menuProductId}
-                  onChange={(e) => setMenuProductId(Number(e.target.value))}
-                  className={inputClass}
-                >
-                  {menuItems.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name} — {money(item.price)}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            ) : (
-              <Field label="Produto cadastrado">
-                <select
-                  value={catalogProductId}
-                  onChange={(e) => setCatalogProductId(Number(e.target.value))}
-                  className={inputClass}
-                >
-                  {products.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name} - {item.flavor}
-                      {item.price ? ` — ${money(item.price)}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            )}
-          </Panel>
-          {empty ? (
-            <Panel className="p-10 text-center text-sm text-muted-foreground">
-              {source === 'menu'
-                ? 'Cadastre produtos no cardápio antes de criar fichas técnicas.'
-                : 'Cadastre um produto em "Produtos" antes de criar a ficha técnica.'}
-            </Panel>
-          ) : (
-            selectedProduct &&
-            (() => {
-              const recipe = recipes.find(
-                (r) => r.productId === selectedProduct.id && (r.productKind ?? 'menu') === source,
-              );
-              return (
-                <RecipeEditor
-                  // Remounts (resetting all local form state) sempre que o
-                  // produto, a origem ou a existência da ficha mudam — sem
-                  // isso, trocar de origem ou remover a ficha deixava o
-                  // formulário com valores antigos na tela.
-                  key={`${source}-${selectedProduct.id}-${recipe ? 'has-recipe' : 'no-recipe'}`}
-                  product={selectedProduct}
-                  stock={stock}
-                  recipe={recipe}
-                  onSave={(r) => saveRecipe({ ...r, productKind: source })}
-                  onRemove={() => removeRecipe(selectedProduct.id, source)}
-                  onBack={() =>
-                    source === 'menu' ? setMenuProductId('') : setCatalogProductId('')
-                  }
-                />
-              );
-            })()
-          )}
-        </>
+        selectedRecipe ? (
+          <RecipeEditor
+            key={recipeKey(selectedRecipe)}
+            recipe={selectedRecipe}
+            stock={stock}
+            menuItems={menuItems}
+            setMenuItems={setMenuItems}
+            products={products}
+            setProducts={setProducts}
+            onSave={saveRecipe}
+            onRemove={() => removeRecipe(recipeKey(selectedRecipe))}
+            onBack={() => setSelectedKey(null)}
+          />
+        ) : (
+          <RecipeLibrary
+            recipes={recipes}
+            stock={stock}
+            menuItems={menuItems}
+            products={products}
+            onSelect={setSelectedKey}
+            onCreate={createRecipe}
+          />
+        )
       ) : (
         <ProfitByProduct menuItems={menuItems} recipes={recipes} stock={stock} />
       )}
     </div>
+  );
+}
+
+// Tela inicial de Precificação: a lista de receitas já criadas, mais o
+// botão que abre "Nova receita" — vincular a um produto do cardápio ou do
+// catálogo é uma escolha dentro desse mesmo formulário, nunca um passo
+// obrigatório antes de conseguir precificar algo.
+function RecipeLibrary({
+  recipes,
+  stock,
+  menuItems,
+  products,
+  onSelect,
+  onCreate,
+}: {
+  recipes: ProductRecipe[];
+  stock: StockItem[];
+  menuItems: MenuItem[];
+  products: Product[];
+  onSelect: (key: number) => void;
+  onCreate: (input: {
+    name: string;
+    productId?: number;
+    productKind?: 'menu' | 'catalog';
+  }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [linkMode, setLinkMode] = useState<'none' | 'menu' | 'catalog'>('none');
+  const [linkedId, setLinkedId] = useState<number | ''>('');
+
+  const create = (e: FormSubmit) => {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    onCreate({
+      name: trimmed,
+      ...(linkMode !== 'none' && linkedId !== ''
+        ? { productId: Number(linkedId), productKind: linkMode }
+        : {}),
+    });
+    setName('');
+    setLinkMode('none');
+    setLinkedId('');
+    setOpen(false);
+  };
+
+  return (
+    <>
+      <Panel className="mb-5 flex flex-wrap items-center justify-between gap-3 p-5">
+        <div>
+          <h2 className="font-heading font-bold">Suas receitas</h2>
+          <p className="text-xs text-muted-foreground">
+            Crie e precifique quantas quiser — vincular a um produto é opcional.
+          </p>
+        </div>
+        <Dialog
+          open={open}
+          onOpenChange={(v) => {
+            setOpen(v);
+            if (!v) {
+              setName('');
+              setLinkMode('none');
+              setLinkedId('');
+            }
+          }}
+        >
+          <DialogTrigger render={<Button className="rounded-xl" />}>
+            <Plus /> Nova receita
+          </DialogTrigger>
+          <DialogContent className="ficha-theme">
+            <DialogHeader>
+              <DialogTitle>Nova receita</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={create} className="grid gap-3">
+              <Field label="Nome da receita">
+                <input
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className={inputClass}
+                  placeholder="Ex.: Bolo de chocolate trufado"
+                />
+              </Field>
+              <Field label="Vincular a um produto (opcional)">
+                <select
+                  value={linkMode}
+                  onChange={(e) => {
+                    setLinkMode(e.target.value as 'none' | 'menu' | 'catalog');
+                    setLinkedId('');
+                  }}
+                  className={inputClass}
+                >
+                  <option value="none">Nenhum — receita avulsa</option>
+                  <option value="menu">Produto do cardápio</option>
+                  <option value="catalog">Produto cadastrado</option>
+                </select>
+              </Field>
+              {linkMode !== 'none' && (
+                <Field
+                  label={
+                    linkMode === 'menu' ? 'Produto do cardápio' : 'Produto cadastrado'
+                  }
+                >
+                  <select
+                    required
+                    value={linkedId}
+                    onChange={(e) => {
+                      const id = Number(e.target.value);
+                      setLinkedId(id);
+                      if (name.trim()) return;
+                      if (linkMode === 'menu') {
+                        const found = menuItems.find((m) => m.id === id);
+                        if (found) setName(found.name);
+                      } else {
+                        const found = products.find((p) => p.id === id);
+                        if (found) setName(`${found.name} - ${found.flavor}`);
+                      }
+                    }}
+                    className={inputClass}
+                  >
+                    <option value="" disabled>
+                      Selecione...
+                    </option>
+                    {(linkMode === 'menu' ? menuItems : products).map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {'flavor' in item ? `${item.name} - ${item.flavor}` : item.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              <Button type="submit" className="w-full justify-self-end rounded-xl sm:w-auto">
+                Criar receita
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </Panel>
+      {recipes.length === 0 ? (
+        <Panel className="p-10 text-center text-sm text-muted-foreground">
+          Nenhuma receita criada ainda.
+        </Panel>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {recipes.map((recipe) => {
+            const { baseCost } = computeRecipeCost(recipe, stock);
+            const sellPrice = recipe.sellPrice ?? baseCost * (1 + recipe.profit / 100);
+            return (
+              <button
+                key={recipeKey(recipe)}
+                type="button"
+                onClick={() => onSelect(recipeKey(recipe))}
+                className="rounded-2xl border bg-card p-5 text-left shadow-sm transition hover:border-primary"
+              >
+                <p className="font-semibold">
+                  {recipe.productName || 'Receita sem nome'}
+                </p>
+                <Badge variant="outline" className="mt-1">
+                  {recipe.productId
+                    ? recipe.productKind === 'catalog'
+                      ? 'Produto cadastrado'
+                      : 'No cardápio'
+                    : 'Receita avulsa'}
+                </Badge>
+                <div className="mt-4 flex items-end justify-between">
+                  <div>
+                    <p className="text-[11px] uppercase text-muted-foreground">Custo</p>
+                    <p className="font-nums font-semibold">{money(baseCost)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[11px] uppercase text-muted-foreground">
+                      Venda sugerida
+                    </p>
+                    <p className="font-nums font-bold text-primary">{money(sellPrice)}</p>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -2534,53 +2940,62 @@ const RECIPE_LINE_UNITS: { value: RecipeLine['unit']; label: string }[] = [
 ];
 
 function RecipeEditor({
-  product,
-  stock,
   recipe,
+  stock,
+  menuItems,
+  setMenuItems,
+  products,
+  setProducts,
   onSave,
   onRemove,
   onBack,
 }: {
-  product: { id: number; name: string; price?: number };
+  recipe: ProductRecipe;
   stock: StockItem[];
-  recipe: ProductRecipe | undefined;
+  menuItems: MenuItem[];
+  setMenuItems: (v: MenuItem[] | ((o: MenuItem[]) => MenuItem[])) => void;
+  products: Product[];
+  setProducts: (v: Product[] | ((o: Product[]) => Product[])) => void;
   onSave: (recipe: ProductRecipe) => void;
   onRemove: () => void;
   onBack: () => void;
 }) {
-  const [productName, setProductName] = useState(
-    recipe?.productName ?? product.name,
-  );
-  const [yieldCount, setYieldCount] = useState(recipe?.yieldCount ?? 1);
+  const [productName, setProductName] = useState(recipe.productName ?? '');
+  const [linkedProductId, setLinkedProductId] = useState(recipe.productId);
+  const [linkedProductKind, setLinkedProductKind] = useState(recipe.productKind);
+  const [yieldCount, setYieldCount] = useState(recipe.yieldCount ?? 1);
   const [recipeItems, setRecipeItems] = useState<RecipeLine[]>(
-    recipe?.recipeItems ?? [],
+    recipe.recipeItems ?? [],
   );
   const [overheadPercent, setOverheadPercent] = useState(
-    recipe?.overheadPercent ?? 0,
+    recipe.overheadPercent ?? 0,
   );
   // Margem inicial em 100%: a confeitaria começa cobrindo o dobro do custo,
   // e ajusta para baixo caso ache melhor — nunca o contrário.
-  const [profit, setProfit] = useState(recipe?.profit ?? 100);
-  const [feePercent, setFeePercent] = useState(recipe?.feePercent ?? 7.99);
-  const [extraCharge, setExtraCharge] = useState(recipe?.extraCharge ?? 0);
+  const [profit, setProfit] = useState(recipe.profit ?? 100);
+  const [feePercent, setFeePercent] = useState(recipe.feePercent ?? 7.99);
+  const [extraCharge, setExtraCharge] = useState(recipe.extraCharge ?? 0);
   const [proLaborePercent, setProLaborePercent] = useState(
-    recipe?.proLaborePercent ?? 80,
+    recipe.proLaborePercent ?? 80,
   );
   const [companyPercent, setCompanyPercent] = useState(
-    recipe?.companyPercent ?? 20,
+    recipe.companyPercent ?? 20,
   );
-  const [soldByWeight, setSoldByWeight] = useState(recipe?.soldByWeight ?? false);
+  const [soldByWeight, setSoldByWeight] = useState(recipe.soldByWeight ?? false);
   const [weightLossPercent, setWeightLossPercent] = useState(
-    recipe?.weightLossPercent ?? 0,
+    recipe.weightLossPercent ?? 0,
   );
   const [lineUnit, setLineUnit] = useState<RecipeLine['unit']>('un');
   const [addItemOpen, setAddItemOpen] = useState(false);
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [applyKind, setApplyKind] = useState<'menu' | 'catalog'>('menu');
+  const [applyId, setApplyId] = useState<number | ''>('');
   const [justSaved, setJustSaved] = useState(false);
   // Preço de venda: começa igual à sugestão (custo + margem) e continua
   // acompanhando ela enquanto o usuário não digitar um valor diferente —
   // a partir daí, para de seguir e vira só o que foi digitado.
-  const [priceTouched, setPriceTouched] = useState(Boolean(recipe?.sellPrice));
-  const [manualPrice, setManualPrice] = useState(recipe?.sellPrice ?? 0);
+  const [priceTouched, setPriceTouched] = useState(Boolean(recipe.sellPrice));
+  const [manualPrice, setManualPrice] = useState(recipe.sellPrice ?? 0);
 
   const {
     enrichedItems,
@@ -2629,26 +3044,65 @@ function RecipeEditor({
     setJustSaved(false);
     setAddItemOpen(false);
   };
+  const buildRecipe = (
+    overrides: Partial<Pick<ProductRecipe, 'productId' | 'productKind'>> = {},
+  ): ProductRecipe => ({
+    id: recipe.id ?? recipe.productId,
+    productName: productName.trim() || 'Receita sem nome',
+    yieldCount,
+    recipeItems,
+    overheadPercent,
+    profit,
+    feePercent,
+    sellPrice,
+    ...(extraCharge > 0 ? { extraCharge } : {}),
+    proLaborePercent,
+    companyPercent,
+    soldByWeight,
+    ...(weightLossPercent > 0 ? { weightLossPercent } : {}),
+    ...(linkedProductId != null
+      ? { productId: linkedProductId, productKind: linkedProductKind }
+      : {}),
+    ...overrides,
+  });
   const save = () => {
-    onSave({
-      productId: product.id,
-      productName: productName.trim() || product.name,
-      yieldCount,
-      recipeItems,
-      overheadPercent,
-      profit,
-      feePercent,
-      sellPrice,
-      ...(extraCharge > 0 ? { extraCharge } : {}),
-      proLaborePercent,
-      companyPercent,
-      soldByWeight,
-      ...(weightLossPercent > 0 ? { weightLossPercent } : {}),
-    });
+    onSave(buildRecipe());
     setJustSaved(true);
+  };
+  // "Precificar produto": a única ação que efetivamente muda o preço de um
+  // produto real (cardápio ou catálogo) — empurra o preço de venda
+  // calculado aqui para lá, e guarda esse vínculo na receita (é o que
+  // permite "Lucro por produto" encontrar essa ficha depois).
+  const applyToProduct = (e: FormSubmit) => {
+    e.preventDefault();
+    if (applyId === '') return;
+    const id = Number(applyId);
+    if (applyKind === 'menu') {
+      setMenuItems((old) =>
+        old.map((m) => (m.id === id ? { ...m, price: sellPrice } : m)),
+      );
+    } else {
+      setProducts((old) =>
+        old.map((p) => (p.id === id ? { ...p, price: sellPrice } : p)),
+      );
+    }
+    setLinkedProductId(id);
+    setLinkedProductKind(applyKind);
+    onSave(buildRecipe({ productId: id, productKind: applyKind }));
+    setJustSaved(true);
+    setApplyOpen(false);
   };
   const weightLabel = (grams: number) =>
     grams >= 1000 ? `${(grams / 1000).toFixed(3)} kg` : `${grams.toFixed(0)} g`;
+  const linkedProductName =
+    linkedProductId != null
+      ? linkedProductKind === 'catalog'
+        ? (() => {
+            const p = products.find((x) => x.id === linkedProductId);
+            return p ? `${p.name} - ${p.flavor}` : null;
+          })()
+        : menuItems.find((m) => m.id === linkedProductId)?.name
+      : null;
 
   return (
     <div className="space-y-5">
@@ -2661,7 +3115,7 @@ function RecipeEditor({
           >
             <ChevronLeft className="size-3.5" /> Início
           </button>
-          <Field label="Nome do produto">
+          <Field label="Nome da receita">
             <input
               value={productName}
               onChange={(e) => {
@@ -2671,10 +3125,73 @@ function RecipeEditor({
               className="font-heading h-auto border-none bg-transparent p-0 text-2xl font-bold outline-none focus:ring-0 sm:text-3xl"
             />
           </Field>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {linkedProductName
+              ? `Precificando: ${linkedProductName}`
+              : 'Receita avulsa — ainda não precifica nenhum produto'}
+          </p>
         </div>
-        <Button type="button" variant="outline" onClick={() => window.print()}>
-          <Printer /> Imprimir ficha técnica
-        </Button>
+        <div className="flex gap-2">
+          <Dialog open={applyOpen} onOpenChange={setApplyOpen}>
+            <DialogTrigger render={<Button type="button" />}>
+              <BadgeDollarSign /> Precificar produto
+            </DialogTrigger>
+            <DialogContent className="ficha-theme">
+              <DialogHeader>
+                <DialogTitle>Precificar produto</DialogTitle>
+              </DialogHeader>
+              {menuItems.length === 0 && products.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Cadastre um produto no Cardápio ou em Produtos antes de aplicar
+                  este preço.
+                </p>
+              ) : (
+                <form onSubmit={applyToProduct} className="grid gap-3">
+                  <p className="text-xs text-muted-foreground">
+                    Aplica o preço de venda calculado nesta receita ({money(sellPrice)})
+                    direto no produto escolhido.
+                  </p>
+                  <Field label="Onde">
+                    <select
+                      value={applyKind}
+                      onChange={(e) => {
+                        setApplyKind(e.target.value as 'menu' | 'catalog');
+                        setApplyId('');
+                      }}
+                      className={inputClass}
+                    >
+                      <option value="menu">Produto do cardápio</option>
+                      <option value="catalog">Produto cadastrado</option>
+                    </select>
+                  </Field>
+                  <Field label="Produto">
+                    <select
+                      required
+                      value={applyId}
+                      onChange={(e) => setApplyId(Number(e.target.value))}
+                      className={inputClass}
+                    >
+                      <option value="" disabled>
+                        Selecione...
+                      </option>
+                      {(applyKind === 'menu' ? menuItems : products).map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {'flavor' in item ? `${item.name} - ${item.flavor}` : item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Button type="submit" className="w-full justify-self-end rounded-xl sm:w-auto">
+                    Aplicar preço
+                  </Button>
+                </form>
+              )}
+            </DialogContent>
+          </Dialog>
+          <Button type="button" variant="outline" onClick={() => window.print()}>
+            <Printer /> Imprimir ficha técnica
+          </Button>
+        </div>
       </div>
 
       <Panel className="overflow-hidden">
@@ -3020,11 +3537,9 @@ function RecipeEditor({
         >
           {justSaved ? <Check /> : null} {justSaved ? 'Precificação salva' : 'Salvar precificação'}
         </Button>
-        {recipe && (
-          <Button type="button" variant="outline" className="h-11 rounded-xl" onClick={onRemove}>
-            <Trash2 /> Remover ficha técnica
-          </Button>
-        )}
+        <Button type="button" variant="outline" className="h-11 rounded-xl" onClick={onRemove}>
+          <Trash2 /> Remover receita
+        </Button>
       </div>
 
       <div className="print-ficha">
