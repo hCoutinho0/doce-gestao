@@ -4,7 +4,13 @@ import { auth } from '@/auth';
 import { isCosmosConfigured, writeState } from '@/lib/cosmos';
 import { isValidCpfCnpj } from '@/lib/cpfCnpj';
 import { checkRateLimit, clientIp } from '@/lib/rateLimit';
-import { generateBakeryId, getUserByEmail, upsertUser } from '@/lib/tenant';
+import { isValidSlugFormat } from '@/lib/slug';
+import {
+  bakeryIdAvailable,
+  generateBakeryId,
+  getUserByEmail,
+  upsertUser,
+} from '@/lib/tenant';
 import type { AuthProvider, Gender } from '@/lib/tenant';
 import type { BakeryProfile } from '@/lib/bakery';
 
@@ -28,6 +34,7 @@ export async function POST(request: Request) {
     phone?: string;
     gender?: Gender;
     bakery?: Partial<BakeryProfile>;
+    bakeryId?: string;
   };
 
   const provider = body.provider;
@@ -71,7 +78,24 @@ export async function POST(request: Request) {
     }
   }
 
-  const bakeryId = generateBakeryId(bakeryName);
+  // The slug picked (or confirmed) on /cadastro before this request ever
+  // fires — re-validated here rather than trusted outright, since it's
+  // also what a request that skips the wizard entirely would send. Only
+  // falls back to auto-generating one when the client genuinely didn't
+  // send a candidate at all.
+  const requestedSlug = body.bakeryId?.trim().toLowerCase();
+  let bakeryId: string;
+  if (requestedSlug) {
+    if (!isValidSlugFormat(requestedSlug)) {
+      return NextResponse.json({ error: 'invalid_slug' }, { status: 400 });
+    }
+    if (!(await bakeryIdAvailable(requestedSlug))) {
+      return NextResponse.json({ error: 'slug_taken' }, { status: 409 });
+    }
+    bakeryId = requestedSlug;
+  } else {
+    bakeryId = await generateBakeryId(bakeryName);
+  }
   const profile: BakeryProfile = {
     name: bakeryName,
     legalName: body.bakery?.legalName?.trim() || bakeryName,

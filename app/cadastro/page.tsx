@@ -34,6 +34,7 @@ import {
 import { StepHeading, SetupInput } from '@/components/onboarding-fields';
 import { formatCpfCnpj, isValidCpfCnpj } from '@/lib/cpfCnpj';
 import { useUserSession } from '@/lib/auth';
+import { isValidSlugFormat, slugify } from '@/lib/slug';
 import type { BakeryProfile } from '@/lib/bakery';
 import type { Gender } from '@/lib/tenant';
 
@@ -91,6 +92,18 @@ export default function CadastroPage() {
   const [submitError, setSubmitError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // The confeitaria's link (confeitto.com.br/{bakerySlug}) — clean by
+  // default (just the name, no random suffix). Resolved once, when
+  // leaving the "Confeitaria" step: if the plain slug from the name is
+  // free, it's used silently and slugConflict never shows. Only a real
+  // conflict (same name/slug already taken) reveals the custom-link input,
+  // so the person can pick her own instead of getting gibberish tacked on.
+  const [bakerySlug, setBakerySlug] = useState('');
+  const [customSlug, setCustomSlug] = useState('');
+  const [slugConflict, setSlugConflict] = useState(false);
+  const [checkingSlug, setCheckingSlug] = useState(false);
+  const [slugError, setSlugError] = useState('');
+
   const [inviteCode, setInviteCode] = useState('');
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
   const [inviteError, setInviteError] = useState('');
@@ -126,6 +139,46 @@ export default function CadastroPage() {
       setInviteError('Não foi possível conferir o código agora.');
     } finally {
       setCheckingInvite(false);
+    }
+  };
+
+  // Runs when leaving the "Confeitaria" step: resolves (and confirms
+  // available) the link this confeitaria will have. Returns whether it's
+  // safe to advance — false either keeps the wizard on this step showing
+  // the custom-link input (a real conflict) or just leaves an error
+  // message up (couldn't reach the check at all).
+  const resolveBakerySlug = async (): Promise<boolean> => {
+    const candidate = slugConflict ? customSlug.trim().toLowerCase() : slugify(bakery.name);
+    if (!isValidSlugFormat(candidate)) {
+      setSlugConflict(true);
+      setSlugError(
+        candidate.length < 3
+          ? 'Esse link ficaria curto demais — use pelo menos 3 letras.'
+          : 'Use só letras minúsculas, números e hífen (sem espaços ou acentos).',
+      );
+      return false;
+    }
+    setCheckingSlug(true);
+    setSlugError('');
+    try {
+      const response = await fetch(
+        `/api/auth/check-bakery-slug?slug=${encodeURIComponent(candidate)}`,
+      );
+      const data = (await response.json()) as { available: boolean };
+      if (data.available) {
+        setBakerySlug(candidate);
+        setSlugConflict(false);
+        return true;
+      }
+      setSlugConflict(true);
+      setCustomSlug((current) => current || candidate);
+      setSlugError('Esse link já está em uso por outra confeitaria — escolha outro.');
+      return false;
+    } catch {
+      setSlugError('Não foi possível conferir o link agora. Tente de novo.');
+      return false;
+    } finally {
+      setCheckingSlug(false);
     }
   };
 
@@ -235,13 +288,24 @@ export default function CadastroPage() {
           gender,
           ...(isInvite
             ? { inviteCode: inviteCode.trim().toUpperCase() }
-            : { bakery }),
+            : { bakery, bakeryId: bakerySlug }),
         }),
       });
       if (!response.ok) {
         const data = (await response.json().catch(() => ({}))) as {
           error?: string;
         };
+        if (data.error === 'slug_taken' || data.error === 'invalid_slug') {
+          // Someone else grabbed it in the gap between the check and this
+          // submit (or a stale bakerySlug from earlier) — back to step 2
+          // to resolve it again instead of failing silently.
+          setSlugConflict(true);
+          setSlugError('Esse link acabou de ser usado por outra confeitaria — escolha outro.');
+          setStep(2);
+          setSubmitError('');
+          setSubmitting(false);
+          return;
+        }
         setSubmitError(
           data.error === 'email_already_registered'
             ? 'Esse email já tem uma conta cadastrada — faça login em vez de criar outra.'
@@ -593,6 +657,34 @@ export default function CadastroPage() {
                   required
                 />
               </div>
+              {!slugConflict && bakery.name.trim() && (
+                <p className="mt-5 text-xs text-muted-foreground">
+                  Seu link será{' '}
+                  <span className="font-mono text-foreground">
+                    confeitto.com.br/{slugify(bakery.name) || '...'}
+                  </span>
+                </p>
+              )}
+              {slugConflict && (
+                <div className="mt-5 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+                  <p className="flex items-center gap-1.5 text-xs font-medium text-destructive">
+                    <XCircle className="size-3.5" /> {slugError}
+                  </p>
+                  <div className="mt-3">
+                    <SetupInput
+                      id="custom-slug"
+                      label="Escolha o link da sua confeitaria"
+                      value={customSlug}
+                      onChange={(value) => setCustomSlug(value.toLowerCase())}
+                      placeholder="ex-nome-da-sua-confeitaria"
+                    />
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      confeitto.com.br/{customSlug || '...'} — só letras
+                      minúsculas, números e hífen.
+                    </p>
+                  </div>
+                </div>
+              )}
             </section>
           )}
 
@@ -760,10 +852,26 @@ export default function CadastroPage() {
               ) : step < 4 ? (
                 <Button
                   type="button"
-                  disabled={step === 1 ? !personalReady : !canContinue}
-                  onClick={() => setStep((current) => current + 1)}
+                  disabled={
+                    (step === 1 ? !personalReady : !canContinue) || checkingSlug
+                  }
+                  onClick={() => {
+                    if (step === 2) {
+                      void resolveBakerySlug().then((ok) => {
+                        if (ok) setStep((current) => current + 1);
+                      });
+                      return;
+                    }
+                    setStep((current) => current + 1);
+                  }}
                 >
-                  Continuar <ArrowRight />
+                  {checkingSlug ? (
+                    <LoaderCircle className="animate-spin" />
+                  ) : (
+                    <>
+                      Continuar <ArrowRight />
+                    </>
+                  )}
                 </Button>
               ) : (
                 <Button

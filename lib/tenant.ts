@@ -1,4 +1,5 @@
-import { queryDocs, readGlobal, writeGlobal } from '@/lib/cosmos';
+import { queryDocs, readGlobal, readState, writeGlobal } from '@/lib/cosmos';
+import { slugify } from '@/lib/slug';
 
 export type UserRole = 'admin' | 'production';
 export type AuthProvider = 'microsoft-entra-id' | 'google' | 'credentials';
@@ -30,26 +31,26 @@ export function upsertUser(user: PlatformUser): Promise<void> {
   return writeGlobal(userDocId(user.email), user);
 }
 
-// Turns a confeitaria name into a short, stable, URL-safe id — the prefix
-// every one of its documents gets in Cosmos (`${bakeryId}:doce-orders`,
-// etc). A random suffix keeps two confeitarias with the same name apart.
-function stripDiacritics(value: string): string {
-  return Array.from(value.normalize('NFD'))
-    .filter((char) => {
-      const code = char.codePointAt(0) ?? 0;
-      return code < 0x300 || code > 0x36f; // combining marks block
-    })
-    .join('');
+// A bakeryId is also the prefix every one of a confeitaria's documents
+// gets in Cosmos (`${bakeryId}:doce-orders`, etc) — same string as the
+// slug in its public link, `confeitto.com.br/{bakeryId}`.
+export function bakeryIdAvailable(bakeryId: string): Promise<boolean> {
+  return readState(bakeryId, 'doce-bakery-profile').then((v) => v === null);
 }
 
-export function generateBakeryId(name: string): string {
-  const slug = stripDiacritics(name)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '')
-    .slice(0, 40);
-  const suffix = Math.random().toString(36).slice(2, 6);
-  return `${slug || 'confeitaria'}-${suffix}`;
+// Last-resort fallback for a request that skips the slug picked on
+// /cadastro (a stale client, a direct API call) — never the normal path
+// anymore, since the wizard now blocks on a confirmed-available slug
+// before it gets here. Appends the smallest numeric suffix that's free
+// instead of random gibberish, so the fallback link still reads cleanly.
+export async function generateBakeryId(name: string): Promise<string> {
+  const base = slugify(name) || 'confeitaria';
+  if (await bakeryIdAvailable(base)) return base;
+  for (let n = 2; n < 1000; n++) {
+    const candidate = `${base}-${n}`;
+    if (await bakeryIdAvailable(candidate)) return candidate;
+  }
+  return `${base}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
 export type Invite = {
