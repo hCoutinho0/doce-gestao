@@ -114,6 +114,9 @@ type StockItem = {
   cost: number;
   category?: 'Ingrediente' | 'Embalagem';
   weight?: { value: number; unit: 'g' | 'kg' };
+  // Onde foi comprado da última vez — só controle de fornecedor/reposição,
+  // não entra em nenhum cálculo de custo.
+  supplier?: string;
 };
 type FinanceItem = {
   id: number;
@@ -2000,6 +2003,7 @@ function StockSection({
     const name = fieldValue(d, 'name').trim();
     const qty = Number(fieldValue(d, 'qty'));
     const purchaseValue = Number(fieldValue(d, 'purchaseValue'));
+    const supplier = fieldValue(d, 'supplier').trim();
     if (!name || !Number.isFinite(qty) || qty <= 0) return;
     const weightValue =
       category === 'Ingrediente' ? Number(fieldValue(d, 'weightValue')) : 0;
@@ -2018,6 +2022,9 @@ function StockSection({
                 ...x,
                 qty: newQty,
                 cost: newCost,
+                // A reposição mais recente é o fornecedor que vale — troca
+                // o registrado antes, em vez de ignorar a nova compra.
+                ...(supplier ? { supplier } : {}),
                 ...(weightValue > 0 && !x.weight
                   ? { weight: { value: weightValue, unit: weightUnit } }
                   : {}),
@@ -2035,6 +2042,7 @@ function StockSection({
           unit: 'un',
           min: Number(fieldValue(d, 'min')) || 0,
           cost: qty > 0 ? +(purchaseValue / qty).toFixed(4) : 0,
+          ...(supplier ? { supplier } : {}),
           ...(weightValue > 0
             ? { weight: { value: weightValue, unit: weightUnit } }
             : {}),
@@ -2139,6 +2147,13 @@ function StockSection({
                     />
                   </Field>
                 )}
+                <Field label="Local de compra (opcional)">
+                  <input
+                    name="supplier"
+                    className={inputClass}
+                    placeholder="Ex.: Atacadão, fornecedor X"
+                  />
+                </Field>
                 <Button type="submit" className="w-full justify-self-end rounded-xl sm:w-auto">
                   Salvar
                 </Button>
@@ -2168,6 +2183,11 @@ function StockSection({
                       : ''}
                     {gCost != null ? ` • ${money(gCost)}/g` : ''}
                   </p>
+                  {item.supplier && (
+                    <p className="text-xs text-muted-foreground">
+                      Comprado em: {item.supplier}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-1">
                   <Badge variant={low ? 'destructive' : 'secondary'}>
