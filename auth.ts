@@ -1,11 +1,8 @@
 import bcrypt from 'bcryptjs';
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
-import Google from 'next-auth/providers/google';
-import MicrosoftEntraID from 'next-auth/providers/microsoft-entra-id';
-import { LAVILY_BAKERY_ID } from '@/lib/cosmos';
 import { checkRateLimit } from '@/lib/rateLimit';
-import { getUserByEmail, upsertUser } from '@/lib/tenant';
+import { getUserByEmail } from '@/lib/tenant';
 import type { UserRole, Gender } from '@/lib/tenant';
 
 declare module 'next-auth' {
@@ -24,14 +21,6 @@ declare module 'next-auth' {
   }
 }
 
-// The two Entra ID App Roles that exist on the Doce Gestão app registration
-// today — only accounts Vitor explicitly assigned one of these to (in Azure,
-// never from anything the client sends) are treated as Lavily staff. Any
-// other Microsoft account — or Google, or email/password — is a possible
-// new confeitaria and goes through /cadastro instead.
-const PRODUCTION_APP_ROLE = 'production';
-const ADMIN_APP_ROLE = 'admin';
-
 type ResolvedAccount = {
   bakeryId: string | null;
   role: UserRole;
@@ -40,65 +29,12 @@ type ResolvedAccount = {
   accountConflict?: boolean;
 };
 
-async function resolveAccount(
-  email: string,
-  entraRoles: string[] | null,
-  incomingProvider: string | undefined,
-): Promise<ResolvedAccount> {
-  if (entraRoles) {
-    const hasProduction = entraRoles.includes(PRODUCTION_APP_ROLE);
-    const hasAdmin = entraRoles.includes(ADMIN_APP_ROLE);
-    if (hasProduction || hasAdmin) {
-      const role: UserRole = hasProduction ? 'production' : 'admin';
-      const existing = await getUserByEmail(email);
-      if (
-        !existing ||
-        existing.bakeryId !== LAVILY_BAKERY_ID ||
-        existing.role !== role
-      ) {
-        await upsertUser({
-          id: email.trim().toLowerCase(),
-          email,
-          name: existing?.name ?? '',
-          cpfCnpj: existing?.cpfCnpj ?? '',
-          phone: existing?.phone ?? '',
-          ...(existing?.gender ? { gender: existing.gender } : {}),
-          bakeryId: LAVILY_BAKERY_ID,
-          role,
-          provider: 'microsoft-entra-id',
-          createdAt: existing?.createdAt ?? new Date().toISOString(),
-        });
-      }
-      return {
-        bakeryId: LAVILY_BAKERY_ID,
-        role,
-        gender: existing?.gender,
-        needsOnboarding: false,
-      };
-    }
-  }
+// Versão local: só existe login por email e senha, então não há mais papéis
+// do Entra ID nem contas Google/Microsoft para conciliar — a conta é achada
+// pelo email e traz a confeitaria e o papel que estão gravados nela.
+async function resolveAccount(email: string): Promise<ResolvedAccount> {
   const user = await getUserByEmail(email);
   if (user) {
-    // A password-based account never verified that its owner actually
-    // controls that email address — anyone could have registered
-    // someone else's business email with a password of their own choosing,
-    // then waited for the real owner to eventually try "Entrar com
-    // Google/Microsoft" with that same email. Without this check, that
-    // real (provider-verified) login would silently be handed the
-    // impostor's bakeryId — landing the real owner inside, and typing
-    // their real business data into, a confeitaria the impostor
-    // registered and still holds the password for. An OAuth login is only
-    // ever trusted to attach to an existing account when that account was
-    // itself created by an OAuth provider (which already verified the
-    // email), never one created by email+senha.
-    if (user.provider === 'credentials' && incomingProvider !== 'credentials') {
-      return {
-        bakeryId: null,
-        role: 'admin',
-        needsOnboarding: false,
-        accountConflict: true,
-      };
-    }
     return {
       bakeryId: user.bakeryId,
       role: user.role,
@@ -111,15 +47,6 @@ async function resolveAccount(
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
-    MicrosoftEntraID({
-      clientId: process.env.AZURE_AD_CLIENT_ID,
-      clientSecret: process.env.AZURE_AD_CLIENT_SECRET,
-      issuer: `https://login.microsoftonline.com/${process.env.AZURE_AD_TENANT_ID}/v2.0`,
-    }),
-    Google({
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    }),
     Credentials({
       credentials: { email: {}, password: {} },
       async authorize(credentials) {
@@ -145,29 +72,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   session: { strategy: 'jwt' },
   pages: { signIn: '/login' },
-  // Required off Vercel/localhost — Auth.js otherwise refuses to trust the
-  // Host header it sees behind Azure Static Web Apps' proxy and fails
-  // every request with a generic "server configuration" error.
+  // O servidor local escuta só em 127.0.0.1 — confiar no Host é seguro.
   trustHost: true,
   callbacks: {
-    async jwt({ token, account, profile, trigger }) {
+    async jwt({ token, account, trigger }) {
       // account/profile are only present on the sign-in request itself —
       // everything resolved here is cached in the JWT until next login, so
-      // this Cosmos lookup runs once per session, not once per request.
+      // this database lookup runs once per session, not once per request.
       // The client also forces one re-run via `trigger: 'update'` right
       // after /cadastro creates the account, so an OAuth session that
       // started with needsOnboarding doesn't need a full re-login redirect
       // to pick up its brand-new bakeryId.
       if ((account || trigger === 'update') && token.email) {
-        const entraRoles =
-          account?.provider === 'microsoft-entra-id'
-            ? Array.isArray((profile as { roles?: unknown })?.roles)
-              ? ((profile as { roles: unknown[] }).roles as string[])
-              : []
-            : null;
-        const incomingProvider =
-          account?.provider ?? (token as { provider?: string }).provider;
-        const resolved = await resolveAccount(token.email, entraRoles, incomingProvider);
+        const resolved = await resolveAccount(token.email);
         (token as { bakeryId?: string | null }).bakeryId = resolved.bakeryId;
         (token as { role?: UserRole }).role = resolved.role;
         (token as { gender?: Gender }).gender = resolved.gender;

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isCosmosConfigured, readState } from '@/lib/cosmos';
+import { isDbConfigured, readState } from '@/lib/db';
 import { getInvite } from '@/lib/tenant';
 import type { BakeryProfile } from '@/lib/bakery';
 
@@ -10,7 +10,7 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ code: string }> },
 ) {
-  if (!isCosmosConfigured()) {
+  if (!isDbConfigured()) {
     return NextResponse.json({ valid: false }, { status: 503 });
   }
   const { code } = await params;

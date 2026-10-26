@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { auth } from '@/auth';
-import { isCosmosConfigured } from '@/lib/cosmos';
+import { isDbConfigured } from '@/lib/db';
 import { isValidCpfCnpj } from '@/lib/cpfCnpj';
 import { checkRateLimit, clientIp } from '@/lib/rateLimit';
 import { getInvite, getUserByEmail, saveInvite, upsertUser } from '@/lib/tenant';
@@ -12,7 +12,7 @@ import type { AuthProvider, Gender } from '@/lib/tenant';
 // invite code — no business info to collect, since the confeitaria
 // already exists.
 export async function POST(request: Request) {
-  if (!isCosmosConfigured()) {
+  if (!isDbConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
   if (!(await checkRateLimit(`join:${clientIp(request)}`, 8, 60 * 60 * 1000))) {

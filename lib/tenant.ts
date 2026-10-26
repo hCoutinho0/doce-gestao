@@ -1,4 +1,4 @@
-import { queryDocs, readGlobal, readState, writeGlobal } from '@/lib/cosmos';
+import { listDocs, readGlobal, readState, writeGlobal } from '@/lib/db';
 import { slugify } from '@/lib/slug';
 
 export type UserRole = 'admin' | 'production';
@@ -32,7 +32,7 @@ export function upsertUser(user: PlatformUser): Promise<void> {
 }
 
 // A bakeryId is also the prefix every one of a confeitaria's documents
-// gets in Cosmos (`${bakeryId}:doce-orders`, etc) — same string as the
+// gets in the local database (`${bakeryId}:doce-orders`, etc) — same string as the
 // slug in its public link, `confeitto.com.br/{bakeryId}`.
 export function bakeryIdAvailable(bakeryId: string): Promise<boolean> {
   return readState(bakeryId, 'doce-bakery-profile').then((v) => v === null);
@@ -87,12 +87,10 @@ export function saveInvite(invite: Invite): Promise<void> {
   return writeGlobal(inviteDocId(invite.code), invite);
 }
 
-export function listInvitesForBakery(bakeryId: string): Promise<Invite[]> {
-  return queryDocs<Invite>(
-    // `value` is a reserved word in Cosmos SQL (as in `SELECT VALUE`) — a
-    // dotted c.value.x path is silently rejected ("One of the input
-    // values is invalid"), so the property must be bracket-escaped.
-    'SELECT * FROM c WHERE STARTSWITH(c.id, \'invite:\') AND c["value"]["bakeryId"] = @bakeryId ORDER BY c["value"]["createdAt"] DESC',
-    [{ name: '@bakeryId', value: bakeryId }],
-  );
+export async function listInvitesForBakery(bakeryId: string): Promise<Invite[]> {
+  const docs = await listDocs<Invite>({ startsWith: 'invite:' });
+  return docs
+    .map((d) => d.value)
+    .filter((invite) => invite.bakeryId === bakeryId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }

@@ -1,9 +1,13 @@
-import { BlobServiceClient } from '@azure/storage-blob';
+import { isDbConfigured, supabaseHeaders, supabaseUrl } from '@/lib/db';
 
-const CONTAINER_NAME = process.env.AZURE_STORAGE_CONTAINER || 'cardapio-media';
+// Fotos do cardápio e logotipos — ficam no Storage do Supabase, num bucket
+// público chamado "fotos" (criado pelo supabase/setup.sql). O app guarda o
+// endereço público da foto, então os dois computadores enxergam as mesmas.
+
+const BUCKET = 'fotos';
 
 export function isStorageConfigured(): boolean {
-  return Boolean(process.env.AZURE_STORAGE_CONNECTION_STRING);
+  return isDbConfigured();
 }
 
 export async function uploadImage(
@@ -11,18 +15,16 @@ export async function uploadImage(
   contentType: string,
   extension: string,
 ): Promise<string> {
-  const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
-  if (!connectionString) throw new Error('storage_not_configured');
-
-  const client = BlobServiceClient.fromConnectionString(connectionString);
-  const container = client.getContainerClient(CONTAINER_NAME);
-  await container.createIfNotExists({ access: 'blob' });
-
-  const blobName = `${crypto.randomUUID()}.${extension}`;
-  const blockBlob = container.getBlockBlobClient(blobName);
-  await blockBlob.uploadData(file, {
-    blobHTTPHeaders: { blobContentType: contentType },
+  const name = `${crypto.randomUUID()}.${extension}`;
+  const base = supabaseUrl();
+  const response = await fetch(`${base}/storage/v1/object/${BUCKET}/${name}`, {
+    method: 'POST',
+    headers: supabaseHeaders({ 'Content-Type': contentType, 'x-upsert': 'false' }),
+    body: new Uint8Array(file),
+    signal: AbortSignal.timeout(60000),
   });
-
-  return blockBlob.url;
+  if (!response.ok) {
+    throw new Error(`upload_failed ${response.status}: ${await response.text()}`);
+  }
+  return `${base}/storage/v1/object/public/${BUCKET}/${name}`;
 }

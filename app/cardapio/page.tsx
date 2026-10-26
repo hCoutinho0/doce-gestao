@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { LAVILY_BAKERY_ID } from '@/lib/cosmos';
+import { LAVILY_BAKERY_ID } from '@/lib/db';
 
 // Compatibility redirect — this used to BE the (Lavily-only) public
 // cardápio. Now every confeitaria has its own at /{bakeryId}/cardapio,

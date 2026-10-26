@@ -1,5 +1,5 @@
 @echo off
-title Doce Gestao
+title Confeitto (modo desenvolvimento)
 cd /d "%~dp0"
 where npm >nul 2>nul
 if errorlevel 1 (
@@ -16,6 +16,7 @@ if not exist node_modules (
     exit /b 1
   )
 )
-echo Abrindo o Doce Gestao em http://localhost:3000
+echo Modo desenvolvimento: os dados ficam na pasta "dados" deste projeto.
+echo Abrindo o Confeitto em http://localhost:3000
 start "" http://localhost:3000
 call npm run dev

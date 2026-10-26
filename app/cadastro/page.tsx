@@ -25,7 +25,6 @@ import {
   XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { GoogleIcon, MicrosoftIcon } from '@/components/brand-icons';
 import { Label } from '@/components/ui/label';
 import {
   NativeSelect,
@@ -244,10 +243,6 @@ export default function CadastroPage() {
       .finally(() => setUploadingLogo(false));
   };
 
-  const oauthRedirect = inviteCode
-    ? `/cadastro?convite=${encodeURIComponent(inviteCode)}`
-    : '/cadastro';
-
   const credentialsReady =
     /.+@.+\..+/.test(signupEmail) &&
     signupPassword.length >= 8 &&
@@ -410,37 +405,10 @@ export default function CadastroPage() {
           {step === 0 && (
             <section>
               <StepHeading
-                title="Como você quer entrar?"
-                description="Escolha Google, Microsoft, ou crie um email e senha só para o Confeitto."
+                title="Crie seu acesso"
+                description="Escolha um email e uma senha para entrar no Confeitto."
               />
               <div className="mt-7 space-y-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11 w-full rounded-xl"
-                  onClick={() =>
-                    void signIn('google', { redirectTo: oauthRedirect })
-                  }
-                >
-                  <GoogleIcon className="size-4" /> Continuar com o Google
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11 w-full rounded-xl"
-                  onClick={() =>
-                    void signIn('microsoft-entra-id', {
-                      redirectTo: oauthRedirect,
-                    })
-                  }
-                >
-                  <MicrosoftIcon className="size-4" /> Continuar com a Microsoft
-                </Button>
-                <div className="flex items-center gap-3 pt-2 text-xs text-muted-foreground">
-                  <span className="h-px flex-1 bg-border" />
-                  ou crie um email e senha
-                  <span className="h-px flex-1 bg-border" />
-                </div>
                 <SetupInput
                   id="signup-email"
                   label="Email"

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { isCosmosConfigured, updateStateAtomic } from '@/lib/cosmos';
+import { isDbConfigured, updateStateAtomic } from '@/lib/db';
 
 type OrderItem = { name: string; quantity: number; unitPrice: number };
 type Order = {
@@ -113,7 +113,7 @@ export async function PATCH(
   if (!session?.user.bakeryId) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
-  if (!isCosmosConfigured()) {
+  if (!isDbConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
   const bakeryId = session.user.bakeryId;
@@ -193,7 +193,7 @@ export async function DELETE(
   if (!session?.user.bakeryId) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
-  if (!isCosmosConfigured()) {
+  if (!isDbConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
   const bakeryId = session.user.bakeryId;

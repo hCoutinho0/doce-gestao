@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isCosmosConfigured } from '@/lib/cosmos';
+import { isDbConfigured } from '@/lib/db';
 import { checkRateLimit, clientIp } from '@/lib/rateLimit';
 import { isValidSlugFormat, RESERVED_SLUGS } from '@/lib/slug';
 import { bakeryIdAvailable } from '@/lib/tenant';
@@ -8,7 +8,7 @@ import { bakeryIdAvailable } from '@/lib/tenant';
 // account exists, same as /api/invites/[code]. Only ever confirms
 // availability, never anything about who owns a taken one.
 export async function GET(request: Request) {
-  if (!isCosmosConfigured()) {
+  if (!isDbConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
   if (!(await checkRateLimit(`slug-check:${clientIp(request)}`, 30, 60 * 1000))) {

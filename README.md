@@ -1,180 +1,151 @@
-# Doce Gestão
+# Confeitto — aplicativo de desktop (Windows)
 
-App de gestão para confeitaria: pedidos, estoque, ficha técnica, financeiro,
-cardápio digital com pagamento online e cartão fidelidade.
+Gestão para confeitaria — pedidos, estoque, ficha técnica, financeiro,
+cardápio e cartão fidelidade — instalado no Windows, com os dados
+compartilhados num projeto gratuito do **Supabase** (vários computadores
+veem as mesmas informações).
 
-## O que mudou nesta fase (correção de segurança)
+## Preparar o Supabase (uma vez só)
 
-Uma auditoria encontrou quatro falhas críticas no protótipo original, todas
-já corrigidas no código:
+1. No projeto do Supabase, abra **SQL Editor**, cole o conteúdo de
+   `supabase/setup.sql` e clique em **Run**. Isso cria a tabela `app_state`
+   e o espaço de fotos `fotos`.
+2. Anote a **URL** (*Project Settings → Data API → Project URL*) e a
+   **chave secreta** (*Project Settings → API Keys → secret key*, ou a
+   *service_role* nas chaves antigas).
+3. Coloque no `.env.local` do projeto:
+   ```
+   SUPABASE_URL=https://xxxxxxxx.supabase.co
+   SUPABASE_SERVICE_KEY=sb_secret_...
+   ```
+   O `gerar-instalador.bat` embute essa conexão no instalador
+   (`electron/conexao.json`), então quem instala já abre direto no login.
+   Sem essas linhas, o app pede a URL e a chave na primeira abertura. Para
+   trocar à mão depois: menu **Arquivo → Conexão com o banco de dados…**
+   (o menu aparece ao apertar `Alt`).
 
-1. **Login com senha fixa no bundle** — removido. O painel interno agora
-   autentica de verdade contra o **Microsoft Entra ID** (`auth.ts`,
-   `middleware.ts`).
-2. **Sessão falsificável via `localStorage`** — removida. A sessão é um
-   cookie assinado pelo NextAuth; o navegador não consegue mais fabricar um
-   acesso de administradora editando o armazenamento local.
-3. **Login "Google/Apple" simulado** — removido. Existe um único fluxo de
-   login real, "Entrar com a Microsoft".
-4. **Captura direta de número/CVV de cartão** — removida do cardápio
-   público. O pagamento online (Pix, crédito e débito) agora é processado
-   pelo **Mercado Pago Checkout Pro**: o cliente digita os dados do cartão
-   na página hospedada do Mercado Pago, nunca no nosso servidor ou app.
+Não publique o instalador nem compartilhe a chave secreta: com ela dá para
+ler e alterar tudo. Se o instalador vazar, crie uma secret key nova no
+Supabase, apague a antiga, atualize o `.env.local` e gere o instalador de
+novo. A chave
+pública (*publishable/anon*) não funciona no Confeitto, de propósito.
 
-Isso exige que o app rode em um servidor Node real (para as rotas de API e o
-middleware de auth) — por isso a base de build trocou de `vinext` +
-Cloudflare Workers (proprietária do scaffold original, não roda no Azure)
-para **Next.js padrão**. As páginas e componentes já eram Next.js puro por
-baixo, então nada de UI foi reescrito, só a ferramenta de build/execução.
+O plano gratuito pausa o projeto depois de 7 dias sem uso. Se acontecer, o
+Confeitto avisa que não conseguiu conectar: entre em supabase.com e clique
+em **Restore** no projeto.
 
-## Rodar localmente
+## Instalar (uma vez só)
+
+Pré-requisito: [Node.js LTS](https://nodejs.org/) no computador que gera o
+instalador (quem só instala o Confeitto não precisa).
+
+1. Dê dois cliques em **`gerar-instalador.bat`**.
+2. A pasta **`instalador`** abre com um único arquivo,
+   **`Confeitto-Setup.exe`**. Instale com ele (e mande para quem mais for
+   usar, por um canal privado — ele leva a chave do Supabase).
+
+O Windows pode mostrar "O Windows protegeu o computador" (o instalador não
+tem assinatura digital paga): **Mais informações → Executar assim mesmo**.
+
+## Publicar alterações (sem reinstalar)
+
+Depois de mudar o app, dê dois cliques em **`publicar-atualizacao.bat`**.
+Ele aumenta a versão (ex.: 1.3.0 → 1.3.1), gera o app e envia a versão nova
+para o Supabase (bucket privado `atualizacoes`).
+
+Os Confeittos instalados conferem ao abrir e a cada hora: baixam a versão
+nova sozinhos e perguntam se querem reiniciar. Se escolher "Depois", ela
+entra na próxima abertura. Para conferir na hora: `Alt` → **Arquivo →
+Procurar atualizações**.
+
+Se uma versão nova não abrir, o app volta sozinho para a anterior.
+
+Só é preciso gerar e instalar o `Confeitto-Setup.exe` de novo quando a
+versão do Electron mudar — nesse caso o próprio app avisa.
+
+## Cardápio online (www.confeitto.com.br)
+
+O mesmo código roda no Vercel em **modo só cardápio**: o endereço
+`www.confeitto.com.br/{sua-confeitaria}` abre direto o cardápio para o
+cliente montar o pedido, que cai no Supabase e aparece no aplicativo. No
+site não existe login, cadastro nem painel (tudo isso dá 404) — toda a
+gestão, inclusive editar o cardápio, é feita no aplicativo.
+
+Variáveis de ambiente no projeto do Vercel (*Settings → Environment
+Variables*):
+
+| Nome | Valor |
+| --- | --- |
+| `CARDAPIO_ONLY` | `1` |
+| `SUPABASE_URL` | a mesma do `.env.local` |
+| `SUPABASE_SERVICE_KEY` | a mesma do `.env.local` (fica só no servidor do Vercel) |
+| `AUTH_SECRET` | um texto aleatório longo |
+| `ELECTRON_SKIP_BINARY_DOWNLOAD` | `1` (evita baixar o Electron no build) |
+| `CARDAPIO_PADRAO` | opcional: o nome da confeitaria para a raiz do domínio redirecionar para ela |
+
+O botão **Cardápio digital → Abrir cardápio do cliente / Copiar link** do
+aplicativo usa `NEXT_PUBLIC_CARDAPIO_URL` (padrão
+`https://www.confeitto.com.br`).
+
+## Onde ficam os dados
+
+| O quê | Onde |
+| --- | --- |
+| Dados (pedidos, estoque, financeiro, contas…) | Supabase, tabela `app_state` |
+| Fotos do cardápio e logotipos | Supabase Storage, bucket `fotos` |
+| Backups automáticos (1 por dia, últimos 14) | `%APPDATA%\Confeitto\backups` (um `.json` por dia) |
+| URL/chave do Supabase e log do servidor | `%APPDATA%\Confeitto` |
+
+O menu **Arquivo → Fazer backup agora** baixa uma cópia na hora.
+
+## O que mudou em relação à versão na nuvem
+
+- **Banco de dados**: o Azure Cosmos DB virou uma tabela no Supabase
+  (`lib/db.ts`, pela API REST, sem biblioteca extra), com controle de
+  versão por documento para dois computadores gravarem ao mesmo tempo sem
+  um apagar a alteração do outro — a mesma API de antes (`readState`,
+  `writeState`, `updateStateAtomic`…).
+- **Fotos**: o Azure Blob Storage virou o Supabase Storage (bucket `fotos`).
+- **Login**: só email e senha. Google e Microsoft Entra ID foram removidos
+  (precisavam de endereço público e de conta no Azure).
+- **Lembrete de tarefas**: em vez de Web Push + GitHub Actions, o próprio
+  aplicativo mostra uma notificação do Windows uma vez por dia, a partir das
+  8h, se houver tarefas pendentes.
+- **Aplicativo**: o Next.js roda como servidor interno (modo standalone)
+  dentro de uma janela Electron (`electron/main.cjs`), só em `127.0.0.1` —
+  nada fica acessível pela rede.
+- Removidos: `@azure/cosmos`, `@azure/storage-blob`, `web-push` e os
+  workflows de deploy do GitHub Actions.
+
+### Limitações de rodar localmente
+
+- O **link público do cardápio** (`/{confeitaria}/cardapio`) só abre neste
+  computador — clientes de fora não alcançam o `127.0.0.1`. Para receber
+  pedidos online de novo seria preciso publicar o app em algum servidor.
+- **Mercado Pago**: o checkout ainda funciona se configurado e houver
+  internet, mas a confirmação automática de pagamento (webhook) precisa de
+  um endereço público.
+- **Vários computadores**: cada instalação tem seus próprios dados; não
+  há sincronização entre máquinas.
+
+## Testar alterações antes de publicar
+
+`iniciar.bat` abre o app no navegador (`http://localhost:3000`) e recarrega
+sozinho a cada arquivo salvo. Ele usa o Supabase do `.env.local` — se for o
+mesmo projeto do app instalado, mexe nos dados reais. Quando estiver bom,
+rode `publicar-atualizacao.bat`.
+
+## Desenvolvimento
 
 ```powershell
 npm install
-copy .env.example .env.local
-npm run dev
+copy .env.example .env.local   # defina AUTH_SECRET e o Supabase
+npm run dev                    # ou iniciar.bat
 ```
 
-Abra `http://localhost:3000` para o login, ou
-`http://localhost:3000/dashboard` para o painel administrativo (pede login).
+Outros comandos:
 
-### Login e cadastro multi-confeitaria
-
-O Doce Gestão deixou de ser um sistema de uma confeitaria só. Qualquer
-pessoa pode criar uma conta em `/cadastro` (Google, Microsoft, ou email e
-senha) e ganha um painel isolado — pedidos, estoque, financeiro, cardápio,
-clientes e fichas técnicas nunca se misturam entre confeitarias diferentes.
-Só quem já tem uma conta consegue entrar em `/login`; quem tenta entrar sem
-ter uma é mandado para `/cadastro` automaticamente.
-
-No cadastro, além da conta, pedimos nome completo, CPF ou CNPJ (só
-validação de formato/dígito verificador — sem consulta à Receita Federal)
-e telefone de quem administra, mais os dados da própria confeitaria.
-
-O cardápio público (`/cardapio`) e o bot do WhatsApp ainda são só da
-Lavily por enquanto — cada confeitaria ter seu próprio link público fica
-para uma etapa futura.
-
-#### Microsoft Entra ID (login da Lavily)
-
-1. No [Azure Portal](https://portal.azure.com), vá em **Microsoft Entra ID
-   → App registrations → New registration**.
-2. Redirect URI (Web): `http://localhost:3000/api/auth/callback/microsoft-entra-id`
-   (e depois a URL de produção).
-3. Em **App roles**, crie dois papéis com value `admin` e `production`.
-4. Em **Enterprise applications → (seu app) → Users and groups**, atribua
-   cada funcionária ao papel correto.
-5. Copie Tenant ID, Client ID e (em **Certificates & secrets**) um Client
-   Secret para `.env.local`.
-
-Só quem tem um desses dois papéis atribuídos no Entra ID da Lavily entra
-automaticamente no painel da Lavily — qualquer outra conta Microsoft sem
-esse papel é tratada como uma confeitaria nova e vai para `/cadastro`.
-
-#### Google (login de qualquer confeitaria)
-
-1. No [Google Cloud Console](https://console.cloud.google.com/), crie um
-   projeto (ou use um existente) e configure a **Tela de consentimento
-   OAuth** (tipo Externo já serve).
-2. Em **APIs e serviços → Credenciais → Criar credenciais → ID do cliente
-   OAuth**, tipo **Aplicativo da Web**.
-3. Em **URIs de redirecionamento autorizados**, adicione
-   `http://localhost:3000/api/auth/callback/google` (e depois
-   `https://SEU-DOMINIO/api/auth/callback/google`).
-4. Copie o Client ID e o Client Secret para `GOOGLE_CLIENT_ID` e
-   `GOOGLE_CLIENT_SECRET` em `.env.local`.
-
-Sem essas variáveis, os botões de login continuam na tela mas o `signIn`
-falha — não há credencial de demonstração para nenhum provedor.
-
-### Configurar o pagamento (Mercado Pago)
-
-1. Crie uma conta em [mercadopago.com.br/developers](https://www.mercadopago.com.br/developers).
-2. Em **Suas integrações → Credenciais**, copie o Access Token (produção ou
-   teste) para `MERCADOPAGO_ACCESS_TOKEN`.
-3. Configure a notificação de webhook para `https://SEU-DOMINIO/api/checkout/webhook`
-   e copie a chave secreta para `MERCADOPAGO_WEBHOOK_SECRET`.
-
-Sem essas variáveis, o cardápio público continua funcionando, mas o botão
-"Ir para pagamento" retorna erro em vez de redirecionar.
-
-## Estado atual
-
-- **Em produção**: https://red-pebble-025f56f0f.3.azurestaticapps.net
-  (Azure Static Web Apps, deploy automático a cada push em `main` via
-  GitHub Actions — repositório em
-  [github.com/hCoutinho0/doce-gestao](https://github.com/hCoutinho0/doce-gestao)).
-
-- Painel interno (`/dashboard`, `/configurar`): protegido por sessão de
-  verdade (Google, Microsoft ou email/senha). Pedidos, estoque, financeiro,
-  cardápio e fidelidade agora ficam salvos no **Azure Cosmos DB**
-  (`lib/cosmos.ts`, `app/api/data/[key]`), num container `app-state` com um
-  documento por domínio por confeitaria — cada confeitaria só vê os
-  próprios dados.
-- Link público de cada confeitaria (`/{bakeryId}`) e seu cardápio
-  (`/{bakeryId}/cardapio`): sem login. Lê o cardápio publicado e a marca
-  daquela confeitaria no Cosmos DB (`GET /api/data/doce-menu?bakeryId=...`,
-  `.../doce-bakery-profile?bakeryId=...`) e cria pedidos por um endpoint
-  público específico (`POST /api/orders`) que só permite adicionar um
-  pedido, nunca ler ou sobrescrever os pedidos de outra confeitaria. A
-  rota antiga `/cardapio` (fixa na Lavily, de antes do app virar
-  multi-confeitaria) continua existindo só como redirect de
-  compatibilidade para `/lavily/cardapio`. Pagamento online (Mercado
-  Pago) está desligado por enquanto — usava um único token global; volta
-  quando cada confeitaria puder configurar o próprio.
-- Sem as variáveis `AZURE_COSMOS_ENDPOINT`/`AZURE_COSMOS_KEY` configuradas,
-  o app continua funcionando com dados de exemplo em memória (não persiste
-  entre recarregamentos) em vez de travar — útil para rodar localmente sem
-  Azure.
-
-### Configurar o Cosmos DB
-
-1. Crie uma conta **Azure Cosmos DB for NoSQL** no Azure Portal.
-2. Copie o **URI** e a **Primary Key** (em "Keys") para `AZURE_COSMOS_ENDPOINT`
-   e `AZURE_COSMOS_KEY` em `.env.local`.
-3. O banco de dados (`doce-gestao`) e o container (`app-state`) são criados
-   automaticamente na primeira chamada, se ainda não existirem.
-
-### Configurar as fotos (Azure Blob Storage)
-
-1. Crie uma **Storage Account** (StorageV2) no Azure Portal, com acesso
-   público a blobs habilitado.
-2. Copie a **Connection string** (em "Access keys") para
-   `AZURE_STORAGE_CONNECTION_STRING`.
-3. O container (`cardapio-media` por padrão, ajustável em
-   `AZURE_STORAGE_CONTAINER`) é criado automaticamente no primeiro upload.
-
-Sem essa variável, o upload de logotipo e fotos de produto retorna erro em
-vez de travar o resto do app.
-
-### Configurar o bot do WhatsApp (Meta WhatsApp Cloud API)
-
-O webhook (`app/api/whatsapp/webhook`) já está pronto no código — hoje ele
-responde ao cliente com o link do cardápio e consulta o status de um pedido
-pelo número (ex.: cliente manda "2001"). Falta só a conta na Meta:
-
-1. Crie um app em [developers.facebook.com](https://developers.facebook.com/apps)
-   → tipo "Business" → adicione o produto **WhatsApp**.
-2. Na aba WhatsApp → **API Setup**, copie o **Temporary access token** (ou
-   gere um permanente depois, associando a um System User) para
-   `WHATSAPP_ACCESS_TOKEN`, e o **Phone number ID** para
-   `WHATSAPP_PHONE_NUMBER_ID`.
-3. Em **App settings → Basic**, copie o **App Secret** para
-   `WHATSAPP_APP_SECRET` (usado para validar que as mensagens vêm mesmo da
-   Meta).
-4. Escolha um valor qualquer para `WHATSAPP_VERIFY_TOKEN` (uma senha
-   inventada por você).
-5. Em WhatsApp → **Configuration**, configure o webhook:
-   - Callback URL: `https://SEU-DOMINIO/api/whatsapp/webhook`
-   - Verify token: o mesmo valor de `WHATSAPP_VERIFY_TOKEN`
-   - Inscreva-se no campo `messages`.
-6. Para atender clientes de verdade (não só números de teste), a Meta exige
-   **verificação da empresa** (Business Verification) — processo à parte,
-   que pode levar de horas a dias.
-
-## Próxima etapa (Fase 3 — restante)
-
-- **iOS/Android**: empacotar a mesma interface web (ex.: Capacitor) ou
-  avaliar app nativo, a definir conforme o prazo de lançamento.
-
-As variáveis esperadas estão documentadas em `.env.example`.
+- `npm run desktop:abrir` — gera o servidor e abre a janela do Electron sem
+  criar instalador (bom para testar).
+- `npm run desktop:instalador` — o mesmo que o `gerar-instalador.bat`.
+- `npm run publicar` — o mesmo que o `publicar-atualizacao.bat`.

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Confeitto — Conectar ao banco de dados</title>
+<style>
+  :root { --roxo: #3d1a5c; --lilas: #e6cdf2; --borda: #ddd3e6; --texto: #241530; --cinza: #6f6479; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: 'Segoe UI', system-ui, sans-serif; color: var(--texto); background: #faf7fc; }
+  .wrap { min-height: 100%; display: grid; grid-template-columns: 300px 1fr; }
+  aside { background: var(--roxo); color: #fff; padding: 36px 28px; display: flex; flex-direction: column; gap: 14px; }
+  aside h1 { margin: 0; font-size: 26px; }
+  aside p { margin: 0; opacity: .75; line-height: 1.5; font-size: 14px; }
+  main { padding: 36px 44px; max-width: 640px; }
+  h2 { margin: 0 0 6px; font-size: 22px; }
+  .sub { margin: 0 0 24px; color: var(--cinza); font-size: 14px; line-height: 1.5; }
+  ol { margin: 0 0 24px; padding-left: 20px; color: var(--cinza); font-size: 13.5px; line-height: 1.7; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 16px 0 6px; }
+  input { width: 100%; height: 42px; border: 1px solid var(--borda); border-radius: 10px; padding: 0 12px; font: inherit; font-size: 14px; background: #fff; color: var(--texto); }
+  input:focus { outline: none; border-color: #7b3fa8; box-shadow: 0 0 0 3px rgba(123,63,168,.15); }
+  .row { display: flex; gap: 10px; margin-top: 24px; }
+  button { height: 42px; padding: 0 20px; border-radius: 10px; border: 0; font: inherit; font-weight: 600; cursor: pointer; }
+  .primary { background: #7b3fa8; color: #fff; }
+  .primary:disabled { opacity: .6; cursor: default; }
+  .ghost { background: transparent; border: 1px solid var(--borda); color: var(--texto); }
+  .msg { margin-top: 18px; padding: 12px 14px; border-radius: 10px; font-size: 13.5px; line-height: 1.5; display: none; white-space: pre-line; }
+  .msg.err { display: block; background: #fdecee; color: #8a1c2b; }
+  .msg.ok { display: block; background: #eaf7ee; color: #1d6b37; }
+  code { background: #efe8f4; padding: 1px 5px; border-radius: 5px; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <h1>Confeitto</h1>
+    <p>Os dados ficam no seu projeto do Supabase, então você e quem mais usar o Confeitto veem as mesmas informações em qualquer computador.</p>
+    <p>A chave fica guardada só neste computador.</p>
+  </aside>
+  <main>
+    <h2>Conectar ao banco de dados</h2>
+    <p class="sub">Copie estes dois dados do seu projeto no Supabase.</p>
+    <ol>
+      <li>Abra o projeto em <b>supabase.com</b>.</li>
+      <li><b>URL:</b> menu <b>Project Settings → Data API</b>, campo <i>Project URL</i>.</li>
+      <li><b>Chave secreta:</b> <b>Project Settings → API Keys</b>, a <i>secret key</i> (ou a <i>service_role</i> na aba das chaves antigas).</li>
+    </ol>
+    <form id="f">
+      <label for="url">URL do projeto</label>
+      <input id="url" placeholder="https://xxxxxxxx.supabase.co" autocomplete="off" spellcheck="false" required>
+      <label for="key">Chave secreta</label>
+      <input id="key" type="password" placeholder="sb_secret_…  ou  eyJhbGciOi…" autocomplete="off" spellcheck="false">
+      <div id="msg" class="msg"></div>
+      <div class="row">
+        <button class="primary" id="save" type="submit">Testar e salvar</button>
+        <button class="ghost" id="cancel" type="button">Cancelar</button>
+      </div>
+    </form>
+  </main>
+</div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const msg = (text, kind) => { const m = $('msg'); m.textContent = text; m.className = 'msg ' + kind; };
+  window.confeitto.current().then((c) => { if (c && c.url) $('url').value = c.url; if (c && c.hasKey) $('key').placeholder = '(mantém a chave atual se deixar em branco)'; });
+  $('cancel').onclick = () => window.confeitto.cancel();
+  $('f').onsubmit = async (e) => {
+    e.preventDefault();
+    $('save').disabled = true;
+    msg('Testando a conexão…', 'ok');
+    const result = await window.confeitto.testAndSave($('url').value.trim(), $('key').value.trim());
+    $('save').disabled = false;
+    if (result.ok) msg('Conectado! Abrindo o Confeitto…', 'ok');
+    else msg(result.error, 'err');
+  };
+</script>
+</body>
+</html>

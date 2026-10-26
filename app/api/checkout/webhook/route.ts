@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { MercadoPagoConfig, Payment } from 'mercadopago';
-import { isCosmosConfigured, updateStateAtomic, LAVILY_BAKERY_ID } from '@/lib/cosmos';
+import { isDbConfigured, updateStateAtomic, LAVILY_BAKERY_ID } from '@/lib/db';
 
 type Order = {
   id: string;
@@ -78,7 +78,7 @@ export async function POST(request: Request) {
   }
 
   const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
-  if (!accessToken || !isCosmosConfigured()) {
+  if (!accessToken || !isDbConfigured()) {
     return NextResponse.json({ received: true });
   }
 

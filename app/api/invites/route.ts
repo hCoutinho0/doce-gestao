@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { isCosmosConfigured } from '@/lib/cosmos';
+import { isDbConfigured } from '@/lib/db';
 import { generateInviteCode, listInvitesForBakery, saveInvite } from '@/lib/tenant';
 import type { UserRole } from '@/lib/tenant';
 
@@ -11,7 +11,7 @@ export async function GET() {
   if (!session?.user.bakeryId || session.user.role !== 'admin') {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
-  if (!isCosmosConfigured()) {
+  if (!isDbConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
   const invites = await listInvitesForBakery(session.user.bakeryId);
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
   if (!session?.user.bakeryId || session.user.role !== 'admin') {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
-  if (!isCosmosConfigured()) {
+  if (!isDbConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
   const body = (await request.json()) as { role?: UserRole };

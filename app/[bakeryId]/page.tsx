@@ -2,7 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { CakeSlice, Camera, MessageCircle, Music2, Settings2 } from 'lucide-react';
-import { isCosmosConfigured, readState } from '@/lib/cosmos';
+import { isDbConfigured, readState } from '@/lib/db';
 import type { BakeryProfile } from '@/lib/bakery';
 
 // Every confeitaria's own link-in-bio page — /{bakeryId}. Lavily's is
@@ -23,7 +23,7 @@ export default async function BakeryLinkHubPage({
   params: Promise<{ bakeryId: string }>;
 }) {
   const { bakeryId } = await params;
-  const bakery = isCosmosConfigured()
+  const bakery = isDbConfigured()
     ? await readState<BakeryProfile>(bakeryId, 'doce-bakery-profile').catch(
         () => null,
       )

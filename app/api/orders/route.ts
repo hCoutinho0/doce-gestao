@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { isCosmosConfigured, readState, updateStateAtomic } from '@/lib/cosmos';
+import { isDbConfigured, readState, updateStateAtomic } from '@/lib/db';
 import { checkRateLimit, clientIp } from '@/lib/rateLimit';
 
 type OrderItem = { name: string; quantity: number; unitPrice: number };
@@ -200,7 +200,7 @@ async function priceItems(
 // overwrite or read the full order list (which would leak every other
 // customer's data or let anyone wipe the order book).
 export async function POST(request: Request) {
-  if (!isCosmosConfigured()) {
+  if (!isDbConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
   // The admin panel's "Lançar pedido" form calls this same endpoint

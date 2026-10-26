@@ -20,7 +20,6 @@ import {
   ArrowUpRight,
   BadgeDollarSign,
   Bell,
-  BellOff,
   CakeSlice,
   Check,
   CheckCircle2,
@@ -1158,17 +1157,6 @@ function Dashboard({
   );
 }
 
-// Converts the VAPID public key (base64url, from the server) into the
-// Uint8Array format PushManager.subscribe expects.
-function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = atob(base64);
-  const bytes = new Uint8Array(new ArrayBuffer(rawData.length));
-  for (let i = 0; i < rawData.length; i++) bytes[i] = rawData.charCodeAt(i);
-  return bytes;
-}
-
 // Steps computed from real data (never their own separate checkbox state) —
 // a step reads "done" the moment the thing it describes actually exists, so
 // it can't drift from what the confeitaria has actually set up. Only the
@@ -1306,22 +1294,6 @@ function TasksPanel({
   setTasks: (v: Task[] | ((o: Task[]) => Task[])) => void;
 }) {
   const [text, setText] = useState('');
-  const [subscribed, setSubscribed] = useState<boolean | null>(null);
-  const [subscribing, setSubscribing] = useState(false);
-  const [reminderError, setReminderError] = useState('');
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
-      setSubscribed(false);
-      return;
-    }
-    navigator.serviceWorker
-      .getRegistration('/sw.js')
-      .then((registration) => registration?.pushManager.getSubscription())
-      .then((sub) => setSubscribed(Boolean(sub)))
-      .catch(() => setSubscribed(false));
-  }, []);
-
   const add = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -1330,43 +1302,6 @@ function TasksPanel({
       ...old,
     ]);
     setText('');
-  };
-
-  const enableReminders = async () => {
-    setReminderError('');
-    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
-      setReminderError('Seu navegador não tem suporte a notificações.');
-      return;
-    }
-    const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-    if (!publicKey) {
-      setReminderError('Lembretes ainda não configurados no servidor.');
-      return;
-    }
-    setSubscribing(true);
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') {
-        setReminderError('Permissão de notificação negada.');
-        return;
-      }
-      const registration = await navigator.serviceWorker.register('/sw.js');
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
-      });
-      const response = await fetch('/api/push/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subscription: subscription.toJSON() }),
-      });
-      if (!response.ok) throw new Error('subscribe_failed');
-      setSubscribed(true);
-    } catch {
-      setReminderError('Não foi possível ativar os lembretes agora.');
-    } finally {
-      setSubscribing(false);
-    }
   };
 
   const pending = tasks.filter((t) => !t.done);
@@ -1383,20 +1318,13 @@ function TasksPanel({
               : `${pending.length} pendente${pending.length > 1 ? 's' : ''}`}
           </p>
         </div>
-        <Button
-          type="button"
-          variant={subscribed ? 'outline' : 'default'}
-          size="sm"
-          onClick={() => void enableReminders()}
-          disabled={subscribing || subscribed === true}
+        <span
+          className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold text-muted-foreground"
+          title="O Confeitto avisa no Windows, uma vez por dia a partir das 8h (quando o aplicativo estiver aberto), se houver tarefas pendentes."
         >
-          {subscribed ? <Bell className="size-4" /> : <BellOff className="size-4" />}
-          {subscribed ? 'Lembretes ativos' : 'Ativar lembretes'}
-        </Button>
+          <Bell className="size-3.5" /> Lembrete diário às 8h
+        </span>
       </div>
-      {reminderError && (
-        <p className="mt-2 text-xs text-destructive">{reminderError}</p>
-      )}
       <div className="mt-4 flex gap-2">
         <input
           value={text}
@@ -1518,7 +1446,7 @@ const FAQ_SECTIONS: FaqSection[] = [
     entries: [
       {
         q: 'Como meus clientes acessam o cardápio online?',
-        a: 'Cada confeitaria tem um link próprio (confeitto.com.br/sua-confeitaria/cardapio) — copie e compartilhe direto do WhatsApp ou Instagram.',
+        a: 'Cada confeitaria tem um link próprio (confeitto.com.br/sua-confeitaria) — copie em Cardápio digital e compartilhe direto do WhatsApp ou Instagram.',
       },
       {
         q: 'Publiquei um produto mas ele não aparece no cardápio',
@@ -3978,6 +3906,15 @@ function Finance({
   );
 }
 
+// Endereço público do cardápio (site no Vercel). Definido no build por
+// NEXT_PUBLIC_CARDAPIO_URL no .env.local; o padrão é o domínio da Confeitto.
+const CARDAPIO_SITE = (
+  process.env.NEXT_PUBLIC_CARDAPIO_URL || 'https://www.confeitto.com.br'
+).replace(/\/+$/, '');
+function publicMenuUrl(bakeryId: string) {
+  return `${CARDAPIO_SITE}/${bakeryId}`;
+}
+
 function DigitalMenu({
   items,
   setItems,
@@ -3988,6 +3925,7 @@ function DigitalMenu({
   bakeryId: string;
 }) {
   const [pendingPhoto, setPendingPhoto] = useState('');
+  const [menuLinkCopied, setMenuLinkCopied] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoError, setPhotoError] = useState('');
   const uploadProductPhoto: NonNullable<
@@ -4047,13 +3985,30 @@ function DigitalMenu({
         title="Cardápio digital"
         subtitle="Gerencie os produtos publicados no cardápio dos clientes."
         action={
-          <Link
-            href={`/${bakeryId}/cardapio`}
-            target="_blank"
-            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border bg-background px-2.5 text-sm font-medium transition hover:bg-muted"
-          >
-            <Eye className="size-4" /> Abrir cardápio do cliente
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href={publicMenuUrl(bakeryId)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border bg-background px-2.5 text-sm font-medium transition hover:bg-muted"
+            >
+              <Eye className="size-4" /> Abrir cardápio do cliente
+            </a>
+            <button
+              type="button"
+              onClick={() =>
+                void navigator.clipboard
+                  .writeText(publicMenuUrl(bakeryId))
+                  .then(() => {
+                    setMenuLinkCopied(true);
+                    setTimeout(() => setMenuLinkCopied(false), 2000);
+                  })
+              }
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border bg-background px-2.5 text-sm font-medium transition hover:bg-muted"
+            >
+              {menuLinkCopied ? 'Link copiado!' : 'Copiar link'}
+            </button>
+          </div>
         }
       />
       <Panel className="mb-5 p-5">

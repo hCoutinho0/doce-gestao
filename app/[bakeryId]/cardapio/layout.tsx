@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
-import { isCosmosConfigured, readState } from '@/lib/cosmos';
+import { isDbConfigured, readState } from '@/lib/db';
 
 // Otherwise Next prerenders this metadata once at build time — before any
 // bakery has configured its name — and every deploy would ship the same
-// frozen title regardless of what's actually in Cosmos DB.
+// frozen title regardless of what's actually in the database.
 export const dynamic = 'force-dynamic';
 
 type BakeryProfile = { name?: string };
@@ -14,7 +14,7 @@ export async function generateMetadata({
   params: Promise<{ bakeryId: string }>;
 }): Promise<Metadata> {
   const { bakeryId } = await params;
-  const profile = isCosmosConfigured()
+  const profile = isDbConfigured()
     ? await readState<BakeryProfile>(bakeryId, 'doce-bakery-profile').catch(
         () => null,
       )

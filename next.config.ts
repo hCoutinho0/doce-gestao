@@ -24,10 +24,28 @@ const CSP = [
 ].join('; ');
 
 const nextConfig: NextConfig = {
-  // Standalone output bundles just the traced server + dependencies, so
-  // Azure App Service gets a small, self-contained deploy package instead
-  // of needing `npm install` on the server.
+  // Standalone gera um servidor enxuto com só as dependências usadas — é ele
+  // que vai dentro do instalador e o aplicativo (electron/main.cjs) liga.
   output: 'standalone',
+  // Sem otimização de imagem no servidor: evita depender do `sharp` (módulo
+  // nativo) dentro do instalador. As fotos já são locais e pequenas.
+  images: { unoptimized: true },
+  // Nada disto é usado pelo servidor; fica fora do pacote standalone.
+  outputFileTracingExcludes: {
+    '*': [
+      '.git/**',
+      '.github/**',
+      'electron/**',
+      'instalador/**',
+      'desktop-server/**',
+      'dados/**',
+      'scripts/**',
+      'node_modules/electron/**',
+      'node_modules/electron-builder/**',
+      'node_modules/app-builder-bin/**',
+      'node_modules/typescript/**',
+    ],
+  },
   // Defense-in-depth headers the app never had: without frame-ancestors/
   // X-Frame-Options a malicious page could iframe the panel and trick a
   // signed-in admin into clicking through a hidden overlay (clickjacking);
@@ -42,10 +60,6 @@ const nextConfig: NextConfig = {
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          {
-            key: 'Strict-Transport-Security',
-            value: 'max-age=63072000; includeSubDomains; preload',
-          },
           {
             key: 'Permissions-Policy',
             value: 'camera=(), microphone=(), geolocation=()',

@@ -1,12 +1,8 @@
-import { updateGlobalAtomic } from '@/lib/cosmos';
+import { updateGlobalAtomic } from '@/lib/db';
 
-// A sliding-window limiter backed by the same Cosmos container as
-// everything else — buckets live at `ratelimit:{key}` documents, guarded
-// by the existing ETag-based atomic update, so it coordinates correctly
-// across every instance the app runs on (an in-memory Map couldn't).
-// Each bucket sets its own `ttl`, so Cosmos deletes it once the window is
-// long past — no manual sweep needed, no unbounded growth from one-off
-// keys (an IP that never comes back).
+// Limitador de tentativas guardado no banco local — buckets em documentos
+// `ratelimit:{key}`, atualizados pela fila atômica do documento. Cada bucket
+// expira sozinho depois da janela (e purgeExpired limpa o disco).
 type Bucket = { count: number; resetAt: number };
 
 // Returns true when the call is allowed, false when the key has hit its
@@ -35,8 +31,7 @@ export async function checkRateLimit(
   return allowed;
 }
 
-// Best-effort caller IP behind Azure's proxy — the header is a
-// comma-separated hop chain, and the first entry is the original client.
+// IP de quem chamou (no app local é sempre o próprio computador).
 export function clientIp(request: Request): string {
   const forwarded = request.headers.get('x-forwarded-for');
   if (forwarded) return forwarded.split(',')[0].trim();

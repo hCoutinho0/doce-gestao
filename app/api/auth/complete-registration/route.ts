@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { auth } from '@/auth';
-import { isCosmosConfigured, writeState } from '@/lib/cosmos';
+import { isDbConfigured, writeState } from '@/lib/db';
 import { isValidCpfCnpj } from '@/lib/cpfCnpj';
 import { checkRateLimit, clientIp } from '@/lib/rateLimit';
 import { isValidSlugFormat } from '@/lib/slug';
@@ -18,7 +18,7 @@ import type { BakeryProfile } from '@/lib/bakery';
 // account record and the confeitaria's profile together, so an abandoned
 // wizard never leaves a half-created user with no bakery attached.
 export async function POST(request: Request) {
-  if (!isCosmosConfigured()) {
+  if (!isDbConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
   if (!(await checkRateLimit(`signup:${clientIp(request)}`, 5, 60 * 60 * 1000))) {

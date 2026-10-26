@@ -1,20 +1,22 @@
 {
-  "name": "doce-gestao",
-  "version": "0.2.0",
+  "name": "confeitto",
+  "version": "1.3.0",
   "private": true,
   "engines": {
-    "node": "22.x"
+    "node": ">=20.9"
   },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "oxlint",
-    "format": "oxfmt"
+    "format": "oxfmt",
+    "desktop:preparar": "next build && node scripts/preparar-desktop.mjs",
+    "desktop:abrir": "npm run desktop:preparar && electron electron",
+    "desktop:instalador": "node scripts/gerar-instalador.mjs",
+    "publicar": "node scripts/publicar-atualizacao.mjs"
   },
   "dependencies": {
-    "@azure/cosmos": "^4.2.0",
-    "@azure/storage-blob": "^12.33.0",
     "@base-ui/react": "1.7.0",
     "@shadcn/react": "0.3.0",
     "@types/bcryptjs": "^2.4.6",
@@ -38,20 +40,22 @@
     "recharts": "3.8.0",
     "shadcn": "4.18.0",
     "tailwind-merge": "3.6.0",
-    "tw-animate-css": "1.4.0",
-    "web-push": "^3.6.7"
+    "tw-animate-css": "1.4.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
-    "@types/web-push": "^3.6.4",
+    "electron": "39.8.10",
+    "electron-builder": "^26.0.12",
     "oxfmt": "0.61.0",
     "oxlint": "1.76.0",
     "oxlint-tsgolint": "7.0.2001",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3"
   },
-  "type": "module"
+  "type": "module",
+  "description": "Confeitto - Gestão que adoça seu negócio",
+  "author": "Confeitto"
 }

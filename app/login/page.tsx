@@ -13,7 +13,6 @@ import {
 } from 'lucide-react';
 import { signOut as nextAuthSignOut } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
-import { GoogleIcon, MicrosoftIcon } from '@/components/brand-icons';
 import { useUserSession } from '@/lib/auth';
 
 type FormSubmit = {
@@ -22,9 +21,6 @@ type FormSubmit = {
 
 export default function LoginPage() {
   const { session, isLoading } = useUserSession();
-  const [submittingProvider, setSubmittingProvider] = useState<
-    'microsoft-entra-id' | 'google' | null
-  >(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submittingCredentials, setSubmittingCredentials] = useState(false);
@@ -93,12 +89,12 @@ export default function LoginPage() {
             Decisões mais simples. Resultados mais doces.
           </h1>
           <p className="mt-5 max-w-md leading-relaxed text-white/70">
-            Pedidos, estoque, preços e financeiro em um só lugar, com o login
-            que você preferir.
+            Pedidos, estoque, preços e financeiro em um só lugar, direto no
+            seu computador.
           </p>
           <div className="mt-9 space-y-4 text-sm text-white/85">
             {[
-              'Entre com Google, Microsoft ou email e senha',
+              'Funciona no seu computador, com seus dados guardados nele',
               'Cada confeitaria com seus próprios dados, isolados',
               'Cardápio público independente para seus clientes',
             ].map((item) => (
@@ -131,48 +127,7 @@ export default function LoginPage() {
             Bem-vinda de volta
           </h2>
 
-          <div className="mt-7 space-y-3">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={submittingProvider !== null}
-              className="h-11 w-full rounded-xl"
-              onClick={() => {
-                setSubmittingProvider('google');
-                void signIn('google', { redirectTo: '/dashboard' });
-              }}
-            >
-              {submittingProvider === 'google' ? (
-                <LoaderCircle className="animate-spin" />
-              ) : (
-                <GoogleIcon className="size-4" />
-              )}
-              Entrar com o Google
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={submittingProvider !== null}
-              className="h-11 w-full rounded-xl"
-              onClick={() => {
-                setSubmittingProvider('microsoft-entra-id');
-                void signIn('microsoft-entra-id', { redirectTo: '/dashboard' });
-              }}
-            >
-              {submittingProvider === 'microsoft-entra-id' ? (
-                <LoaderCircle className="animate-spin" />
-              ) : (
-                <MicrosoftIcon className="size-4" />
-              )}
-              Entrar com a Microsoft
-            </Button>
-          </div>
-
-          <div className="my-6 flex items-center gap-3 text-xs text-muted-foreground">
-            <span className="h-px flex-1 bg-border" />
-            ou com email e senha
-            <span className="h-px flex-1 bg-border" />
-          </div>
+          <div className="mt-7" />
 
           <form onSubmit={submitCredentials} className="space-y-3">
             <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">

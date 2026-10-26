@@ -1,27 +1,24 @@
 import { auth } from '@/auth';
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server';
 
-// Server-side gate: unlike the old prototype, whether someone reaches the
-// internal panel is decided here, from the signed session cookie NextAuth
-// sets after a real sign-in — not from anything readable or writable in
-// the browser. The site root (public cardápio) and its checkout API stay
-// public, since customers order without an account. /cadastro is public
-// too — that's exactly where an anonymous visitor picks Google, Microsoft,
-// or email/password to create a brand-new confeitaria account.
+// Dois jeitos de rodar o mesmo código:
 //
-// A signed-in account with no confeitaria yet (new Google/email sign-up,
-// or a Microsoft account without a Lavily App Role) gets sent to /cadastro
-// instead of /dashboard or /configurar — those need a bakeryId to show
-// anything meaningful.
-export default auth((req) => {
+// 1. Aplicativo (padrão): o painel interno (/dashboard, /configurar) só abre
+//    com sessão válida — decidido aqui, a partir do cookie assinado pelo
+//    NextAuth, nunca de algo editável no navegador. Conta sem confeitaria
+//    vai para /cadastro.
+//
+// 2. Site do cardápio (CARDAPIO_ONLY=1, usado no Vercel em
+//    www.confeitto.com.br): só o cardápio público existe. /{confeitaria}
+//    abre direto o cardápio; login, cadastro, painel e as demais APIs dão
+//    404. Toda a gestão fica no aplicativo.
+
+const panelGuard = auth((req) => {
   const isLoggedIn = Boolean(req.auth);
   if (!isLoggedIn) {
-    const loginUrl = new URL('/login', req.nextUrl.origin);
-    return NextResponse.redirect(loginUrl);
+    return NextResponse.redirect(new URL('/login', req.nextUrl.origin));
   }
   if (req.auth?.user?.accountConflict) {
-    // This email already has a password-based account belonging to someone
-    // else's session — never reachable to /dashboard with no bakeryId.
     const loginUrl = new URL('/login', req.nextUrl.origin);
     loginUrl.searchParams.set('error', 'account_conflict');
     return NextResponse.redirect(loginUrl);
@@ -31,6 +28,76 @@ export default auth((req) => {
   }
 });
 
+// Caminhos do app que nunca são o nome de uma confeitaria.
+const RESERVED = new Set([
+  'api',
+  'cadastro',
+  'cardapio',
+  'configurar',
+  'dashboard',
+  'login',
+  'assets',
+]);
+
+const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+function notFound() {
+  return new NextResponse('Página não encontrada', {
+    status: 404,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  });
+}
+
+function cardapioOnly(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+  const method = req.method;
+
+  // O que o cardápio precisa da API: ler o cardápio publicado e a marca da
+  // confeitaria, mandar o pedido e mostrar fotos antigas.
+  if (pathname.startsWith('/api/')) {
+    const allowed =
+      (method === 'GET' &&
+        (pathname === '/api/data/doce-menu' ||
+          pathname === '/api/data/doce-bakery-profile' ||
+          pathname.startsWith('/api/media/'))) ||
+      (method === 'POST' && pathname === '/api/orders');
+    return allowed ? NextResponse.next() : notFound();
+  }
+
+  if (pathname === '/') {
+    const fallback = process.env.CARDAPIO_PADRAO?.trim();
+    return fallback ? NextResponse.redirect(new URL(`/${fallback}`, req.url)) : notFound();
+  }
+
+  const parts = pathname.split('/').filter(Boolean);
+  const slug = parts[0]?.toLowerCase() ?? '';
+  if (RESERVED.has(slug) || !SLUG.test(slug)) return notFound();
+
+  // /{confeitaria} -> mostra o cardápio (sem mudar o endereço na barra).
+  if (parts.length === 1) {
+    const url = req.nextUrl.clone();
+    url.pathname = `/${slug}/cardapio`;
+    return NextResponse.rewrite(url);
+  }
+  // Endereço antigo /{confeitaria}/cardapio -> endereço curto.
+  if (parts.length === 2 && parts[1] === 'cardapio') {
+    const url = req.nextUrl.clone();
+    url.pathname = `/${slug}`;
+    return NextResponse.redirect(url, 308);
+  }
+  return notFound();
+}
+
+export default function proxy(req: NextRequest, event: NextFetchEvent) {
+  if (process.env.CARDAPIO_ONLY === '1') return cardapioOnly(req);
+  const { pathname } = req.nextUrl;
+  if (pathname.startsWith('/dashboard') || pathname.startsWith('/configurar')) {
+    return (panelGuard as unknown as (r: NextRequest, e: NextFetchEvent) => Response)(req, event);
+  }
+  return NextResponse.next();
+}
+
 export const config = {
-  matcher: ['/dashboard/:path*', '/configurar/:path*'],
+  // Tudo, menos os arquivos estáticos do Next e os ícones/imagens públicos.
+  matcher: ['/((?!_next/static|_next/image|favicon\\.svg|assets/).*)'],
 };

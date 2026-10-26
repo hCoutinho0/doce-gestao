@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { isCosmosConfigured, readState, writeState, LAVILY_BAKERY_ID } from '@/lib/cosmos';
+import { isDbConfigured, readState, writeState, LAVILY_BAKERY_ID } from '@/lib/db';
 
 // One document per domain per confeitaria, addressed by the same key the
 // old prototype used as its localStorage key — same shape, different
@@ -75,7 +75,7 @@ export async function GET(
     }
     bakeryId = session.user.bakeryId;
   }
-  if (!isCosmosConfigured()) {
+  if (!isDbConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
   const value = await readState(bakeryId, key);
@@ -108,7 +108,7 @@ export async function PUT(
   if (ADMIN_ONLY_KEYS.has(key) && session.user.role !== 'admin') {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
-  if (!isCosmosConfigured()) {
+  if (!isDbConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
   const body = (await request.json()) as { value: unknown };
