@@ -130,6 +130,12 @@ for (const item of OBSOLETOS) {
   }
 }
 
+// Tipos gerados pelo "iniciar.bat" (modo de desenvolvimento) podem citar
+// páginas que já não existem e quebrar a checagem do build.
+for (const pasta of ['.next/dev', '.next/types']) {
+  fs.rmSync(path.join(root, pasta), { recursive: true, force: true });
+}
+
 // Instala/remove dependências quando a lista do package.json mudou desde o
 // último npm install (a versão do app, que muda a cada publicação, não conta).
 const marca = path.join(root, 'node_modules', '.confeitto-deps');
