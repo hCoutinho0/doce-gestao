@@ -41,6 +41,8 @@ import {
   Plus,
   Search,
   ShoppingBag,
+  ShoppingCart,
+  MessageCircle,
   Sparkles,
   Trash2,
   Copy,
@@ -123,6 +125,17 @@ type StockItem = {
   // Onde foi comprado da última vez — só controle de fornecedor/reposição,
   // não entra em nenhum cálculo de custo.
   supplier?: string;
+};
+// Lista de compras (Estoque): compartilhada por todos da confeitaria.
+// stockId liga o item ao estoque (para mostrar onde costuma ser comprado e
+// não sugerir de novo o que já está na lista); itens avulsos não têm.
+type ShoppingItem = {
+  id: number;
+  name: string;
+  qty: string;
+  stockId?: number;
+  done: boolean;
+  createdAt: string;
 };
 type FinanceItem = {
   id: number;
@@ -349,6 +362,9 @@ export default function Home() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [orders, setOrders] = useServerFetchedState('doce-orders', initialOrders);
   const [stock, setStock] = useStoredState('doce-stock-v2', initialStock);
+  const [shopping, setShopping] = useStoredState<ShoppingItem[]>('doce-compras', [], {
+    refreshOnFocus: true,
+  });
   const [finance, setFinance] = useStoredState('doce-finance', initialFinance);
   const [menuItems, setMenuItems] = useStoredState('doce-menu', initialMenu);
   const [products, setProducts] = useStoredState<Product[]>(
@@ -522,7 +538,14 @@ export default function Home() {
                 setLoyalty={setLoyalty}
               />
             )}
-            {view === 'stock' && <Stock stock={stock} setStock={setStock} />}
+            {view === 'stock' && (
+              <Stock
+                stock={stock}
+                setStock={setStock}
+                shopping={shopping}
+                setShopping={setShopping}
+              />
+            )}
             {view === 'pricing' && (
               <Pricing
                 stock={stock}
@@ -580,10 +603,35 @@ export default function Home() {
 function useStoredState<T>(
   key: string,
   initial: T,
+  options: { refreshOnFocus?: boolean } = {},
 ): [T, (value: T | ((old: T) => T)) => void] {
   const [state, setState] = useState<T>(initial);
   const [loaded, setLoaded] = useState(false);
   const skipNextWrite = useRef(true);
+  const { refreshOnFocus = false } = options;
+
+  // Dados que duas pessoas mexem no mesmo dia (lista de compras): ao voltar
+  // para a janela, busca de novo para ver o que a outra pessoa mudou.
+  useEffect(() => {
+    if (!refreshOnFocus) return;
+    const refresh = () => {
+      if (document.visibilityState === 'hidden') return;
+      void fetch(`/api/data/${key}`, { headers: { 'X-Panel-Request': '1' } })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: { value: T } | null) => {
+          if (data?.value === null || data?.value === undefined) return;
+          skipNextWrite.current = true;
+          setState(data.value);
+        })
+        .catch(() => {});
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [key, refreshOnFocus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2180,12 +2228,16 @@ function StockSection({
   subtitle,
   stock,
   setStock,
+  onAddToList,
+  isInList,
 }: {
   category: 'Ingrediente' | 'Embalagem';
   title: string;
   subtitle: string;
   stock: StockItem[];
   setStock: (v: StockItem[] | ((o: StockItem[]) => StockItem[])) => void;
+  onAddToList: (item: StockItem) => void;
+  isInList: (item: StockItem) => boolean;
 }) {
   const items = stock.filter(
     (item) => (item.category ?? 'Ingrediente') === category,
@@ -2351,8 +2403,8 @@ function StockSection({
           return (
             <Panel key={item.id} className="p-5">
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-semibold">{item.name}</p>
+                <div className="min-w-0">
+                  <p className="font-semibold [overflow-wrap:anywhere]">{item.name}</p>
                   <p className="font-nums text-xs text-muted-foreground">
                     {money(item.cost)} / unidade
                     {item.weight
@@ -2366,10 +2418,24 @@ function StockSection({
                     </p>
                   )}
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex shrink-0 items-center gap-1">
                   <Badge variant={low ? 'destructive' : 'secondary'}>
                     {low ? 'Repor' : 'Normal'}
                   </Badge>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={
+                      isInList(item)
+                        ? `${item.name} já está na lista de compras`
+                        : `Adicionar ${item.name} à lista de compras`
+                    }
+                    title={isInList(item) ? 'Já está na lista de compras' : 'Adicionar à lista de compras'}
+                    disabled={isInList(item)}
+                    onClick={() => onAddToList(item)}
+                  >
+                    {isInList(item) ? <Check /> : <ShoppingCart />}
+                  </Button>
                   <Button
                     variant="ghost"
                     size="icon-sm"
@@ -2382,14 +2448,29 @@ function StockSection({
                   </Button>
                 </div>
               </div>
-              <div className="my-5 flex items-end justify-between">
+              <div className="my-5 flex items-end justify-between gap-3">
                 <p className="font-nums text-3xl font-bold [overflow-wrap:anywhere]">
                   {item.qty}{' '}
                   <span className="font-sans text-base font-medium text-muted-foreground">
                     {item.unit}
                   </span>
                 </p>
-                <p className="font-nums text-xs text-muted-foreground">mín. {item.min}</p>
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  mín.
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={item.min}
+                    aria-label={`Estoque mínimo de ${item.name}`}
+                    title="Abaixo disso, o item aparece como sugestão na lista de compras"
+                    onChange={(e) => {
+                      const min = Math.max(0, Number(e.target.value) || 0);
+                      setStock((old) => old.map((x) => (x.id === item.id ? { ...x, min } : x)));
+                    }}
+                    className="font-nums h-8 w-16 rounded-lg border bg-background px-2 text-sm text-foreground outline-none focus:border-primary"
+                  />
+                </label>
               </div>
               <div className="flex gap-2">
                 <Button
@@ -2430,21 +2511,303 @@ function StockSection({
   );
 }
 
+type SetShopping = (v: ShoppingItem[] | ((o: ShoppingItem[]) => ShoppingItem[])) => void;
+
+const sameName = (a: string, b: string) =>
+  a.trim().toLocaleLowerCase('pt-BR') === b.trim().toLocaleLowerCase('pt-BR');
+
+// Quanto falta para chegar no mínimo (ou 1, para o que acabou sem mínimo).
+function suggestedQty(item: StockItem): string {
+  const needed = item.min > item.qty ? Math.ceil(item.min - item.qty) : 1;
+  return `${needed} ${item.unit}`;
+}
+
+function ShoppingList({
+  stock,
+  shopping,
+  setShopping,
+}: {
+  stock: StockItem[];
+  shopping: ShoppingItem[];
+  setShopping: SetShopping;
+}) {
+  const [copied, setCopied] = useState(false);
+  const pending = shopping.filter((i) => !i.done);
+  const bought = shopping.filter((i) => i.done);
+  const stockOf = (i: ShoppingItem) =>
+    stock.find((s) => (i.stockId != null ? s.id === i.stockId : sameName(s.name, i.name)));
+  const listed = (item: StockItem) =>
+    pending.some((i) => i.stockId === item.id || sameName(i.name, item.name));
+
+  // Sugestões: abaixo do mínimo ou zerado, e ainda não na lista.
+  const suggestions = stock.filter(
+    (item) => (item.qty < item.min || item.qty <= 0) && !listed(item),
+  );
+
+  const addItem = (name: string, qty: string, stockId?: number) => {
+    const clean = name.trim();
+    if (!clean) return;
+    setShopping((old) => {
+      const existing = old.find((i) => !i.done && sameName(i.name, clean));
+      if (existing) {
+        return old.map((i) => (i.id === existing.id && qty ? { ...i, qty } : i));
+      }
+      const linkedId = stockId ?? stock.find((s) => sameName(s.name, clean))?.id;
+      return [
+        ...old,
+        {
+          id: Date.now() + Math.floor(Math.random() * 1000),
+          name: clean,
+          qty: qty.trim(),
+          ...(linkedId != null ? { stockId: linkedId } : {}),
+          done: false,
+          createdAt: new Date().toISOString(),
+        },
+      ];
+    });
+  };
+
+  const submit = (e: FormSubmit) => {
+    e.preventDefault();
+    const d = new FormData(e.currentTarget);
+    addItem(fieldValue(d, 'name'), fieldValue(d, 'qty'));
+    e.currentTarget.reset();
+    (e.currentTarget.elements.namedItem('name') as HTMLInputElement | null)?.focus();
+  };
+
+  const addSuggestions = () => {
+    const now = Date.now();
+    setShopping((old) => [
+      ...old,
+      ...suggestions.map((item, index) => ({
+        id: now + index,
+        name: item.name,
+        qty: suggestedQty(item),
+        stockId: item.id,
+        done: false,
+        createdAt: new Date().toISOString(),
+      })),
+    ]);
+  };
+
+  const listText = () => {
+    const lines = pending.map((i) => {
+      const where = stockOf(i)?.supplier;
+      return `• ${i.name}${i.qty ? ` — ${i.qty}` : ''}${where ? ` (${where})` : ''}`;
+    });
+    return `🛒 Lista de compras\n${lines.join('\n')}`;
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(listText());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Sem permissão de área de transferência: nada a fazer.
+    }
+  };
+
+  return (
+    <>
+      <PageHeading
+        title="Lista de compras"
+        subtitle="O que precisa comprar — a mesma lista para todos da confeitaria."
+        action={
+          pending.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" className="h-10 rounded-xl" onClick={() => void copy()}>
+                {copied ? <Check /> : <Copy />} {copied ? 'Lista copiada' : 'Copiar lista'}
+              </Button>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(listText())}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
+              >
+                <MessageCircle className="size-4" aria-hidden="true" /> Enviar no WhatsApp
+              </a>
+            </div>
+          ) : undefined
+        }
+      />
+
+      <Panel className="mb-8 p-5">
+        <form onSubmit={submit} className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] sm:items-end">
+          <Field label="Item">
+            <input
+              required
+              name="name"
+              list="estoque-nomes"
+              maxLength={80}
+              autoComplete="off"
+              className={inputClass}
+              placeholder="Ex.: Leite condensado"
+            />
+          </Field>
+          <Field label="Quantidade (opcional)">
+            <input
+              name="qty"
+              maxLength={40}
+              className={inputClass}
+              placeholder="Ex.: 3 latas"
+            />
+          </Field>
+          <Button type="submit" className="h-10 rounded-xl">
+            <Plus /> Adicionar
+          </Button>
+          <datalist id="estoque-nomes">
+            {stock.map((item) => (
+              <option key={item.id} value={item.name} />
+            ))}
+          </datalist>
+        </form>
+
+        {suggestions.length > 0 && (
+          <div className="mt-5 rounded-xl bg-muted/60 p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold">
+                Acabando no estoque{' '}
+                <span className="font-normal text-muted-foreground">
+                  ({suggestions.length})
+                </span>
+              </p>
+              {suggestions.length > 1 && (
+                <Button variant="outline" size="sm" onClick={addSuggestions}>
+                  <Plus /> Adicionar todos
+                </Button>
+              )}
+            </div>
+            <ul className="flex flex-wrap gap-2">
+              {suggestions.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => addItem(item.name, suggestedQty(item), item.id)}
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-left text-xs font-medium transition hover:border-primary"
+                    aria-label={`Adicionar ${item.name} à lista (tem ${item.qty}, mínimo ${item.min})`}
+                  >
+                    <Plus className="size-3.5 shrink-0" aria-hidden="true" />
+                    <span className="[overflow-wrap:anywhere]">{item.name}</span>
+                    <span className="shrink-0 text-muted-foreground">
+                      tem {item.qty}
+                      {item.min > 0 ? ` / mín. ${item.min}` : ''}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {shopping.length === 0 ? (
+          <p className="mt-5 text-center text-sm text-muted-foreground">
+            A lista está vazia. Adicione itens acima ou pelo carrinho em cada item do estoque.
+          </p>
+        ) : (
+          <ul className="mt-5 divide-y" aria-label="Itens da lista de compras">
+            {[...pending, ...bought].map((item) => {
+              const where = stockOf(item)?.supplier;
+              return (
+                <li key={item.id} className="flex items-center gap-3 py-2.5">
+                  <input
+                    type="checkbox"
+                    checked={item.done}
+                    onChange={() =>
+                      setShopping((old) =>
+                        old.map((i) => (i.id === item.id ? { ...i, done: !i.done } : i)),
+                      )
+                    }
+                    aria-label={
+                      item.done ? `Desmarcar ${item.name}` : `Marcar ${item.name} como comprado`
+                    }
+                    className="size-4 shrink-0 accent-[var(--primary)]"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className={`text-sm font-medium [overflow-wrap:anywhere] ${item.done ? 'text-muted-foreground line-through' : ''}`}
+                    >
+                      {item.name}
+                      {item.qty && (
+                        <span className="font-normal text-muted-foreground"> — {item.qty}</span>
+                      )}
+                    </p>
+                    {where && !item.done && (
+                      <p className="text-xs text-muted-foreground">Comprado em: {where}</p>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Tirar ${item.name} da lista`}
+                    onClick={() => setShopping((old) => old.filter((i) => i.id !== item.id))}
+                  >
+                    <Trash2 />
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {bought.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+            <p className="text-xs text-muted-foreground">
+              {bought.length} {bought.length === 1 ? 'item comprado' : 'itens comprados'}.
+              Lembre de dar entrada no estoque.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShopping((old) => old.filter((i) => !i.done))}
+            >
+              Limpar comprados
+            </Button>
+          </div>
+        )}
+      </Panel>
+    </>
+  );
+}
+
 function Stock({
   stock,
   setStock,
+  shopping,
+  setShopping,
 }: {
   stock: StockItem[];
   setStock: (v: StockItem[] | ((o: StockItem[]) => StockItem[])) => void;
+  shopping: ShoppingItem[];
+  setShopping: SetShopping;
 }) {
+  const isInList = (item: StockItem) =>
+    shopping.some((i) => !i.done && (i.stockId === item.id || sameName(i.name, item.name)));
+  const onAddToList = (item: StockItem) => {
+    if (isInList(item)) return;
+    setShopping((old) => [
+      ...old,
+      {
+        id: Date.now(),
+        name: item.name,
+        qty: suggestedQty(item),
+        stockId: item.id,
+        done: false,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+  };
   return (
     <div className="ficha-theme">
+      <ShoppingList stock={stock} shopping={shopping} setShopping={setShopping} />
       <StockSection
         category="Ingrediente"
         title="Ingredientes"
         subtitle="Cadastre insumos uma vez e reponha pelo nome — sem duplicar linhas."
         stock={stock}
         setStock={setStock}
+        onAddToList={onAddToList}
+        isInList={isInList}
       />
       <StockSection
         category="Embalagem"
@@ -2452,6 +2815,8 @@ function Stock({
         subtitle="Caixas, sacolas e etiquetas, separadas dos ingredientes."
         stock={stock}
         setStock={setStock}
+        onAddToList={onAddToList}
+        isInList={isInList}
       />
     </div>
   );

@@ -17,6 +17,7 @@ const ALLOWED_KEYS = new Set([
   'doce-products',
   'doce-tasks',
   'doce-onboarding',
+  'doce-compras',
 ]);
 
 // The dashboard hides Financeiro, Precificação, Produtos, Clientes and
