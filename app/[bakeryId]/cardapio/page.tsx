@@ -96,7 +96,12 @@ export default function CardapioPage() {
   >({ status: 'idle' });
   const [notMe, setNotMe] = useState(false);
   const phoneDigits = normalizePhone(phone);
-  const phoneTouchedInvalid = phone.replace(/\D/g, '').length >= 10 && !phoneDigits;
+  const [phoneBlurred, setPhoneBlurred] = useState(false);
+  const typedDigits = phone.replace(/\D/g, '').length;
+  // Avisa assim que a pessoa sai do campo com um número incompleto (ou
+  // quando já digitou 10+ dígitos e eles não formam um celular).
+  const phoneTouchedInvalid =
+    !phoneDigits && (typedDigits >= 10 || (phoneBlurred && typedDigits > 0));
   const known = lookup.status === 'found' && !notMe ? lookup : null;
   const needsName = !known;
   const needsBirthday = !known || !known.hasBirthday;
@@ -553,6 +558,7 @@ export default function CardapioPage() {
                       value={phone}
                       maxLength={16}
                       onChange={(e) => setPhone(formatPhone(e.target.value))}
+                      onBlur={() => setPhoneBlurred(true)}
                       aria-invalid={phoneTouchedInvalid}
                       aria-describedby="telefone-ajuda"
                       className="h-10 rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 aria-[invalid=true]:border-destructive"
