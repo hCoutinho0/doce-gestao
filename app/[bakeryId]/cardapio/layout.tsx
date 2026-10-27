@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
 import { isDbConfigured, readState } from '@/lib/db';
 
 // Otherwise Next prerenders this metadata once at build time — before any
@@ -31,6 +32,16 @@ export async function generateMetadata({
   };
 }
 
-export default function CardapioLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+// Link de confeitaria que não existe (digitado errado, ou um link antigo
+// depois de renomear) dá 404 em vez de um cardápio vazio.
+export default async function CardapioLayout({
+  children,
+  params,
+}: Readonly<{ children: React.ReactNode; params: Promise<{ bakeryId: string }> }>) {
+  if (isDbConfigured()) {
+    const { bakeryId } = await params;
+    const profile = await readState<BakeryProfile>(bakeryId, 'doce-bakery-profile');
+    if (!profile) notFound();
+  }
   return children;
 }
