@@ -346,7 +346,7 @@ export default function CadastroPage() {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-6xl gap-8 px-5 py-8 lg:grid-cols-[260px_minmax(0,1fr)] lg:py-12">
+      <div className="mx-auto grid max-w-6xl gap-8 px-5 py-8 lg:grid-cols-[16.25rem_minmax(0,1fr)] lg:py-12">
         <aside>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">
             Bem-vindo(a)
@@ -640,7 +640,7 @@ export default function CadastroPage() {
                 title="Identidade da marca"
                 description="Escolha um ícone rápido ou envie seu logotipo para personalizar a aplicação."
               />
-              <div className="mt-7 grid gap-7 md:grid-cols-[1fr_220px]">
+              <div className="mt-7 grid gap-7 md:grid-cols-[1fr_13.75rem]">
                 <div>
                   <Label>Ícone da confeitaria</Label>
                   <div className="mt-3 grid grid-cols-6 gap-2">

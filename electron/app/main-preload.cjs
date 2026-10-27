@@ -7,7 +7,4 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('confeittoDesktop', {
   versao: () => ipcRenderer.invoke('desktop:versao'),
   procurarAtualizacoes: () => ipcRenderer.invoke('desktop:atualizacoes'),
-  fazerBackup: () => ipcRenderer.invoke('desktop:backup'),
-  abrirPastaBackups: () => ipcRenderer.invoke('desktop:pasta'),
-  configurarConexao: () => ipcRenderer.invoke('desktop:conexao'),
 });

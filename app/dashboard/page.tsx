@@ -24,7 +24,6 @@ import {
   CheckCircle2,
   ChevronLeft,
   Circle,
-  CircleHelp,
   ClipboardList,
   ChevronRight,
   CircleDollarSign,
@@ -333,7 +332,6 @@ const navItems: { label: string; icon: typeof LayoutDashboard; view: View }[] =
     { label: 'Clientes', icon: Users, view: 'customers' },
     { label: 'Fidelidade', icon: Gift, view: 'loyalty' },
     { label: 'Equipe', icon: UserPlus, view: 'team' },
-    { label: 'Ajuda', icon: CircleHelp, view: 'help' },
   ];
 const money = (value: number) =>
   value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -399,7 +397,8 @@ export default function Home() {
           ['dashboard', 'orders', 'stock', 'menu', 'help'].includes(item.view),
         )
       : navItems;
-  const pageTitle = navItems.find((item) => item.view === view)?.label ?? '';
+  const pageTitle =
+    view === 'help' ? 'Ajuda' : (navItems.find((item) => item.view === view)?.label ?? '');
 
   if (!isBrowserReady || !session) {
     return (
@@ -435,7 +434,7 @@ export default function Home() {
 
   return (
     <main id="conteudo" tabIndex={-1} className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto grid min-h-screen max-w-[1680px] lg:grid-cols-[256px_minmax(0,1fr)]">
+      <div className="mx-auto grid min-h-screen max-w-[1680px] lg:grid-cols-[16rem_minmax(0,1fr)]">
         <aside className="hidden border-r border-sidebar-border bg-sidebar px-4 py-6 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:self-start">
           <SidebarNav {...sidebarProps} />
         </aside>
@@ -446,7 +445,7 @@ export default function Home() {
               className="absolute inset-0 bg-foreground/30 backdrop-blur-sm"
               onClick={() => setMobileNavOpen(false)}
             />
-            <div className="absolute inset-y-0 left-0 flex w-[280px] flex-col bg-sidebar px-4 py-6 shadow-xl">
+            <div className="absolute inset-y-0 left-0 flex w-[min(17.5rem,85vw)] flex-col bg-sidebar px-4 py-6 shadow-xl">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-xs font-semibold uppercase tracking-wide text-sidebar-foreground/50">
                   Menu
@@ -914,14 +913,14 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
+    <label className="grid min-w-0 gap-1.5 text-xs font-semibold text-muted-foreground">
       <span>{label}</span>
       {children}
     </label>
   );
 }
 const inputClass =
-  'h-10 rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15';
+  'h-10 w-full min-w-0 rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15';
 
 function Dashboard({
   orders,
@@ -1046,27 +1045,27 @@ function Dashboard({
               </span>
             </div>
             <div className="mt-5 grid grid-cols-3 gap-2">
-              <div className="rounded-xl bg-green-50 p-3">
+              <div className="min-w-0 rounded-xl bg-green-50 p-3">
                 <p className="text-[10px] font-semibold uppercase text-green-700">
                   Entradas
                 </p>
-                <p className="mt-1 text-sm font-bold text-green-800">
+                <p className="[overflow-wrap:anywhere] mt-1 text-sm font-bold text-green-800">
                   {money(entries)}
                 </p>
               </div>
-              <div className="rounded-xl bg-red-50 p-3">
+              <div className="min-w-0 rounded-xl bg-red-50 p-3">
                 <p className="text-[10px] font-semibold uppercase text-red-700">
                   Saídas
                 </p>
-                <p className="mt-1 text-sm font-bold text-red-800">
+                <p className="[overflow-wrap:anywhere] mt-1 text-sm font-bold text-red-800">
                   {money(expenses)}
                 </p>
               </div>
-              <div className="rounded-xl bg-secondary p-3">
+              <div className="min-w-0 rounded-xl bg-secondary p-3">
                 <p className="text-[10px] font-semibold uppercase text-primary">
                   Saldo
                 </p>
-                <p className="mt-1 text-sm font-bold text-primary">
+                <p className="[overflow-wrap:anywhere] mt-1 text-sm font-bold text-primary">
                   {money(entries - expenses)}
                 </p>
               </div>
@@ -1338,7 +1337,7 @@ function TasksPanel({
                 className="size-4"
               />
               <span
-                className={`flex-1 text-sm ${task.done ? 'text-muted-foreground line-through' : ''}`}
+                className={`min-w-0 flex-1 break-words text-sm ${task.done ? 'text-muted-foreground line-through' : ''}`}
               >
                 {task.text}
               </span>
@@ -1513,7 +1512,7 @@ function MetricCard({
         )}
       </div>
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className="mt-1 font-heading text-2xl font-bold tracking-tight">
+      <p className="mt-1 font-heading text-2xl font-bold tracking-tight [overflow-wrap:anywhere]">
         {value}
       </p>
       <p className="mt-2 text-xs text-muted-foreground">{detail}</p>
@@ -2384,7 +2383,7 @@ function StockSection({
                 </div>
               </div>
               <div className="my-5 flex items-end justify-between">
-                <p className="font-nums text-3xl font-bold">
+                <p className="font-nums text-3xl font-bold [overflow-wrap:anywhere]">
                   {item.qty}{' '}
                   <span className="font-sans text-base font-medium text-muted-foreground">
                     {item.unit}
@@ -3754,7 +3753,7 @@ function Finance({
             <p className="text-[10px] font-semibold uppercase text-green-700">
               Reserva emergencial (10%)
             </p>
-            <p className="mt-1 text-lg font-bold text-green-800">
+            <p className="[overflow-wrap:anywhere] mt-1 text-lg font-bold text-green-800">
               {money(entries * 0.1)}
             </p>
           </div>
@@ -3789,7 +3788,7 @@ function Finance({
         </Panel>
       )}
       <Panel className="mb-5 p-5">
-        <form onSubmit={add} className="grid gap-3 md:grid-cols-5">
+        <form onSubmit={add} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <Field label="Descrição">
             <input required name="description" className={inputClass} />
           </Field>
@@ -3995,7 +3994,7 @@ function DigitalMenu({
       <Panel className="mb-5 p-5">
         <form
           onSubmit={addProduct}
-          className="grid gap-3 md:grid-cols-[1.4fr_.8fr_.7fr_.5fr_.4fr_auto]"
+          className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1.4fr_.8fr_.7fr_.5fr_.4fr_auto]"
         >
           <Field label="Produto">
             <input
@@ -4259,7 +4258,7 @@ function ProductsCatalog({
               type="number"
               step="0.01"
               min="0"
-              className={`${inputClass} w-28`}
+              className={`${inputClass} w-28!`}
               placeholder="0,00"
             />
           </Field>
@@ -4270,7 +4269,7 @@ function ProductsCatalog({
                 type="number"
                 step="0.01"
                 min="0"
-                className={`${inputClass} w-20`}
+                className={`${inputClass} w-20!`}
                 placeholder="0"
               />
               <select
@@ -4493,7 +4492,7 @@ function Customers({
       <Panel className="mb-5 p-5">
         <form
           onSubmit={addClient}
-          className="grid gap-3 md:grid-cols-[1.2fr_1fr_1fr_auto]"
+          className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1fr_auto]"
         >
           <Field label="Nome ou apelido">
             <input
@@ -4623,17 +4622,17 @@ function Customers({
                 </div>
               </div>
               <div className="mt-5 grid grid-cols-3 gap-3">
-                <div className="rounded-xl bg-muted p-3">
+                <div className="min-w-0 rounded-xl bg-muted p-3">
                   <p className="text-xs text-muted-foreground">Pedidos</p>
                   <p className="text-xl font-bold">{clientOrders.length}</p>
                 </div>
-                <div className="rounded-xl bg-muted p-3">
+                <div className="min-w-0 rounded-xl bg-muted p-3">
                   <p className="text-xs text-muted-foreground">Selos</p>
                   <p className="text-xl font-bold">{client.stamps}/10</p>
                 </div>
-                <div className="rounded-xl bg-secondary p-3">
+                <div className="min-w-0 rounded-xl bg-secondary p-3">
                   <p className="text-xs text-primary">Total comprado</p>
-                  <p className="text-lg font-bold text-primary">
+                  <p className="[overflow-wrap:anywhere] text-lg font-bold text-primary">
                     {money(totalPurchased)}
                   </p>
                 </div>

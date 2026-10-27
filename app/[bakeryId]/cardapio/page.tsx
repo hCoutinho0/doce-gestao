@@ -255,7 +255,7 @@ export default function CardapioPage() {
         </div>
       </section>
 
-      <div className="mx-auto grid max-w-7xl gap-7 px-4 py-8 sm:px-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="mx-auto grid max-w-7xl gap-7 px-4 py-8 sm:px-6 lg:grid-cols-[minmax(0,1fr)_22.5rem]">
         <section>
           <div className="mb-6 flex gap-2 overflow-x-auto pb-1">
             {categories.map((item) => (
@@ -512,7 +512,7 @@ export default function CardapioPage() {
                       <button
                         type="button"
                         onClick={() => setPayment('Pix')}
-                        className={`rounded-xl border p-3 text-left transition ${payment === 'Pix' ? 'border-primary bg-primary/5 ring-2 ring-primary/15' : 'hover:border-primary/40'}`}
+                        className={`min-w-0 rounded-xl border p-3 text-left [overflow-wrap:anywhere] transition ${payment === 'Pix' ? 'border-primary bg-primary/5 ring-2 ring-primary/15' : 'hover:border-primary/40'}`}
                       >
                         <QrCode className="mb-2 size-5" />
                         <span className="block text-sm font-semibold">
@@ -523,7 +523,7 @@ export default function CardapioPage() {
                         type="button"
                         disabled
                         title="Em breve"
-                        className="cursor-not-allowed rounded-xl border p-3 text-left opacity-50"
+                        className="cursor-not-allowed min-w-0 rounded-xl border p-3 text-left [overflow-wrap:anywhere] opacity-50"
                       >
                         <CreditCard className="mb-2 size-5" />
                         <span className="block text-sm font-semibold">
@@ -536,7 +536,7 @@ export default function CardapioPage() {
                       <button
                         type="button"
                         onClick={() => setPayment('Dinheiro na entrega')}
-                        className={`rounded-xl border p-3 text-left transition ${payment === 'Dinheiro na entrega' ? 'border-primary bg-primary/5 ring-2 ring-primary/15' : 'hover:border-primary/40'}`}
+                        className={`min-w-0 rounded-xl border p-3 text-left [overflow-wrap:anywhere] transition ${payment === 'Dinheiro na entrega' ? 'border-primary bg-primary/5 ring-2 ring-primary/15' : 'hover:border-primary/40'}`}
                       >
                         <Banknote className="mb-2 size-5" />
                         <span className="block text-sm font-semibold">

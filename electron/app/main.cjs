@@ -681,9 +681,6 @@ function registrarPonteDesktop() {
   const handlers = {
     'desktop:versao': () => APP_VERSION,
     'desktop:atualizacoes': () => checkForUpdates({ silent: false }),
-    'desktop:backup': () => backupComAviso(),
-    'desktop:pasta': () => shell.openPath(userDir),
-    'desktop:conexao': () => abrirConexao(),
   };
   for (const [canal, acao] of Object.entries(handlers)) {
     ipcMain.removeHandler(canal);

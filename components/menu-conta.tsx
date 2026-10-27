@@ -6,11 +6,8 @@ import {
   ChevronRight,
   ChevronsUpDown,
   CircleHelp,
-  DatabaseBackup,
-  FolderOpen,
   Info,
   LogOut,
-  Plug,
   RefreshCw,
   Settings,
   Type,
@@ -22,9 +19,6 @@ import { ControlesLeitura } from '@/components/preferencias-acessibilidade';
 type Desktop = {
   versao: () => Promise<string>;
   procurarAtualizacoes: () => Promise<void>;
-  fazerBackup: () => Promise<boolean>;
-  abrirPastaBackups: () => Promise<string>;
-  configurarConexao: () => Promise<void>;
 };
 
 declare global {
@@ -44,14 +38,14 @@ type Props = {
 };
 
 // Menu da conta no canto inferior esquerdo da barra lateral: informações da
-// pessoa, configurações, acessibilidade e as ações do aplicativo
-// (atualizações, backup) que antes ficavam escondidas no menu "Arquivo".
+// pessoa, configurações, acessibilidade e a busca por atualizações, que
+// antes ficava escondida no menu "Arquivo" (Alt).
 export function MenuConta({ nome, email, papel, iniciais, admin, onAjuda, onSair }: Props) {
   const [aberto, setAberto] = useState(false);
   const [leituraAberta, setLeituraAberta] = useState(false);
   const [desktop, setDesktop] = useState<Desktop | null>(null);
   const [versao, setVersao] = useState('');
-  const [ocupado, setOcupado] = useState<'' | 'atualizacao' | 'backup'>('');
+  const [ocupado, setOcupado] = useState(false);
   const raiz = useRef<HTMLDivElement>(null);
   const botao = useRef<HTMLButtonElement>(null);
   const painelId = useId();
@@ -84,14 +78,15 @@ export function MenuConta({ nome, email, papel, iniciais, admin, onAjuda, onSair
   }, [aberto]);
 
   const fechar = () => setAberto(false);
-  const executar = async (tipo: 'atualizacao' | 'backup', acao: () => Promise<unknown>) => {
-    setOcupado(tipo);
+  const procurarAtualizacoes = async () => {
+    if (!desktop) return;
+    setOcupado(true);
     try {
-      await acao();
+      await desktop.procurarAtualizacoes();
     } catch {
       // O próprio aplicativo mostra a mensagem de erro.
     } finally {
-      setOcupado('');
+      setOcupado(false);
     }
   };
 
@@ -107,7 +102,7 @@ export function MenuConta({ nome, email, papel, iniciais, admin, onAjuda, onSair
           id={painelId}
           role="dialog"
           aria-label="Menu da conta"
-          className="absolute bottom-full left-0 right-0 z-50 mb-2 max-h-[calc(100vh-6rem)] overflow-y-auto rounded-2xl border bg-popover p-1.5 shadow-xl"
+          className="absolute bottom-full left-0 z-50 mb-2 max-h-[calc(100vh-6rem)] w-[min(18rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border bg-popover p-1.5 shadow-xl"
         >
           <p className="truncate px-2.5 pb-1.5 pt-1 text-xs font-semibold text-muted-foreground">
             {email}
@@ -158,48 +153,15 @@ export function MenuConta({ nome, email, papel, iniciais, admin, onAjuda, onSair
               <button
                 type="button"
                 className={item}
-                disabled={ocupado !== ''}
-                onClick={() => void executar('atualizacao', desktop.procurarAtualizacoes)}
+                disabled={ocupado}
+                onClick={() => void procurarAtualizacoes()}
               >
                 <RefreshCw
-                  className={`${icone} ${ocupado === 'atualizacao' ? 'animate-spin' : ''}`}
+                  className={`${icone} ${ocupado ? 'animate-spin' : ''}`}
                   aria-hidden="true"
                 />
-                {ocupado === 'atualizacao' ? 'Procurando atualizações…' : 'Procurar atualizações'}
+                {ocupado ? 'Procurando atualizações…' : 'Procurar atualizações'}
               </button>
-              <button
-                type="button"
-                className={item}
-                disabled={ocupado !== ''}
-                onClick={() => void executar('backup', desktop.fazerBackup)}
-              >
-                <DatabaseBackup className={icone} aria-hidden="true" />
-                {ocupado === 'backup' ? 'Fazendo backup…' : 'Fazer backup agora'}
-              </button>
-              <button
-                type="button"
-                className={item}
-                onClick={() => {
-                  fechar();
-                  void desktop.abrirPastaBackups();
-                }}
-              >
-                <FolderOpen className={icone} aria-hidden="true" />
-                Abrir pasta de backups
-              </button>
-              {admin && (
-                <button
-                  type="button"
-                  className={item}
-                  onClick={() => {
-                    fechar();
-                    void desktop.configurarConexao();
-                  }}
-                >
-                  <Plug className={icone} aria-hidden="true" />
-                  Conexão com o banco de dados
-                </button>
-              )}
               {versao && (
                 <p className="flex items-center gap-3 px-2.5 py-2 text-xs text-muted-foreground">
                   <Info className="size-4 shrink-0" aria-hidden="true" />

@@ -86,8 +86,12 @@ export function ControlesLeitura({ compacto = false }: { compacto?: boolean }) {
     aplicarFonte(valor);
   };
 
+  // No modo compacto (menu da conta, que é estreito) o ícone fica em cima do
+  // nome, para "Automático" caber sem vazar do botão.
   const opcao = (ativo: boolean) =>
-    `flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-semibold transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring ${
+    `flex min-w-0 cursor-pointer items-center justify-center rounded-lg border text-center font-semibold leading-tight transition-colors ${
+      compacto ? 'flex-col gap-1 px-1 py-1.5 text-[11px]' : 'gap-1.5 px-2 py-2 text-xs'
+    } has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring ${
       ativo
         ? 'border-primary bg-primary text-primary-foreground'
         : 'border-border bg-background text-foreground hover:bg-muted'
@@ -109,8 +113,8 @@ export function ControlesLeitura({ compacto = false }: { compacto?: boolean }) {
                 onChange={() => escolherTema(valor)}
                 className="sr-only"
               />
-              <Icone className="size-3.5" aria-hidden="true" />
-              {rotulo}
+              <Icone className="size-3.5 shrink-0" aria-hidden="true" />
+              <span className="max-w-full truncate">{rotulo}</span>
             </label>
           ))}
         </div>

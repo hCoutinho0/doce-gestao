@@ -21,8 +21,7 @@ veem as mesmas informações).
    O `gerar-instalador.bat` embute essa conexão no instalador
    (`electron/conexao.json`), então quem instala já abre direto no login.
    Sem essas linhas, o app pede a URL e a chave na primeira abertura. Para
-   trocar à mão depois: menu da conta (canto inferior esquerdo) → **Conexão com o banco de dados**
-   (o menu aparece ao apertar `Alt`).
+   trocar depois, gere e instale um instalador novo.
 
 Não publique o instalador nem compartilhe a chave secreta: com ela dá para
 ler e alterar tudo. Se o instalador vazar, crie uma secret key nova no
@@ -96,8 +95,7 @@ aplicativo usa `NEXT_PUBLIC_CARDAPIO_URL` (padrão
 | Backups automáticos (1 por dia, últimos 14) | `%APPDATA%\Confeitto\backups` (um `.json` por dia) |
 | URL/chave do Supabase e log do servidor | `%APPDATA%\Confeitto` |
 
-No menu da conta (canto inferior esquerdo), **Fazer backup agora** salva
-uma cópia na hora.
+O backup é automático (um por dia, ao abrir o app).
 
 ## O que mudou em relação à versão na nuvem
 
