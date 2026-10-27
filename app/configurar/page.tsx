@@ -23,6 +23,7 @@ import {
 import { BAKERY_KEY, type BakeryProfile } from '@/lib/bakery';
 import { useUserSession } from '@/lib/auth';
 import { StepHeading, SetupInput } from '@/components/onboarding-fields';
+import { PreferenciasAcessibilidade } from '@/components/preferencias-acessibilidade';
 
 const icons = ['🧁', '🍰', '🎂', '🍪', '🍫', '🥐'];
 const steps = [
@@ -125,14 +126,14 @@ export default function SetupPage() {
 
   if (sessionLoading || !session) {
     return (
-      <main className="grid min-h-screen place-items-center bg-background text-sm text-muted-foreground">
+      <main id="conteudo" tabIndex={-1} className="grid min-h-screen place-items-center bg-background text-sm text-muted-foreground">
         Preparando configuração…
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <main id="conteudo" tabIndex={-1} className="min-h-screen bg-background text-foreground">
       <header className="border-b bg-card">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-5">
           <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">
@@ -147,6 +148,7 @@ export default function SetupPage() {
           <span className="ml-auto rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-secondary-foreground">
             Etapa {step} de 3
           </span>
+          <PreferenciasAcessibilidade />
         </div>
       </header>
 

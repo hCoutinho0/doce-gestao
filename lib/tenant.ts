@@ -1,8 +1,8 @@
-import { listDocs, readGlobal, readState, writeGlobal } from '@/lib/db';
+import { listDocs, readGlobal, readState, updateGlobalAtomic, writeGlobal } from '@/lib/db';
 import { slugify } from '@/lib/slug';
 
 export type UserRole = 'admin' | 'production';
-export type AuthProvider = 'microsoft-entra-id' | 'google' | 'credentials';
+export type AuthProvider = 'credentials';
 export type Gender = 'M' | 'F';
 
 export type PlatformUser = {
@@ -67,20 +67,46 @@ function inviteDocId(code: string): string {
   return `invite:${code}`;
 }
 
-// Human-typeable, not cryptographically hard to guess — that's fine,
-// since a code only works once and the confeitaria's admin hands it out
-// directly (like a Discord invite), not something posted publicly.
+// Fácil de digitar (8 caracteres de um alfabeto de 32 = 2^40 combinações) e
+// de uso único; o admin entrega o convite diretamente para a pessoa.
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
 export function generateInviteCode(): string {
+  // crypto.getRandomValues em vez de Math.random (que é previsível).
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
   let code = '';
-  for (let i = 0; i < 8; i++) {
-    code += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
-  }
+  for (const byte of bytes) code += CODE_ALPHABET[byte % CODE_ALPHABET.length];
   return code;
 }
 
 export function getInvite(code: string): Promise<Invite | null> {
   return readGlobal<Invite>(inviteDocId(code.trim().toUpperCase()));
+}
+
+// Marca o convite como usado de forma atômica: se duas pessoas usarem o
+// mesmo código ao mesmo tempo, só uma consegue. Devolve o convite ou o
+// motivo de não ter dado certo.
+export async function claimInvite(
+  code: string,
+  email: string,
+): Promise<{ invite: Invite } | { error: 'invalid_invite' | 'invite_already_used' }> {
+  let outcome: { invite: Invite } | { error: 'invalid_invite' | 'invite_already_used' } = {
+    error: 'invalid_invite',
+  };
+  await updateGlobalAtomic<Invite | null>(inviteDocId(code.trim().toUpperCase()), (current) => {
+    if (!current) {
+      outcome = { error: 'invalid_invite' };
+      return current;
+    }
+    if (current.usedBy) {
+      outcome = { error: 'invite_already_used' };
+      return current;
+    }
+    const claimed = { ...current, usedBy: email, usedAt: new Date().toISOString() };
+    outcome = { invite: claimed };
+    return claimed;
+  });
+  return outcome;
 }
 
 export function saveInvite(invite: Invite): Promise<void> {

@@ -15,8 +15,6 @@
 // desde a leitura; se mudou, relê e tenta de novo. Assim, dois pedidos
 // criados ao mesmo tempo nos dois computadores nunca apagam um ao outro.
 
-export const LAVILY_BAKERY_ID = 'lavily';
-
 const TABLE = 'app_state';
 const TIMEOUT_MS = 20000;
 
@@ -169,7 +167,7 @@ function withLock<R>(id: string, fn: () => Promise<R>): Promise<R> {
 function updateAtomic<T>(
   id: string,
   update: (current: T | null) => T,
-  options: { legacyId?: string; ttlSeconds?: number } = {},
+  options: { ttlSeconds?: number } = {},
 ): Promise<T> {
   return withLock(id, () => updateAtomicUnlocked(id, update, options));
 }
@@ -177,16 +175,19 @@ function updateAtomic<T>(
 async function updateAtomicUnlocked<T>(
   id: string,
   update: (current: T | null) => T,
-  options: { legacyId?: string; ttlSeconds?: number },
+  options: { ttlSeconds?: number },
 ): Promise<T> {
-  const { legacyId, ttlSeconds } = options;
+  const { ttlSeconds } = options;
   const maxAttempts = 10;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const raw = await readDocRowIncludingExpired<T>(id);
     const live = raw && !isExpired(raw) ? raw : null;
-    let currentValue = live ? live.value : null;
-    if (currentValue === null && legacyId) currentValue = await readDoc<T>(legacyId);
+    const currentValue = live ? live.value : null;
     const next = update(currentValue);
+    // Nada mudou (mesma referência devolvida): não grava. Evita, por
+    // exemplo, criar documento vazio ao conferir um convite inexistente.
+    if (next === currentValue && raw && live) return next;
+    if (next === null || next === undefined) return next;
     const expiresAt =
       ttlSeconds != null ? new Date(Date.now() + ttlSeconds * 1000).toISOString() : null;
     // Um documento expirado ainda existe na tabela — atualiza por cima dele
@@ -220,17 +221,7 @@ export async function readState<T>(
   bakeryId: string,
   key: string,
 ): Promise<T | null> {
-  const scopedId = `${bakeryId}:${key}`;
-  const value = await readDoc<T>(scopedId);
-  if (value !== null) return value;
-  if (bakeryId === LAVILY_BAKERY_ID) {
-    const legacy = await readDoc<T>(key);
-    if (legacy !== null) {
-      await writeDoc(scopedId, legacy);
-      return legacy;
-    }
-  }
-  return null;
+  return readDoc<T>(`${bakeryId}:${key}`);
 }
 
 export function writeState<T>(
@@ -246,9 +237,7 @@ export function updateStateAtomic<T>(
   key: string,
   update: (current: T | null) => T,
 ): Promise<T> {
-  return updateAtomic(`${bakeryId}:${key}`, update, {
-    legacyId: bakeryId === LAVILY_BAKERY_ID ? key : undefined,
-  });
+  return updateAtomic(`${bakeryId}:${key}`, update);
 }
 
 export function updateGlobalAtomic<T>(

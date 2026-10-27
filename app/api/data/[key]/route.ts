@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { isDbConfigured, readState, writeState, LAVILY_BAKERY_ID } from '@/lib/db';
+import { isDbConfigured, readState, writeState } from '@/lib/db';
 
 // One document per domain per confeitaria, addressed by the same key the
 // old prototype used as its localStorage key — same shape, different
@@ -36,9 +36,30 @@ const ADMIN_ONLY_KEYS = new Set([
 // The public cardápio (no login) needs the published menu and the bakery's
 // branding to render at all — everything else is internal panel data. Each
 // confeitaria's own /{bakeryId}/cardapio passes its bakeryId explicitly via
-// query string; LAVILY_BAKERY_ID is only a fallback for a caller that omits
-// it (there shouldn't be one left after the move to per-confeitaria pages).
+// query string (obrigatório — sem fallback para nenhuma confeitaria fixa).
 const PUBLIC_READ_KEYS = new Set(['doce-menu', 'doce-bakery-profile']);
+
+// O que o cardápio público pode ver do perfil: só a vitrine. Razão social,
+// telefone interno, fundação, tamanho da equipe etc. ficam no painel.
+const PUBLIC_PROFILE_FIELDS = [
+  'name',
+  'icon',
+  'logo',
+  'city',
+  'specialty',
+  'salesModel',
+  'whatsapp',
+  'instagram',
+  'tiktok',
+] as const;
+
+function publicView(key: string, value: unknown): unknown {
+  if (key !== 'doce-bakery-profile' || !value || typeof value !== 'object') return value;
+  const profile = value as Record<string, unknown>;
+  return Object.fromEntries(
+    PUBLIC_PROFILE_FIELDS.filter((f) => profile[f] !== undefined).map((f) => [f, profile[f]]),
+  );
+}
 
 export async function GET(
   request: Request,
@@ -63,7 +84,11 @@ export async function GET(
       bakeryId = session.user.bakeryId;
     } else {
       const { searchParams } = new URL(request.url);
-      bakeryId = searchParams.get('bakeryId')?.trim() || LAVILY_BAKERY_ID;
+      const requested = searchParams.get('bakeryId')?.trim();
+      if (!requested || requested.length > 64) {
+        return NextResponse.json({ error: 'missing_bakery' }, { status: 400 });
+      }
+      bakeryId = requested;
     }
   } else {
     const session = await auth();
@@ -78,7 +103,9 @@ export async function GET(
   if (!isDbConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
-  const value = await readState(bakeryId, key);
+  const isPanel = !PUBLIC_READ_KEYS.has(key) || Boolean(request.headers.get('X-Panel-Request'));
+  const stored = await readState(bakeryId, key);
+  const value = isPanel ? stored : publicView(key, stored);
   // The same URL can legitimately answer with a different confeitaria's
   // data depending on the session cookie and the X-Panel-Request header —
   // neither of which a shared cache (browser, CDN) necessarily keys on. A

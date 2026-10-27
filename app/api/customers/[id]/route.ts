@@ -24,6 +24,11 @@ export async function PATCH(
   if (!session?.user.bakeryId) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
+  // Clientes/fidelidade é área só de admin (mesma regra de doce-loyalty
+  // em /api/data) — a conta "Produção" não altera nem apaga clientes.
+  if (session.user.role !== 'admin') {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  }
   if (!isDbConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
@@ -62,6 +67,11 @@ export async function DELETE(
   const session = await auth();
   if (!session?.user.bakeryId) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+  // Clientes/fidelidade é área só de admin (mesma regra de doce-loyalty
+  // em /api/data) — a conta "Produção" não altera nem apaga clientes.
+  if (session.user.role !== 'admin') {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
   if (!isDbConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });

@@ -15,34 +15,32 @@ declare module 'next-auth' {
       initials: string;
       bakeryId: string | null;
       needsOnboarding: boolean;
-      accountConflict: boolean;
-      provider: 'microsoft-entra-id' | 'google' | 'credentials' | null;
     };
   }
 }
 
-type ResolvedAccount = {
-  bakeryId: string | null;
-  role: UserRole;
+type AccountToken = {
+  bakeryId?: string | null;
+  role?: UserRole;
   gender?: Gender;
-  needsOnboarding: boolean;
-  accountConflict?: boolean;
+  needsOnboarding?: boolean;
+  checkedAt?: number;
+  revoked?: boolean;
 };
 
-// Versão local: só existe login por email e senha, então não há mais papéis
-// do Entra ID nem contas Google/Microsoft para conciliar — a conta é achada
-// pelo email e traz a confeitaria e o papel que estão gravados nela.
-async function resolveAccount(email: string): Promise<ResolvedAccount> {
-  const user = await getUserByEmail(email);
-  if (user) {
-    return {
-      bakeryId: user.bakeryId,
-      role: user.role,
-      gender: user.gender,
-      needsOnboarding: false,
-    };
-  }
-  return { bakeryId: null, role: 'admin', needsOnboarding: true };
+// A sessão guarda confeitaria e papel para não consultar o banco a cada
+// requisição, mas reconfere a cada 5 minutos: assim um usuário removido,
+// rebaixado de papel ou com a confeitaria renomeada não fica com o acesso
+// antigo até o próximo login.
+const RECHECK_MS = 5 * 60 * 1000;
+
+// Hash usado quando o email não existe, para a resposta levar o mesmo tempo
+// de um email existente (não revela quais emails têm conta). Gerado uma vez,
+// na primeira tentativa de login.
+let dummyHash: Promise<string> | null = null;
+function getDummyHash(): Promise<string> {
+  dummyHash ??= bcrypt.hash(crypto.randomUUID(), 12);
+  return dummyHash;
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -56,72 +54,66 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             : '';
         const password =
           typeof credentials?.password === 'string' ? credentials.password : '';
-        if (!email || !password) return null;
-        // Keyed by email, not IP: the point is to stop unlimited password
-        // guesses against one account, including a distributed attempt
-        // spread across many IPs — bcrypt's own cost slows a single guess
-        // down, but does nothing to cap how many guesses get made.
+        if (!email || !password || email.length > 254 || password.length > 200) return null;
+        // Limite por email (não por IP): impede tentativas ilimitadas de
+        // senha contra uma conta, mesmo vindas de vários IPs.
         if (!(await checkRateLimit(`login:${email}`, 10, 15 * 60 * 1000))) return null;
         const user = await getUserByEmail(email);
-        if (!user?.passwordHash) return null;
-        const valid = await bcrypt.compare(password, user.passwordHash);
-        if (!valid) return null;
+        const valid = await bcrypt.compare(password, user?.passwordHash ?? (await getDummyHash()));
+        if (!user?.passwordHash || !valid) return null;
         return { id: user.id, email: user.email, name: user.name };
       },
     }),
   ],
-  session: { strategy: 'jwt' },
+  // 30 dias sem uso desconecta; cada uso renova.
+  session: { strategy: 'jwt', maxAge: 30 * 24 * 60 * 60 },
   pages: { signIn: '/login' },
-  // O servidor local escuta só em 127.0.0.1 — confiar no Host é seguro.
+  // O app de desktop escuta só em 127.0.0.1 e o site roda atrás do Vercel —
+  // nos dois casos o cabeçalho Host é confiável.
   trustHost: true,
   callbacks: {
-    async jwt({ token, account, trigger }) {
-      // account/profile are only present on the sign-in request itself —
-      // everything resolved here is cached in the JWT until next login, so
-      // this database lookup runs once per session, not once per request.
-      // The client also forces one re-run via `trigger: 'update'` right
-      // after /cadastro creates the account, so an OAuth session that
-      // started with needsOnboarding doesn't need a full re-login redirect
-      // to pick up its brand-new bakeryId.
-      if ((account || trigger === 'update') && token.email) {
-        const resolved = await resolveAccount(token.email);
-        (token as { bakeryId?: string | null }).bakeryId = resolved.bakeryId;
-        (token as { role?: UserRole }).role = resolved.role;
-        (token as { gender?: Gender }).gender = resolved.gender;
-        (token as { needsOnboarding?: boolean }).needsOnboarding =
-          resolved.needsOnboarding;
-        (token as { accountConflict?: boolean }).accountConflict =
-          resolved.accountConflict ?? false;
+    async jwt({ token, user, trigger }) {
+      const t = token as typeof token & AccountToken;
+      const stale = !t.checkedAt || Date.now() - t.checkedAt > RECHECK_MS;
+      // user só vem no login; trigger 'update' vem logo depois do /cadastro.
+      if ((user || trigger === 'update' || stale) && token.email) {
+        const account = await getUserByEmail(token.email);
+        t.checkedAt = Date.now();
+        if (account) {
+          t.bakeryId = account.bakeryId;
+          t.role = account.role;
+          t.gender = account.gender;
+          t.needsOnboarding = false;
+          t.revoked = false;
+        } else if (user || trigger === 'update') {
+          // Logado mas ainda sem confeitaria (meio do cadastro).
+          t.bakeryId = null;
+          t.role = 'admin';
+          t.needsOnboarding = true;
+        } else {
+          // A conta foi apagada depois do login: derruba a sessão.
+          t.revoked = true;
+          t.bakeryId = null;
+        }
       }
-      if (account) {
-        (token as { provider?: string }).provider = account.provider;
-      }
+      // Sessão de conta apagada vira "deslogada".
+      if (t.revoked) return null;
       return token;
     },
     session({ session, token }) {
-      const role: UserRole = (token as { role?: UserRole }).role ?? 'admin';
-      const gender = (token as { gender?: Gender }).gender;
+      const t = token as typeof token & AccountToken;
+      const role: UserRole = t.role ?? 'admin';
       session.user.role = role;
       session.user.roleLabel =
         role === 'production'
           ? 'Produção'
-          : gender === 'M'
+          : t.gender === 'M'
             ? 'Administrador'
-            : gender === 'F'
+            : t.gender === 'F'
               ? 'Administradora'
               : 'Administrador(a)';
-      session.user.bakeryId =
-        (token as { bakeryId?: string | null }).bakeryId ?? null;
-      session.user.needsOnboarding = Boolean(
-        (token as { needsOnboarding?: boolean }).needsOnboarding,
-      );
-      session.user.accountConflict = Boolean(
-        (token as { accountConflict?: boolean }).accountConflict,
-      );
-      session.user.provider =
-        (token as {
-          provider?: 'microsoft-entra-id' | 'google' | 'credentials';
-        }).provider ?? null;
+      session.user.bakeryId = t.bakeryId ?? null;
+      session.user.needsOnboarding = Boolean(t.needsOnboarding);
       session.user.initials = (session.user.name ?? session.user.email ?? '?')
         .trim()
         .split(/\s+/)

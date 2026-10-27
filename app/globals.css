@@ -164,6 +164,106 @@
   color: oklch(0.7 0.13 70);
 }
 
+/* Ficha técnica no modo escuro: mesma paleta terracota, em tons noturnos. */
+.dark .ficha-theme {
+  --background: oklch(0.24 0.018 40);
+  --foreground: oklch(0.94 0.014 70);
+  --card: oklch(0.28 0.02 40);
+  --card-foreground: oklch(0.94 0.014 70);
+  --popover: oklch(0.28 0.02 40);
+  --popover-foreground: oklch(0.94 0.014 70);
+  --primary: oklch(0.74 0.1 30);
+  --primary-foreground: oklch(0.2 0.02 40);
+  --secondary: oklch(0.33 0.02 45);
+  --secondary-foreground: oklch(0.92 0.014 70);
+  --muted: oklch(0.31 0.018 45);
+  --muted-foreground: oklch(0.74 0.02 60);
+  --accent: oklch(0.36 0.03 40);
+  --accent-foreground: oklch(0.93 0.02 60);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.74 0.1 30);
+}
+
+/* Cores fixas (verde = pago/entrada, vermelho = saída, laranja = pendente,
+   pílulas de status) ajustadas para manter contraste no modo escuro. */
+.dark :is(.bg-green-50, .bg-green-100, .bg-\[\#e9f7ef\], .bg-\[\#edf9f2\]) {
+  background-color: oklch(0.45 0.09 155 / 0.28);
+}
+.dark :is(.bg-red-50, .bg-red-100) {
+  background-color: oklch(0.5 0.15 25 / 0.28);
+}
+.dark :is(.bg-orange-50, .bg-orange-100, .bg-\[\#fff4d9\]) {
+  background-color: oklch(0.55 0.12 70 / 0.28);
+}
+.dark :is(.bg-\[\#f3ecf8\], .bg-\[\#f5eff9\], .bg-\[\#e8d7f1\], .bg-\[\#ddc2ec\]) {
+  background-color: oklch(0.5 0.12 300 / 0.32);
+}
+.dark :is(.text-green-600, .text-green-700, .text-green-800, .text-\[\#277447\], .text-\[\#28724a\], .text-\[\#2f8c5a\]) {
+  color: oklch(0.82 0.13 155);
+}
+.dark :is(.text-red-700, .text-red-800) {
+  color: oklch(0.8 0.12 25);
+}
+.dark :is(.text-orange-600, .text-orange-700, .text-orange-800, .text-\[\#8b6412\]) {
+  color: oklch(0.85 0.12 75);
+}
+.dark :is(.text-\[\#7a4a97\], .text-\[\#7c3aa8\], .text-\[\#5a2a7d\], .text-\[\#4a1f68\]) {
+  color: oklch(0.86 0.08 300);
+}
+.dark :is(.border-\[\#cce7d7\], .border-orange-300) {
+  border-color: oklch(1 0 0 / 18%);
+}
+
+/* Tamanho do texto escolhido pela pessoa (A− / A / A+ / A++). O painel usa
+   rem em tudo, então mudar a fonte da raiz aumenta texto e espaçamentos
+   juntos, sem quebrar o layout. */
+html[data-fonte='pequena'] { font-size: 93.75%; }
+html[data-fonte='grande'] { font-size: 112.5%; }
+html[data-fonte='maior'] { font-size: 125%; }
+
+/* Foco visível para quem navega pelo teclado. */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Link "Pular para o conteúdo": invisível até receber foco pelo Tab. */
+.pular-conteudo {
+  position: absolute;
+  left: 1rem;
+  top: -4rem;
+  z-index: 100;
+  border-radius: 0.75rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  padding: 0.6rem 1rem;
+  font-weight: 600;
+  transition: top 0.15s;
+}
+.pular-conteudo:focus {
+  top: 1rem;
+}
+main:focus {
+  outline: none;
+}
+
+/* Quem pede menos movimento no sistema não vê animações. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

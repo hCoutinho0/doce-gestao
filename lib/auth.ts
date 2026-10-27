@@ -12,13 +12,10 @@ export type UserSession = {
   initials: string;
   bakeryId: string | null;
   needsOnboarding: boolean;
-  accountConflict: boolean;
-  provider: 'microsoft-entra-id' | 'google' | 'credentials' | null;
 };
 
-// Session now lives server-side (signed cookie set by NextAuth after a real
-// Entra ID sign-in), not in localStorage — nothing here can be edited from
-// the browser to change who a request is authenticated as.
+// A sessão é um cookie assinado pelo NextAuth (login por email e senha) —
+// nada aqui pode ser editado no navegador para mudar quem está logado.
 export function useUserSession(): {
   session: UserSession | null;
   isLoading: boolean;
@@ -40,8 +37,6 @@ export function useUserSession(): {
       initials: data.user.initials,
       bakeryId: data.user.bakeryId,
       needsOnboarding: data.user.needsOnboarding,
-      accountConflict: data.user.accountConflict,
-      provider: data.user.provider,
     },
     isLoading: false,
     refresh: update,

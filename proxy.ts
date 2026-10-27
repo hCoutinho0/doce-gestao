@@ -18,11 +18,6 @@ const panelGuard = auth((req) => {
   if (!isLoggedIn) {
     return NextResponse.redirect(new URL('/login', req.nextUrl.origin));
   }
-  if (req.auth?.user?.accountConflict) {
-    const loginUrl = new URL('/login', req.nextUrl.origin);
-    loginUrl.searchParams.set('error', 'account_conflict');
-    return NextResponse.redirect(loginUrl);
-  }
   if (req.auth?.user?.needsOnboarding) {
     return NextResponse.redirect(new URL('/cadastro', req.nextUrl.origin));
   }
@@ -53,14 +48,19 @@ function cardapioOnly(req: NextRequest) {
   const method = req.method;
 
   // O que o cardápio precisa da API: ler o cardápio publicado e a marca da
-  // confeitaria, mandar o pedido e mostrar fotos antigas.
+  // confeitaria, mandar o pedido, pagar pelo Mercado Pago e mostrar fotos.
   if (pathname.startsWith('/api/')) {
     const allowed =
       (method === 'GET' &&
         (pathname === '/api/data/doce-menu' ||
           pathname === '/api/data/doce-bakery-profile' ||
           pathname.startsWith('/api/media/'))) ||
-      (method === 'POST' && pathname === '/api/orders');
+      (method === 'POST' &&
+        (pathname === '/api/orders' ||
+          // Mercado Pago: a preferência lê o pedido do banco (o preço nunca
+          // vem do navegador) e o webhook confere a assinatura do MP.
+          pathname === '/api/checkout/preference' ||
+          pathname === '/api/checkout/webhook'));
     return allowed ? NextResponse.next() : notFound();
   }
 

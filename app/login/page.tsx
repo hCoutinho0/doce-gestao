@@ -11,9 +11,9 @@ import {
   LogIn,
   Mail,
 } from 'lucide-react';
-import { signOut as nextAuthSignOut } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { useUserSession } from '@/lib/auth';
+import { PreferenciasAcessibilidade } from '@/components/preferencias-acessibilidade';
 
 type FormSubmit = {
   preventDefault: () => void;
@@ -26,25 +26,8 @@ export default function LoginPage() {
   const [submittingCredentials, setSubmittingCredentials] = useState(false);
   const [error, setError] = useState('');
 
-  const ACCOUNT_CONFLICT_MESSAGE =
-    'Este email já está cadastrado com senha em outra conta. Entre com email e senha, ou fale com contato@confeitto.com.br.';
-
   useEffect(() => {
     if (isLoading) return;
-    // Either the proxy just bounced an OAuth login back here (query
-    // string) or the session it left behind still carries the conflict —
-    // either way, a password-based account already exists for this email:
-    // never reachable to /dashboard (no bakeryId to show), and never
-    // silently attached to whatever confeitaria that other account
-    // belongs to. Sign this half-session back out instead of bouncing
-    // forever between here and the proxy redirect.
-    const flaggedByUrl =
-      new URLSearchParams(window.location.search).get('error') === 'account_conflict';
-    if (flaggedByUrl || session?.accountConflict) {
-      setError(ACCOUNT_CONFLICT_MESSAGE);
-      if (session?.accountConflict) void nextAuthSignOut({ redirect: false });
-      return;
-    }
     if (session) {
       window.location.replace(session.needsOnboarding ? '/cadastro' : '/dashboard');
     }
@@ -68,7 +51,7 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="grid min-h-screen bg-background lg:grid-cols-[minmax(380px,0.9fr)_minmax(520px,1.1fr)]">
+    <main id="conteudo" tabIndex={-1} className="grid min-h-screen bg-background lg:grid-cols-[minmax(380px,0.9fr)_minmax(520px,1.1fr)]">
       <section className="relative hidden overflow-hidden bg-[#3d1a5c] p-12 text-white lg:flex lg:flex-col">
         <div className="absolute -left-24 top-1/4 size-80 rounded-full bg-[#c99fe0]/25 blur-3xl" />
         <div className="absolute -right-20 bottom-12 size-72 rounded-full bg-[#e0c8ef]/20 blur-3xl" />
@@ -106,7 +89,8 @@ export default function LoginPage() {
         </div>
       </section>
 
-      <section className="flex items-center justify-center px-5 py-10 sm:px-10">
+      <section className="relative flex items-center justify-center px-5 py-10 sm:px-10">
+        <PreferenciasAcessibilidade className="absolute right-5 top-5" />
         <div className="w-full max-w-md">
           <div className="mb-7 flex items-center justify-center gap-3 lg:hidden">
             <span className="grid size-10 place-items-center rounded-2xl bg-primary text-primary-foreground">
@@ -159,7 +143,7 @@ export default function LoginPage() {
               </span>
             </label>
             {error && (
-              <p className="text-xs font-medium text-destructive">{error}</p>
+              <p role="alert" className="text-xs font-medium text-destructive">{error}</p>
             )}
             <Button
               type="submit"

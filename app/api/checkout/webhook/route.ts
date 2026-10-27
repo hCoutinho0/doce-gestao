@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { MercadoPagoConfig, Payment } from 'mercadopago';
-import { isDbConfigured, updateStateAtomic, LAVILY_BAKERY_ID } from '@/lib/db';
+import { isDbConfigured, updateStateAtomic } from '@/lib/db';
 
 type Order = {
   id: string;
@@ -48,16 +48,14 @@ function isValidSignature(request: Request, dataId: string): boolean {
     .update(manifest)
     .digest('hex');
 
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(hash));
+  const a = Buffer.from(expected);
+  const b = Buffer.from(hash);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-// Mercado Pago checkout is currently disabled in the UI (single shared
-// access token — see app/[bakeryId]/cardapio/page.tsx) and this route is
-// hardcoded to LAVILY_BAKERY_ID accordingly: it's dead code for every
-// other confeitaria today, kept only so reactivating it later doesn't mean
-// starting from scratch. Before turning it back on for anyone but Lavily,
-// this needs a real bakeryId (e.g. round-tripped through the payment's
-// external_reference / metadata) instead of the hardcoded constant below.
+// O pedido é identificado pelo external_reference "{confeitaria}:{pedido}"
+// gravado em /api/checkout/preference — assim cada pagamento atualiza o
+// pedido da confeitaria certa.
 export async function POST(request: Request) {
   const url = new URL(request.url);
   const dataId =
@@ -87,11 +85,14 @@ export async function POST(request: Request) {
       new MercadoPagoConfig({ accessToken }),
     ).get({ id: dataId });
 
-    const orderId = payment.external_reference;
+    const reference = payment.external_reference ?? '';
+    const separator = reference.lastIndexOf(':');
+    const bakeryId = separator > 0 ? reference.slice(0, separator) : '';
+    const orderId = separator > 0 ? reference.slice(separator + 1) : '';
     const label = payment.status ? STATUS_LABELS[payment.status] : undefined;
-    if (!orderId || !label) return NextResponse.json({ received: true });
+    if (!bakeryId || !orderId || !label) return NextResponse.json({ received: true });
 
-    await updateStateAtomic<Order[]>(LAVILY_BAKERY_ID, ORDERS_KEY, (current) =>
+    await updateStateAtomic<Order[]>(bakeryId, ORDERS_KEY, (current) =>
       (current ?? []).map((order) =>
         order.id === orderId ? { ...order, status: label } : order,
       ),

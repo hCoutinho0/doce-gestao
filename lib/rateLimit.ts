@@ -33,7 +33,12 @@ export async function checkRateLimit(
 
 // IP de quem chamou (no app local é sempre o próprio computador).
 export function clientIp(request: Request): string {
+  // No Vercel, x-real-ip é preenchido pela própria plataforma (o cliente
+  // não consegue falsificar). No app de desktop não há proxy: todos os
+  // pedidos vêm do próprio computador.
+  const real = request.headers.get('x-real-ip');
+  if (real) return real.trim();
   const forwarded = request.headers.get('x-forwarded-for');
   if (forwarded) return forwarded.split(',')[0].trim();
-  return request.headers.get('x-real-ip') ?? 'unknown';
+  return 'local';
 }

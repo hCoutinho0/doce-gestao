@@ -72,6 +72,7 @@ import {
 import { BAKERY_KEY, type BakeryProfile } from '@/lib/bakery';
 import { useUserSession, signOut } from '@/lib/auth';
 import type { Invite } from '@/lib/tenant';
+import { PreferenciasAcessibilidade } from '@/components/preferencias-acessibilidade';
 
 type View =
   | 'dashboard'
@@ -405,7 +406,7 @@ export default function Home() {
 
   if (!isBrowserReady || !session) {
     return (
-      <main className="grid min-h-screen place-items-center bg-background">
+      <main id="conteudo" tabIndex={-1} className="grid min-h-screen place-items-center bg-background">
         <div className="text-center">
           <LoaderCircle className="mx-auto size-7 animate-spin text-primary" />
           <p className="mt-3 text-sm text-muted-foreground">
@@ -428,7 +429,7 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <main id="conteudo" tabIndex={-1} className="min-h-screen bg-background text-foreground">
       <div className="mx-auto grid min-h-screen max-w-[1680px] lg:grid-cols-[256px_minmax(0,1fr)]">
         <aside className="hidden border-r border-sidebar-border bg-sidebar px-4 py-6 lg:flex lg:flex-col">
           <SidebarNav {...sidebarProps} />
@@ -477,6 +478,7 @@ export default function Home() {
               onNavigate={setView}
             />
             <div className="ml-auto flex items-center gap-3">
+              <PreferenciasAcessibilidade />
               <Badge
                 variant="outline"
                 className="hidden border-[#cce7d7] bg-[#edf9f2] text-[#28724a] sm:inline-flex"
@@ -1333,6 +1335,7 @@ function TasksPanel({
             if (e.key === 'Enter') add();
           }}
           placeholder="O que você precisa fazer?"
+          aria-label="Nova tarefa"
           className={inputClass}
         />
         <Button type="button" onClick={add} className="h-10 shrink-0">
@@ -1356,6 +1359,7 @@ function TasksPanel({
                     ),
                   )
                 }
+                aria-label={`Concluir: ${task.text}`}
                 className="size-4"
               />
               <span
@@ -1665,6 +1669,7 @@ function OrderTable({
                 ) : (
                   <select
                     defaultValue=""
+                    aria-label={`Marcar pedido ${order.id} como pago`}
                     onChange={(e) => {
                       if (!e.target.value) return;
                       onMarkPaid(order.id, e.target.value as Order['paymentMethod']);
@@ -1688,6 +1693,7 @@ function OrderTable({
                 ) : (
                   <select
                     value={order.status}
+                    aria-label={`Status do pedido ${order.id}`}
                     onChange={(e) => onStatus(order.id, e.target.value)}
                     className="h-8 rounded-lg border bg-background px-2 text-xs font-semibold outline-none focus:border-primary"
                   >

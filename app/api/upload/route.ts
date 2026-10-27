@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
+import { checkRateLimit, clientIp } from '@/lib/rateLimit';
 import { isStorageConfigured, uploadImage } from '@/lib/storage';
 
 const MAX_SIZE = 4 * 1024 * 1024; // 4 MB
@@ -13,12 +14,25 @@ const ALLOWED_TYPES: Record<string, string> = {
   'image/webp': 'webp',
 };
 
-// Only the signed-in panel (admin/production) can upload photos — the
-// public cardápio only ever reads the resulting URLs, never writes here.
+function matchesSignature(data: Buffer, extension: string): boolean {
+  if (extension === 'png') {
+    return data.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  }
+  if (extension === 'jpg') return data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff;
+  if (extension === 'webp') {
+    return data.subarray(0, 4).toString('ascii') === 'RIFF' && data.subarray(8, 12).toString('ascii') === 'WEBP';
+  }
+  return false;
+}
+
 export async function POST(request: Request) {
+  // Com login: painel. Sem login: só o logotipo durante o /cadastro (a conta
+  // ainda não existe), com limite por IP. No site do cardápio (Vercel) esta
+  // rota nem existe — o proxy bloqueia.
   const session = await auth();
-  if (!session) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const limit = session ? 60 : 5;
+  if (!(await checkRateLimit(`upload:${session?.user.email ?? clientIp(request)}`, limit, 60 * 60 * 1000))) {
+    return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
   }
   if (!isStorageConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
@@ -38,6 +52,11 @@ export async function POST(request: Request) {
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
+  // Confere o conteúdo de verdade (assinatura do arquivo), não só o tipo
+  // que o navegador declarou.
+  if (!matchesSignature(buffer, extension)) {
+    return NextResponse.json({ error: 'unsupported_type' }, { status: 400 });
+  }
   const url = await uploadImage(buffer, file.type, extension);
 
   return NextResponse.json({ url });

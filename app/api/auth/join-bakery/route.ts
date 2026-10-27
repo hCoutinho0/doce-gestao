@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import { auth } from '@/auth';
 import { isDbConfigured } from '@/lib/db';
 import { isValidCpfCnpj } from '@/lib/cpfCnpj';
 import { checkRateLimit, clientIp } from '@/lib/rateLimit';
-import { getInvite, getUserByEmail, saveInvite, upsertUser } from '@/lib/tenant';
-import type { AuthProvider, Gender } from '@/lib/tenant';
+import { claimInvite, getInvite, getUserByEmail, upsertUser } from '@/lib/tenant';
+import type { Gender } from '@/lib/tenant';
 
 // The other half of /cadastro: instead of creating a brand-new
 // confeitaria, this joins an already-existing one via a single-use
@@ -20,7 +19,6 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json()) as {
-    provider?: AuthProvider;
     email?: string;
     password?: string;
     name?: string;
@@ -30,7 +28,6 @@ export async function POST(request: Request) {
     inviteCode?: string;
   };
 
-  const provider = body.provider;
   const email = body.email?.trim().toLowerCase();
   const name = body.name?.trim();
   const cpfCnpj = body.cpfCnpj?.trim();
@@ -39,43 +36,47 @@ export async function POST(request: Request) {
   const inviteCode = body.inviteCode?.trim().toUpperCase();
 
   if (
-    !provider ||
     !email ||
     !name ||
     !cpfCnpj ||
     !phone ||
     !gender ||
     !inviteCode ||
-    !isValidCpfCnpj(cpfCnpj)
+    !isValidCpfCnpj(cpfCnpj) ||
+    email.length > 254 ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+    name.length > 120 ||
+    phone.length > 40
   ) {
     return NextResponse.json({ error: 'invalid_registration' }, { status: 400 });
   }
 
-  const invite = await getInvite(inviteCode);
-  if (!invite) {
+  // Confere tudo que pode falhar ANTES de gastar o convite.
+  const preview = await getInvite(inviteCode);
+  if (!preview) {
     return NextResponse.json({ error: 'invalid_invite' }, { status: 404 });
   }
-  if (invite.usedBy) {
+  if (preview.usedBy) {
     return NextResponse.json({ error: 'invite_already_used' }, { status: 409 });
   }
-
-  const existingUser = await getUserByEmail(email);
-  if (existingUser) {
+  if (await getUserByEmail(email)) {
     return NextResponse.json({ error: 'email_already_registered' }, { status: 409 });
   }
-
-  let passwordHash: string | undefined;
-  if (provider === 'credentials') {
-    if (!body.password || body.password.length < 8) {
-      return NextResponse.json({ error: 'weak_password' }, { status: 400 });
-    }
-    passwordHash = await bcrypt.hash(body.password, 12);
-  } else {
-    const session = await auth();
-    if (!session?.user.email || session.user.email.toLowerCase() !== email) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    }
+  if (!body.password || body.password.length < 8 || body.password.length > 200) {
+    return NextResponse.json({ error: 'weak_password' }, { status: 400 });
   }
+  const passwordHash = await bcrypt.hash(body.password, 12);
+
+  // Agora sim: reserva o convite de forma atômica (só um uso, mesmo com
+  // duas pessoas tentando no mesmo instante).
+  const claimed = await claimInvite(inviteCode, email);
+  if ('error' in claimed) {
+    return NextResponse.json(
+      { error: claimed.error },
+      { status: claimed.error === 'invalid_invite' ? 404 : 409 },
+    );
+  }
+  const { invite } = claimed;
 
   await upsertUser({
     id: email,
@@ -86,15 +87,9 @@ export async function POST(request: Request) {
     gender,
     bakeryId: invite.bakeryId,
     role: invite.role,
-    provider,
+    provider: 'credentials',
     createdAt: new Date().toISOString(),
-    ...(passwordHash ? { passwordHash } : {}),
-  });
-
-  await saveInvite({
-    ...invite,
-    usedBy: email,
-    usedAt: new Date().toISOString(),
+    passwordHash,
   });
 
   return NextResponse.json({ ok: true });

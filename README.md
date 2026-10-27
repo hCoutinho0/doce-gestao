@@ -112,21 +112,52 @@ O menu **Arquivo → Fazer backup agora** baixa uma cópia na hora.
   aplicativo mostra uma notificação do Windows uma vez por dia, a partir das
   8h, se houver tarefas pendentes.
 - **Aplicativo**: o Next.js roda como servidor interno (modo standalone)
-  dentro de uma janela Electron (`electron/main.cjs`), só em `127.0.0.1` —
-  nada fica acessível pela rede.
+  dentro de uma janela Electron (`electron/app/main.cjs`), só em
+  `127.0.0.1` — nada fica acessível pela rede.
 - Removidos: `@azure/cosmos`, `@azure/storage-blob`, `web-push` e os
   workflows de deploy do GitHub Actions.
 
-### Limitações de rodar localmente
+## Acessibilidade
 
-- O **link público do cardápio** (`/{confeitaria}/cardapio`) só abre neste
-  computador — clientes de fora não alcançam o `127.0.0.1`. Para receber
-  pedidos online de novo seria preciso publicar o app em algum servidor.
-- **Mercado Pago**: o checkout ainda funciona se configurado e houver
-  internet, mas a confirmação automática de pagamento (webhook) precisa de
-  um endereço público.
-- **Vários computadores**: cada instalação tem seus próprios dados; não
-  há sincronização entre máquinas.
+O botão **Aa** (no topo do painel, do cardápio, do login e do cadastro)
+abre as preferências de leitura:
+
+- **Tema**: claro, escuro ou automático (segue o Windows/celular).
+- **Tamanho do texto**: A−, A, A+ e A++ (aumenta texto e espaçamentos).
+
+As escolhas ficam salvas no próprio computador/celular. Também há link
+"Pular para o conteúdo" (aparece ao apertar Tab), foco visível em todos os
+controles, campos com rótulo para leitores de tela e animações desligadas
+quando o sistema pede menos movimento.
+
+## Pagamento com cartão (Mercado Pago) — a fazer
+
+A integração com o Checkout Pro já está no código, mas a opção "Cartão" do
+cardápio ainda aparece como "Em breve". Para ligar:
+
+1. Crie as credenciais de produção no Mercado Pago (Suas integrações).
+2. No Vercel, adicione `MERCADOPAGO_ACCESS_TOKEN` e
+   `MERCADOPAGO_WEBHOOK_SECRET` (a assinatura secreta do webhook, apontado
+   para `https://www.confeitto.com.br/api/checkout/webhook`).
+3. No cardápio, o pedido é gravado primeiro e depois o site chama
+   `POST /api/checkout/preference` com `{ bakeryId, orderId }`. O preço é
+   lido do pedido salvo no banco, nunca do navegador. Quando o Mercado Pago
+   confirma, o webhook marca o pedido como **Pago**.
+
+O token do Mercado Pago fica só no servidor do Vercel — nunca no
+aplicativo instalado nem no código.
+
+## Segurança
+
+- `.env.local`, `electron/conexao.json` e o instalador **não** vão para o
+  GitHub (estão no `.gitignore`).
+- O instalador leva a chave do Supabase embutida: entregue só para quem
+  usa o app (não publique o `.exe` na internet).
+- A tabela `app_state` tem RLS ligado e nenhuma política — só a chave
+  secreta (servidor) lê e grava. Pelo site público só saem o cardápio e os
+  dados básicos da confeitaria (nome, logo, cidade, redes sociais).
+- Pedidos feitos pelo site entram sempre como "Novo / Pendente", com o
+  preço calculado pelo servidor a partir do cardápio.
 
 ## Testar alterações antes de publicar
 

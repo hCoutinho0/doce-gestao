@@ -252,6 +252,44 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'invalid_order' }, { status: 400 });
   }
 
+  // Pedido anônimo (cardápio público): o cliente só escolhe itens do
+  // cardápio publicado, o nome/contato e a forma de pagamento. Status,
+  // pagamento "Pago", valor livre e textos gigantes são coisa do painel.
+  if (!isAuthenticated) {
+    const tooLong =
+      body.customer.length > 120 ||
+      (body.phone?.length ?? 0) > 40 ||
+      (body.item?.length ?? 0) > 1500 ||
+      (body.notes?.length ?? 0) > 1000 ||
+      body.date.length > 20 ||
+      (body.deliveryDate?.length ?? 0) > 20 ||
+      (body.birthday?.length ?? 0) > 20;
+    const badItems =
+      !body.items?.length ||
+      body.items.length > 50 ||
+      body.items.some(
+        (i) =>
+          typeof i?.name !== 'string' ||
+          i.name.length > 120 ||
+          !Number.isInteger(i.quantity) ||
+          i.quantity < 1 ||
+          i.quantity > 999,
+      );
+    if (tooLong || badItems) {
+      return NextResponse.json({ error: 'invalid_order' }, { status: 400 });
+    }
+    body.status = 'Novo';
+    body.paymentStatus = 'Pendente';
+    body.orderDate = undefined;
+    body.deliveryTime = undefined;
+    body.editionId = undefined;
+    body.value = undefined;
+    if (body.paymentMethod && !['Pix', 'Cartão', 'Dinheiro'].includes(body.paymentMethod)) {
+      body.paymentMethod = undefined;
+    }
+    for (const i of body.items) i.unitPrice = undefined;
+  }
+
   // An anonymous order must name a confeitaria that actually exists — this
   // also means priceItems() below always resolves against a real menu
   // instead of silently pricing everything at zero for a typo'd/guessed id.

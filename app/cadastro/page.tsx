@@ -36,8 +36,8 @@ import { useUserSession } from '@/lib/auth';
 import { isValidSlugFormat, slugify } from '@/lib/slug';
 import type { BakeryProfile } from '@/lib/bakery';
 import type { Gender } from '@/lib/tenant';
+import { PreferenciasAcessibilidade } from '@/components/preferencias-acessibilidade';
 
-type Method = 'google' | 'microsoft-entra-id' | 'credentials';
 type InviteInfo = { bakeryName: string; role: 'admin' | 'production' };
 
 const icons = ['🧁', '🍰', '🎂', '🍪', '🍫', '🥐'];
@@ -75,9 +75,8 @@ const initialBakery: BakeryProfile = {
 };
 
 export default function CadastroPage() {
-  const { session, isLoading: sessionLoading, refresh } = useUserSession();
+  const { session, isLoading: sessionLoading } = useUserSession();
   const [step, setStep] = useState(0);
-  const [method, setMethod] = useState<Method | null>(null);
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
   const [signupPasswordConfirm, setSignupPasswordConfirm] = useState('');
@@ -192,27 +191,13 @@ export default function CadastroPage() {
     }
   }, []);
 
-  // An OAuth account (Google/Microsoft) that just came back here already
-  // has a session — needsOnboarding true means it has no confeitaria yet.
-  // Skip straight to the personal-info step with its name prefilled.
+  // Quem já está logado e já tem confeitaria não tem o que fazer aqui.
   useEffect(() => {
     if (sessionLoading) return;
-    if (session?.accountConflict) {
-      window.location.replace('/login?error=account_conflict');
-      return;
-    }
     if (session && !session.needsOnboarding) {
       window.location.replace('/dashboard');
-      return;
     }
-    if (session?.needsOnboarding && step === 0) {
-      setMethod(
-        session.provider === 'google' ? 'google' : 'microsoft-entra-id',
-      );
-      setFullName(session.name || '');
-      setStep(1);
-    }
-  }, [session, sessionLoading, step]);
+  }, [session, sessionLoading]);
 
   const setBakeryField = (field: keyof BakeryProfile, value: string) => {
     setBakery((current) => ({ ...current, [field]: value }));
@@ -274,9 +259,8 @@ export default function CadastroPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          provider: method,
-          email: method === 'credentials' ? signupEmail.trim() : session?.email,
-          password: method === 'credentials' ? signupPassword : undefined,
+          email: signupEmail.trim(),
+          password: signupPassword,
           name: fullName.trim(),
           cpfCnpj,
           phone: phone.trim(),
@@ -311,15 +295,11 @@ export default function CadastroPage() {
         setSubmitting(false);
         return;
       }
-      if (method === 'credentials') {
-        await signIn('credentials', {
-          email: signupEmail.trim(),
-          password: signupPassword,
-          redirect: false,
-        });
-      } else {
-        await refresh();
-      }
+      await signIn('credentials', {
+        email: signupEmail.trim(),
+        password: signupPassword,
+        redirect: false,
+      });
       window.location.replace('/dashboard');
     } catch {
       setSubmitError('Não foi possível concluir o cadastro. Tente de novo.');
@@ -329,7 +309,7 @@ export default function CadastroPage() {
 
   if (sessionLoading) {
     return (
-      <main className="grid min-h-screen place-items-center bg-background text-sm text-muted-foreground">
+      <main id="conteudo" tabIndex={-1} className="grid min-h-screen place-items-center bg-background text-sm text-muted-foreground">
         Carregando…
       </main>
     );
@@ -345,7 +325,7 @@ export default function CadastroPage() {
       ];
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <main id="conteudo" tabIndex={-1} className="min-h-screen bg-background text-foreground">
       <header className="border-b bg-card">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-5">
           <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">
@@ -362,6 +342,7 @@ export default function CadastroPage() {
               Etapa {step} de {totalSteps}
             </span>
           )}
+          <PreferenciasAcessibilidade className={step > 0 ? '' : 'ml-auto'} />
         </div>
       </header>
 
@@ -439,10 +420,7 @@ export default function CadastroPage() {
                   type="button"
                   disabled={!credentialsReady}
                   className="h-11 w-full rounded-xl"
-                  onClick={() => {
-                    setMethod('credentials');
-                    setStep(1);
-                  }}
+                  onClick={() => setStep(1)}
                 >
                   Continuar <ArrowRight />
                 </Button>
@@ -858,7 +836,7 @@ export default function CadastroPage() {
             </div>
           )}
           {submitError && (
-            <p className="mt-3 text-right text-xs text-destructive">
+            <p role="alert" className="mt-3 text-right text-xs text-destructive">
               {submitError}
             </p>
           )}

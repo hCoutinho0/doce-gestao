@@ -19,6 +19,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { BakeryProfile } from '@/lib/bakery';
+import { PreferenciasAcessibilidade } from '@/components/preferencias-acessibilidade';
 
 type MenuItem = {
   id: number;
@@ -195,7 +196,7 @@ export default function CardapioPage() {
   };
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <main id="conteudo" tabIndex={-1} className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-30 border-b bg-background/90 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6">
           <span className="grid size-9 place-items-center overflow-hidden rounded-xl bg-primary text-lg text-primary-foreground">
@@ -222,14 +223,15 @@ export default function CardapioPage() {
               Doces artesanais
             </p>
           </div>
-          <Badge variant="secondary" className="ml-auto">
+          <Badge variant="secondary" className="ml-auto hidden sm:inline-flex">
             Cardápio online
           </Badge>
+          <PreferenciasAcessibilidade className="ml-auto sm:ml-0" />
         </div>
       </header>
       <section className="relative min-h-[320px] overflow-hidden">
         <Image
-          src="/assets/cardapio-doces.png"
+          src="/assets/cardapio-doces.webp"
           alt="Seleção artesanal de bolo, brigadeiros e torta"
           fill
           priority
@@ -453,6 +455,7 @@ export default function CardapioPage() {
                     Seu nome
                     <input
                       value={customer}
+                      maxLength={120}
                       onChange={(e) => setCustomer(e.target.value)}
                       className="h-10 rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
                       placeholder="Nome para o pedido"
@@ -462,6 +465,7 @@ export default function CardapioPage() {
                     WhatsApp (opcional)
                     <input
                       value={phone}
+                      maxLength={40}
                       onChange={(e) => setPhone(e.target.value)}
                       className="h-10 rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
                       placeholder="(11) 90000-0000"
@@ -494,6 +498,7 @@ export default function CardapioPage() {
                     Observações
                     <textarea
                       value={notes}
+                      maxLength={500}
                       onChange={(e) => setNotes(e.target.value)}
                       className="min-h-20 rounded-xl border bg-background p-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
                       placeholder="Sabor, decoração, restrições..."
@@ -550,7 +555,7 @@ export default function CardapioPage() {
                     )}
                   </fieldset>
                   {paymentError && (
-                    <p className="text-xs font-semibold text-destructive">
+                    <p role="alert" className="text-xs font-semibold text-destructive">
                       {paymentError}
                     </p>
                   )}

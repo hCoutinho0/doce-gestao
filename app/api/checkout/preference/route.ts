@@ -1,76 +1,90 @@
 import { NextResponse } from 'next/server';
 import { MercadoPagoConfig, Preference } from 'mercadopago';
+import { isDbConfigured, readState } from '@/lib/db';
+import { checkRateLimit, clientIp } from '@/lib/rateLimit';
 
-type CheckoutItem = {
-  title: string;
-  quantity: number;
-  unitPrice: number;
+type OrderItem = { name: string; quantity: number; unitPrice: number };
+type Order = {
+  id: string;
+  items?: OrderItem[];
+  value: number;
+  paymentStatus?: 'Pago' | 'Pendente';
 };
 
-// Card, Pix and wallet data are typed by the customer on Mercado Pago's own
-// hosted Checkout Pro page — this server only ever sees the order total and
-// description, never card numbers or CVVs. Keeps the app out of PCI-DSS
-// scope entirely instead of trying to comply with it.
+const ORDERS_KEY = 'doce-orders';
+
+// Checkout Pro do Mercado Pago: os dados do cartão/Pix são digitados na
+// página do próprio Mercado Pago — este servidor nunca vê número de cartão
+// nem CVV (fica fora do escopo PCI-DSS).
+//
+// O cliente só informa QUAL pedido quer pagar (confeitaria + número). Itens
+// e preços vêm do pedido já gravado no banco, que por sua vez foi
+// precificado pelo servidor a partir do cardápio publicado — nunca do que o
+// navegador mandar. (Antes, o preço vinha do navegador: dava para pagar
+// R$ 0,01 por qualquer pedido.)
+//
+// Ainda usa um único MERCADOPAGO_ACCESS_TOKEN (a conta da confeitaria que
+// usa o site). Para várias confeitarias, cada uma precisaria do próprio.
 export async function POST(request: Request) {
   const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
-  if (!accessToken) {
+  if (!accessToken || !isDbConfigured()) {
     return NextResponse.json(
       { error: 'Gateway de pagamento não configurado.' },
       { status: 503 },
     );
   }
+  if (!(await checkRateLimit(`checkout:${clientIp(request)}`, 20, 60 * 60 * 1000))) {
+    return NextResponse.json({ error: 'Muitas tentativas. Tente mais tarde.' }, { status: 429 });
+  }
 
-  const body = (await request.json()) as {
+  const body = (await request.json().catch(() => ({}))) as {
+    bakeryId?: string;
     orderId?: string;
-    items?: CheckoutItem[];
   };
-
-  if (!body.orderId || !body.items?.length) {
+  const bakeryId = body.bakeryId?.trim();
+  const orderId = body.orderId?.trim();
+  if (!bakeryId || !orderId || bakeryId.length > 64 || orderId.length > 32) {
     return NextResponse.json({ error: 'Pedido inválido.' }, { status: 400 });
   }
 
-  for (const item of body.items) {
-    if (
-      typeof item.title !== 'string' ||
-      !Number.isFinite(item.quantity) ||
-      item.quantity <= 0 ||
-      !Number.isFinite(item.unitPrice) ||
-      item.unitPrice <= 0
-    ) {
-      return NextResponse.json({ error: 'Item inválido.' }, { status: 400 });
-    }
+  const orders = (await readState<Order[]>(bakeryId, ORDERS_KEY)) ?? [];
+  const order = orders.find((o) => o.id === orderId);
+  if (!order || !order.items?.length || !(order.value > 0)) {
+    return NextResponse.json({ error: 'Pedido não encontrado.' }, { status: 404 });
+  }
+  if (order.paymentStatus === 'Pago') {
+    return NextResponse.json({ error: 'Este pedido já está pago.' }, { status: 409 });
   }
 
   const client = new MercadoPagoConfig({ accessToken });
   const preference = new Preference(client);
-
   const origin = new URL(request.url).origin;
+  const back = (status: string) =>
+    `${origin}/${encodeURIComponent(bakeryId)}?pedido=${encodeURIComponent(orderId)}&status=${status}`;
 
   try {
     const result = await preference.create({
       body: {
-        external_reference: body.orderId,
-        items: body.items.map((item, index) => ({
+        // Volta no webhook para saber de qual confeitaria é o pedido.
+        external_reference: `${bakeryId}:${orderId}`,
+        items: order.items.map((item, index) => ({
           id: String(index),
-          title: item.title,
+          title: item.name.slice(0, 120),
           quantity: item.quantity,
           unit_price: item.unitPrice,
           currency_id: 'BRL',
         })),
         back_urls: {
-          success: `${origin}/cardapio?pedido=${encodeURIComponent(body.orderId)}&status=aprovado`,
-          pending: `${origin}/cardapio?pedido=${encodeURIComponent(body.orderId)}&status=pendente`,
-          failure: `${origin}/cardapio?pedido=${encodeURIComponent(body.orderId)}&status=recusado`,
+          success: back('aprovado'),
+          pending: back('pendente'),
+          failure: back('recusado'),
         },
         auto_return: 'approved',
         notification_url: `${origin}/api/checkout/webhook`,
       },
     });
 
-    if (!result.init_point) {
-      throw new Error('missing_init_point');
-    }
-
+    if (!result.init_point) throw new Error('missing_init_point');
     return NextResponse.json({ initPoint: result.init_point });
   } catch (error) {
     console.error('Falha ao criar preferência no Mercado Pago', error);

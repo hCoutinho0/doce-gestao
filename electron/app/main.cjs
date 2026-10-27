@@ -744,10 +744,24 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webSecurity: true,
       spellcheck: true,
     },
   });
-  mainWindow.webContents.session.setSpellCheckerLanguages(['pt-BR']);
+  const ses = mainWindow.webContents.session;
+  ses.setSpellCheckerLanguages(['pt-BR']);
+  // O Confeitto não usa câmera, microfone, localização, notificações do site
+  // etc. — nega tudo, menos copiar para a área de transferência (botão
+  // "Copiar link") e tela cheia.
+  const allowed = new Set(['clipboard-sanitized-write', 'fullscreen']);
+  ses.setPermissionRequestHandler((_wc, permission, callback) => callback(allowed.has(permission)));
+  ses.setPermissionCheckHandler((_wc, permission) => allowed.has(permission));
+  // Downloads só do próprio app (imagens/arquivos que ele gera); nunca de
+  // páginas externas.
+  ses.on('will-download', (event, item) => {
+    const url = item.getURL();
+    if (!isInternal(url) && !/^(data|blob):/.test(url)) event.preventDefault();
+  });
   mainWindow.once('ready-to-show', () => {
     mainWindow.maximize();
     mainWindow.show();
@@ -836,9 +850,4 @@ if (!app.requestSingleInstanceLock()) {
     if (configuring) return;
     app.quit();
   });
-}
-
-// Usado só nos testes automatizados (nunca definido no app instalado).
-if (process.env.CONFEITTO_TEST === '1') {
-  module.exports = { checkForUpdates, cleanupOldUpdates, getConnection, APP_VERSION };
 }

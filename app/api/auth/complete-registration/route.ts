@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import { auth } from '@/auth';
 import { isDbConfigured, writeState } from '@/lib/db';
 import { isValidCpfCnpj } from '@/lib/cpfCnpj';
 import { checkRateLimit, clientIp } from '@/lib/rateLimit';
@@ -11,7 +10,7 @@ import {
   getUserByEmail,
   upsertUser,
 } from '@/lib/tenant';
-import type { AuthProvider, Gender } from '@/lib/tenant';
+import type { Gender } from '@/lib/tenant';
 import type { BakeryProfile } from '@/lib/bakery';
 
 // The one-shot form submission at the end of /cadastro: creates the
@@ -26,7 +25,6 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json()) as {
-    provider?: AuthProvider;
     email?: string;
     password?: string;
     name?: string;
@@ -37,7 +35,6 @@ export async function POST(request: Request) {
     bakeryId?: string;
   };
 
-  const provider = body.provider;
   const email = body.email?.trim().toLowerCase();
   const name = body.name?.trim();
   const cpfCnpj = body.cpfCnpj?.trim();
@@ -46,14 +43,17 @@ export async function POST(request: Request) {
   const bakeryName = body.bakery?.name?.trim();
 
   if (
-    !provider ||
     !email ||
     !name ||
     !cpfCnpj ||
     !phone ||
     !gender ||
     !bakeryName ||
-    !isValidCpfCnpj(cpfCnpj)
+    !isValidCpfCnpj(cpfCnpj) ||
+    email.length > 254 ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+    name.length > 120 ||
+    phone.length > 40
   ) {
     return NextResponse.json({ error: 'invalid_registration' }, { status: 400 });
   }
@@ -63,20 +63,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'email_already_registered' }, { status: 409 });
   }
 
-  let passwordHash: string | undefined;
-  if (provider === 'credentials') {
-    if (!body.password || body.password.length < 8) {
-      return NextResponse.json({ error: 'weak_password' }, { status: 400 });
-    }
-    passwordHash = await bcrypt.hash(body.password, 12);
-  } else {
-    // Google/Microsoft: only the person who actually owns that email (the
-    // one currently signed in with it) can register a confeitaria under it.
-    const session = await auth();
-    if (!session?.user.email || session.user.email.toLowerCase() !== email) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    }
+  if (!body.password || body.password.length < 8 || body.password.length > 200) {
+    return NextResponse.json({ error: 'weak_password' }, { status: 400 });
   }
+  const passwordHash = await bcrypt.hash(body.password, 12);
 
   // The slug picked (or confirmed) on /cadastro before this request ever
   // fires — re-validated here rather than trusted outright, since it's
@@ -126,9 +116,9 @@ export async function POST(request: Request) {
     gender,
     bakeryId,
     role: 'admin',
-    provider,
+    provider: 'credentials',
     createdAt: new Date().toISOString(),
-    ...(passwordHash ? { passwordHash } : {}),
+    passwordHash,
   });
 
   return NextResponse.json({ ok: true });

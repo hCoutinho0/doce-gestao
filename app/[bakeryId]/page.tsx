@@ -65,7 +65,7 @@ export default async function BakeryLinkHubPage({
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center bg-background px-5 py-16 text-foreground">
+    <main id="conteudo" tabIndex={-1} className="flex min-h-screen flex-col items-center bg-background px-5 py-16 text-foreground">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center text-center">
           <span className="grid size-20 place-items-center overflow-hidden rounded-3xl bg-primary text-3xl text-primary-foreground shadow-lg">
