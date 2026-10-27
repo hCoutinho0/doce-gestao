@@ -146,7 +146,7 @@ export function PreferenciasAcessibilidade({
           id={painelId}
           role="dialog"
           aria-label="Preferências de acessibilidade"
-          className="absolute right-0 z-50 mt-2 w-64 rounded-2xl border bg-popover p-4 text-popover-foreground shadow-xl"
+          className="absolute right-0 z-50 mt-2 w-72 rounded-2xl border bg-popover p-4 text-popover-foreground shadow-xl"
         >
           <fieldset>
             <legend className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
