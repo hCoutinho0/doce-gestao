@@ -287,7 +287,7 @@ export async function POST(request: Request) {
     if (body.paymentMethod && !['Pix', 'Cartão', 'Dinheiro'].includes(body.paymentMethod)) {
       body.paymentMethod = undefined;
     }
-    for (const i of body.items) i.unitPrice = undefined;
+    for (const i of body.items ?? []) i.unitPrice = undefined;
   }
 
   // An anonymous order must name a confeitaria that actually exists — this
