@@ -4547,16 +4547,39 @@ function DigitalMenu({
   );
   const [picked, setPicked] = useState<Record<number, { on: boolean; price: string }>>({});
   const [importCategory, setImportCategory] = useState('Doces');
+  const [importSearch, setImportSearch] = useState('');
+  // Começa com nada marcado: a pessoa escolhe quais produtos entram neste
+  // cardápio (o preço já vem preenchido quando o produto tem um).
   const openImport = (open: boolean) => {
     setImportOpen(open);
     if (open) {
+      setImportSearch('');
       setPicked(
         Object.fromEntries(
-          importable.map((p) => [p.id, { on: true, price: p.price ? String(p.price) : '' }]),
+          importable.map((p) => [p.id, { on: false, price: p.price ? String(p.price) : '' }]),
         ),
       );
     }
   };
+  const importQuery = importSearch.trim().toLocaleLowerCase('pt-BR');
+  const importShown = importQuery
+    ? importable.filter((p) =>
+        `${p.name} ${p.flavor ?? ''}`.toLocaleLowerCase('pt-BR').includes(importQuery),
+      )
+    : importable;
+  const allShownPicked =
+    importShown.length > 0 && importShown.every((p) => picked[p.id]?.on);
+  const toggleAllShown = () =>
+    setPicked((old) => {
+      const next = { ...old };
+      for (const p of importShown) {
+        next[p.id] = { ...(old[p.id] ?? { on: false, price: '' }), on: !allShownPicked };
+      }
+      return next;
+    });
+  const pickedWithoutPrice = importable.filter(
+    (p) => picked[p.id]?.on && !(Number(picked[p.id]?.price) > 0),
+  ).length;
   const pickedCount = importable.filter(
     (p) => picked[p.id]?.on && Number(picked[p.id]?.price) > 0,
   ).length;
@@ -4699,11 +4722,25 @@ function DigitalMenu({
               className={`${inputClass} w-44!`}
             />
           </Field>
-          <p className="min-w-0 flex-1 pb-2 text-xs text-muted-foreground">
-            {period?.from
-              ? `O cliente vê: "${menuPeriodLabel(period)}".`
-              : 'Escolha a data para o cliente saber a que dia ou semana o cardápio se refere.'}
-          </p>
+          {(() => {
+            const today = new Date().toLocaleDateString('sv-SE');
+            const end = period?.from
+              ? period.to ||
+                new Date(new Date(`${period.from}T12:00:00`).getTime() + 6 * 86400000).toLocaleDateString('sv-SE')
+              : null;
+            const over = end != null && end < today;
+            return (
+              <p
+                className={`min-w-0 flex-1 pb-2 text-xs ${over ? 'font-semibold text-destructive' : 'text-muted-foreground'}`}
+              >
+                {!period?.from
+                  ? 'Escolha a data para o cliente saber a que dia ou semana o cardápio se refere. Sem produtos publicados, o site mostra a página “Cardápio da semana em preparo”.'
+                  : over
+                    ? 'Esse período já terminou: o site está mostrando “Esse cardápio já encerrou”. Atualize as datas para a semana atual.'
+                    : `O cliente vê: "${menuPeriodLabel(period)}". Depois da última data, o site avisa que o cardápio encerrou.`}
+              </p>
+            );
+          })()}
           <Dialog open={importOpen} onOpenChange={openImport}>
             <DialogTrigger render={<Button variant="outline" className="h-10 rounded-xl" />}>
               <Download /> Puxar dos meus produtos
@@ -4728,24 +4765,58 @@ function DigitalMenu({
                       className={inputClass}
                     />
                   </Field>
-                  <ul className="grid gap-2">
-                    {importable.map((p) => {
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="relative min-w-0 flex-1">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        value={importSearch}
+                        onChange={(e) => setImportSearch(e.target.value)}
+                        placeholder="Buscar produto ou sabor"
+                        aria-label="Buscar produto ou sabor"
+                        className={`${inputClass} pl-9`}
+                      />
+                    </div>
+                    <Button type="button" variant="outline" className="h-10 rounded-xl" onClick={toggleAllShown}>
+                      {allShownPicked ? 'Desmarcar todos' : 'Marcar todos'}
+                    </Button>
+                  </div>
+                  <ul className="grid max-h-[50vh] gap-2 overflow-y-auto pr-1" aria-label="Seus produtos">
+                    {importShown.length === 0 && (
+                      <li className="py-6 text-center text-sm text-muted-foreground">
+                        Nenhum produto encontrado.
+                      </li>
+                    )}
+                    {importShown.map((p) => {
                       const choice = picked[p.id] ?? { on: false, price: '' };
                       return (
-                        <li key={p.id} className="flex items-center gap-3 rounded-xl border p-3">
-                          <input
-                            type="checkbox"
-                            checked={choice.on}
-                            onChange={() =>
-                              setPicked((old) => ({ ...old, [p.id]: { ...choice, on: !choice.on } }))
-                            }
-                            aria-label={`Incluir ${p.name} ${p.flavor}`}
-                            className="size-4 shrink-0"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold [overflow-wrap:anywhere]">{p.name}</p>
-                            <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{p.flavor}</p>
-                          </div>
+                        <li
+                          key={p.id}
+                          className={`flex items-center gap-3 rounded-xl border p-3 transition-colors ${choice.on ? 'border-primary bg-primary/8' : 'hover:bg-muted/60'}`}
+                        >
+                          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={choice.on}
+                              onChange={() =>
+                                setPicked((old) => ({ ...old, [p.id]: { ...choice, on: !choice.on } }))
+                              }
+                              className="size-4 shrink-0"
+                            />
+                            {p.photoUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={p.photoUrl}
+                                alt=""
+                                className="size-10 shrink-0 rounded-lg object-cover"
+                              />
+                            ) : null}
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-sm font-semibold [overflow-wrap:anywhere]">{p.name}</span>
+                              {p.flavor && (
+                                <span className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">{p.flavor}</span>
+                              )}
+                            </span>
+                          </label>
                           <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
                             R$
                             <input
@@ -4756,10 +4827,10 @@ function DigitalMenu({
                               onChange={(e) =>
                                 setPicked((old) => ({
                                   ...old,
-                                  [p.id]: { ...choice, price: e.target.value },
+                                  [p.id]: { ...choice, on: true, price: e.target.value },
                                 }))
                               }
-                              aria-label={`Preço de ${p.name} ${p.flavor}`}
+                              aria-label={`Preço de ${p.name} ${p.flavor ?? ''}`}
                               className="font-nums h-9 w-24 rounded-lg border bg-background px-2 text-sm text-foreground outline-none focus:border-primary"
                             />
                           </label>
@@ -4767,9 +4838,13 @@ function DigitalMenu({
                       );
                     })}
                   </ul>
-                  <p className="text-xs text-muted-foreground">
-                    Produtos sem preço precisam de um valor para entrar no cardápio.
-                  </p>
+                  {pickedWithoutPrice > 0 && (
+                    <p role="status" className="text-xs font-medium text-destructive">
+                      {pickedWithoutPrice === 1
+                        ? '1 produto marcado está sem preço — preencha para ele entrar no cardápio.'
+                        : `${pickedWithoutPrice} produtos marcados estão sem preço — preencha para eles entrarem no cardápio.`}
+                    </p>
+                  )}
                   <Button
                     type="button"
                     disabled={pickedCount === 0}

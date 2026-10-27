@@ -5,11 +5,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import {
   Banknote,
+  Camera,
   CakeSlice,
   CalendarDays,
   CheckCircle2,
   CreditCard,
   Gift,
+  MessageCircle,
   Minus,
   Plus,
   QrCode,
@@ -48,6 +50,24 @@ function periodLabel(period: NonNullable<MenuPeriod>): string {
     ? `Cardápio de ${fmt(period.from, false)} a ${fmt(period.to, false)}`
     : `Cardápio de ${fmt(period.from, true)}`;
 }
+// Dia de hoje (no fuso da pessoa) no formato AAAA-MM-DD.
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function addDaysIso(iso: string, days: number): string {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Último dia que o cardápio vale: a data "até", ou uma semana a partir do
+// início quando só o primeiro dia foi informado.
+function periodEnd(period: NonNullable<MenuPeriod>): string {
+  return period.to || addDaysIso(period.from, 6);
+}
+
 type Cart = Record<number, number>;
 // Mercado Pago ("Pagar agora") is off for every confeitaria for now — it
 // used a single shared access token (Lavily's own account), which would
@@ -71,6 +91,7 @@ const money = (value: number) =>
 export default function CardapioPage() {
   const { bakeryId } = useParams<{ bakeryId: string }>();
   const [items, setItems] = useState<MenuItem[]>(fallbackItems);
+  const [loaded, setLoaded] = useState(false);
   const [cart, setCart] = useState<Cart>({});
   const [category, setCategory] = useState('Todos');
   const [customer, setCustomer] = useState('');
@@ -146,7 +167,7 @@ export default function CardapioPage() {
 
   useEffect(() => {
     if (!bakeryId) return;
-    void fetch(`/api/data/doce-menu?bakeryId=${encodeURIComponent(bakeryId)}`)
+    const menu = fetch(`/api/data/doce-menu?bakeryId=${encodeURIComponent(bakeryId)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data: { value: MenuItem[] } | null) => {
         if (data?.value?.length) setItems(data.value);
@@ -158,12 +179,14 @@ export default function CardapioPage() {
       .then((data: { value: BakeryProfile } | null) => {
         if (data?.value) setBakery(data.value);
       });
-    void fetch(`/api/data/doce-menu-periodo?bakeryId=${encodeURIComponent(bakeryId)}`)
+    const periodo = fetch(`/api/data/doce-menu-periodo?bakeryId=${encodeURIComponent(bakeryId)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data: { value: MenuPeriod } | null) => {
         if (data?.value?.from) setPeriod(data.value);
-      })
-      .catch(() => {});
+      });
+    // Só decide se há ou não cardápio depois que os dois chegaram — evita
+    // piscar a página de "sem cardápio" enquanto carrega.
+    void Promise.allSettled([menu, periodo]).then(() => setLoaded(true));
   }, [bakeryId]);
 
   const available = items.filter((item) => item.available);
@@ -279,6 +302,88 @@ export default function CardapioPage() {
       );
     }
   };
+
+  // Sem cardápio publicado para agora: nada disponível, ou o período
+  // informado no app já terminou. Em vez de um cardápio vazio ou antigo, a
+  // pessoa vê uma página explicando e com os contatos da confeitaria.
+  const lastPeriodDay = period ? periodEnd(period) : null;
+  const periodOver = lastPeriodDay != null && lastPeriodDay < todayIso();
+  if (loaded && !success && (available.length === 0 || periodOver)) {
+    const contacts = [
+      bakery?.whatsapp && {
+        href: `https://wa.me/${bakery.whatsapp.replace(/\D/g, '')}`,
+        label: 'Chamar no WhatsApp',
+        Icon: MessageCircle,
+        primary: true,
+      },
+      bakery?.instagram && {
+        href: `https://instagram.com/${bakery.instagram.replace(/^@/, '')}`,
+        label: `@${bakery.instagram.replace(/^@/, '')} no Instagram`,
+        Icon: Camera,
+        primary: false,
+      },
+    ].filter(Boolean) as { href: string; label: string; Icon: typeof Camera; primary: boolean }[];
+    return (
+      <main id="conteudo" tabIndex={-1} className="flex min-h-screen flex-col bg-background text-foreground">
+        <header className="vidro sticky top-0 z-30 border-b">
+          <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6">
+            <span className="grid size-9 place-items-center overflow-hidden rounded-xl bg-primary text-lg text-primary-foreground">
+              {bakery?.logo ? (
+                <Image
+                  src={bakery.logo}
+                  alt={`Logotipo de ${bakery.name}`}
+                  width={36}
+                  height={36}
+                  unoptimized
+                  className="size-full object-cover"
+                />
+              ) : bakery?.icon ? (
+                bakery.icon
+              ) : (
+                <CakeSlice className="size-5" />
+              )}
+            </span>
+            <p className="font-heading text-lg font-bold leading-none">
+              {bakery?.name || 'Confeitaria'}
+            </p>
+            <PreferenciasAcessibilidade className="ml-auto" />
+          </div>
+        </header>
+        <section className="flex flex-1 items-center justify-center px-5 py-16">
+          <div className="w-full max-w-md text-center">
+            <span className="mx-auto grid size-20 place-items-center rounded-full bg-primary/10 text-primary">
+              <CalendarDays className="size-9" aria-hidden="true" />
+            </span>
+            <h1 className="mt-6 font-heading text-[1.75rem] font-bold leading-tight sm:text-[2.125rem]">
+              {periodOver ? 'Esse cardápio já encerrou' : 'Cardápio da semana em preparo'}
+            </h1>
+            <p className="mt-3 text-base text-muted-foreground">
+              {periodOver && period
+                ? `O ${periodLabel(period).toLowerCase()} terminou e o próximo ainda não foi publicado.`
+                : 'Ainda não publicamos o cardápio desta semana.'}{' '}
+              Volte em breve{contacts.length ? ' ou fale com a gente para encomendas' : ''}.
+            </p>
+            {contacts.length > 0 && (
+              <div className="mt-8 grid gap-3">
+                {contacts.map(({ href, label, Icon, primary }) => (
+                  <a
+                    key={href}
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`inline-flex h-12 items-center justify-center gap-2 rounded-xl px-5 text-[0.9375rem] font-semibold transition active:scale-[0.98] ${primary ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'bg-secondary text-foreground hover:bg-muted'}`}
+                  >
+                    <Icon className="size-5" aria-hidden="true" />
+                    {label}
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main id="conteudo" tabIndex={-1} className="min-h-screen bg-background text-foreground">
