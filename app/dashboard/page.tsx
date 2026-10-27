@@ -467,7 +467,7 @@ export default function Home() {
   return (
     <main id="conteudo" tabIndex={-1} className="min-h-screen bg-background text-foreground">
       <div className="mx-auto grid min-h-screen max-w-[1680px] lg:grid-cols-[16rem_minmax(0,1fr)]">
-        <aside className="hidden border-r border-sidebar-border bg-sidebar px-4 py-6 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:self-start">
+        <aside className="vidro-sidebar hidden border-r border-sidebar-border px-3 py-5 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:self-start">
           <SidebarNav {...sidebarProps} />
         </aside>
         {mobileNavOpen && (
@@ -497,7 +497,7 @@ export default function Home() {
         )}
 
         <section className="min-w-0">
-          <header className="sticky top-0 z-20 flex h-[72px] items-center gap-3 border-b bg-background/90 px-4 backdrop-blur-xl sm:px-7">
+          <header className="vidro sticky top-0 z-20 flex h-[64px] items-center gap-3 border-b px-4 sm:px-7">
             <Button
               variant="ghost"
               size="icon"
@@ -749,12 +749,12 @@ function SidebarNav({
           <button
             key={label}
             onClick={() => onNavigate(target)}
-            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors ${view === target ? 'bg-sidebar-accent text-primary' : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground'}`}
+            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[0.9375rem] font-medium transition-colors duration-150 ${view === target ? 'bg-primary text-primary-foreground shadow-sm' : 'text-sidebar-foreground hover:bg-sidebar-accent'}`}
           >
-            <Icon className="size-[18px]" />
+            <Icon className={`size-[18px] ${view === target ? '' : 'text-primary'}`} />
             <span>{label}</span>
             {target === 'orders' && orders.length ? (
-              <span className="ml-auto rounded-full bg-[#ddc2ec] px-2 py-0.5 text-[11px] font-bold text-[#4a1f68]">
+              <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-bold ${view === target ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-primary/12 text-primary'}`}>
                 {orders.length}
               </span>
             ) : null}
@@ -930,7 +930,7 @@ function MobileNav({
   items: typeof navItems;
 }) {
   return (
-    <div className="sticky top-[72px] z-10 flex gap-2 overflow-x-auto border-b bg-background px-4 py-2 lg:hidden">
+    <div className="vidro sticky top-[64px] z-10 flex gap-2 overflow-x-auto border-b px-4 py-2 lg:hidden">
       {items.map(({ label, view: target }) => (
         <button
           key={target}
@@ -956,10 +956,10 @@ function PageHeading({
   return (
     <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
       <div>
-        <h1 className="font-heading text-2xl font-bold tracking-tight sm:text-3xl">
+        <h1 className="font-heading text-[1.75rem] font-bold leading-tight sm:text-[2.125rem]">
           {title}
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+        <p className="mt-1 text-[0.9375rem] text-muted-foreground">{subtitle}</p>
       </div>
       {action}
     </div>
@@ -973,7 +973,7 @@ function Panel({
   className?: string;
 }) {
   return (
-    <section className={`rounded-2xl border bg-card shadow-sm ${className}`}>
+    <section className={`rounded-2xl border bg-card shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_-8px_rgb(0_0_0/0.08)] ${className}`}>
       {children}
     </section>
   );
@@ -1575,7 +1575,7 @@ function MetricCard({
   positive?: boolean;
 }) {
   return (
-    <article className="rounded-2xl border bg-card p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <article className="rounded-2xl border bg-card p-5 shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_-8px_rgb(0_0_0/0.08)] transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <div className="mb-4 flex items-center justify-between">
         <span className="grid size-9 place-items-center rounded-xl bg-primary/10 text-primary">
           <Icon className="size-[18px]" />

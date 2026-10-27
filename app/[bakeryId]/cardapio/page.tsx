@@ -282,7 +282,7 @@ export default function CardapioPage() {
 
   return (
     <main id="conteudo" tabIndex={-1} className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-30 border-b bg-background/90 backdrop-blur-xl">
+      <header className="vidro sticky top-0 z-30 border-b">
         <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6">
           <span className="grid size-9 place-items-center overflow-hidden rounded-xl bg-primary text-lg text-primary-foreground">
             {bakery?.logo ? (

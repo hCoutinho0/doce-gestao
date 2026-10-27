@@ -91,8 +91,11 @@ export function MenuConta({ nome, email, papel, iniciais, admin, onAjuda, onSair
   };
 
   const item =
-    'flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-popover-foreground transition-colors hover:bg-muted disabled:opacity-60';
-  const icone = 'size-4 shrink-0 text-muted-foreground';
+    // Como nos menus do macOS: o item sob o mouse (ou com foco do teclado)
+    // fica na cor de destaque, com texto e ícone brancos.
+    'group/item flex w-full items-center gap-3 rounded-md px-2.5 py-1.5 text-left text-sm text-popover-foreground outline-none transition-colors duration-100 hover:bg-primary hover:text-primary-foreground focus-visible:bg-primary focus-visible:text-primary-foreground disabled:opacity-60 disabled:hover:bg-transparent disabled:hover:text-popover-foreground';
+  const icone =
+    'size-4 shrink-0 text-muted-foreground group-hover/item:text-primary-foreground group-focus-visible/item:text-primary-foreground';
   const separador = <div role="separator" className="my-1.5 h-px bg-border" />;
 
   return (
@@ -102,7 +105,7 @@ export function MenuConta({ nome, email, papel, iniciais, admin, onAjuda, onSair
           id={painelId}
           role="dialog"
           aria-label="Menu da conta"
-          className="absolute bottom-full left-0 z-50 mb-2 max-h-[calc(100vh-6rem)] w-[min(18rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border bg-popover p-1.5 shadow-xl"
+          className="absolute bottom-full left-0 z-50 mb-2 max-h-[calc(100vh-6rem)] w-[min(18rem,calc(100vw-2rem))] overflow-y-auto vidro-menu rounded-xl border p-1.5 shadow-[0_12px_40px_-8px_rgb(0_0_0/0.3)]"
         >
           <p className="truncate px-2.5 pb-1.5 pt-1 text-xs font-semibold text-muted-foreground">
             {email}
@@ -125,7 +128,7 @@ export function MenuConta({ nome, email, papel, iniciais, admin, onAjuda, onSair
             <Type className={icone} aria-hidden="true" />
             Acessibilidade
             <ChevronRight
-              className={`ml-auto size-4 text-muted-foreground transition-transform ${leituraAberta ? 'rotate-90' : ''}`}
+              className={`ml-auto size-4 text-muted-foreground transition-transform group-hover/item:text-primary-foreground ${leituraAberta ? 'rotate-90' : ''}`}
               aria-hidden="true"
             />
           </button>

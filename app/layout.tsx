@@ -1,10 +1,13 @@
 import type { Metadata } from 'next';
-import { Plus_Jakarta_Sans, Lora } from 'next/font/google';
+import { Inter, Lora } from 'next/font/google';
 import { Providers } from './providers';
 import './globals.css';
 
-const jakarta = Plus_Jakarta_Sans({
-  variable: '--font-jakarta',
+// Inter: no Windows, faz o papel da SF Pro (fonte do sistema da Apple), que
+// o navegador já usa direto no Mac e no iPhone (ver --font-sans em
+// globals.css).
+const inter = Inter({
+  variable: '--font-inter',
   subsets: ['latin'],
 });
 
@@ -39,7 +42,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html
       lang="pt-BR"
-      className={`${jakarta.variable} ${lora.variable}`}
+      className={`${inter.variable} ${lora.variable}`}
       suppressHydrationWarning
     >
       <head>

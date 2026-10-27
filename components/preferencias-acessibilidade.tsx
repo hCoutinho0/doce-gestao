@@ -89,12 +89,14 @@ export function ControlesLeitura({ compacto = false }: { compacto?: boolean }) {
   // No modo compacto (menu da conta, que é estreito) o ícone fica em cima do
   // nome, para "Automático" caber sem vazar do botão.
   const opcao = (ativo: boolean) =>
-    `flex min-w-0 cursor-pointer items-center justify-center rounded-lg border text-center font-semibold leading-tight transition-colors ${
+    `flex min-w-0 cursor-pointer items-center justify-center rounded-[0.45rem] text-center font-semibold leading-tight transition-all duration-150 ${
       compacto ? 'flex-col gap-1 px-1 py-1.5 text-[11px]' : 'gap-1.5 px-2 py-2 text-xs'
     } has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring ${
+      // Controle segmentado da Apple: a opção escolhida vira um "botão"
+      // claro em relevo sobre o trilho cinza.
       ativo
-        ? 'border-primary bg-primary text-primary-foreground'
-        : 'border-border bg-background text-foreground hover:bg-muted'
+        ? 'bg-card text-foreground shadow-[0_1px_3px_rgb(0_0_0/0.15)]'
+        : 'text-muted-foreground hover:text-foreground'
     }`;
   const legenda = `mb-2 font-bold uppercase tracking-wide text-muted-foreground ${compacto ? 'text-[10px]' : 'text-xs'}`;
 
@@ -102,7 +104,7 @@ export function ControlesLeitura({ compacto = false }: { compacto?: boolean }) {
     <>
       <fieldset>
         <legend className={legenda}>Tema</legend>
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-3 gap-0.5 rounded-[0.6rem] bg-secondary p-0.5">
           {TEMAS.map(({ valor, rotulo, Icone }) => (
             <label key={valor} className={opcao(tema === valor)}>
               <input
@@ -122,7 +124,7 @@ export function ControlesLeitura({ compacto = false }: { compacto?: boolean }) {
 
       <fieldset className={compacto ? 'mt-3' : 'mt-4'}>
         <legend className={legenda}>Tamanho do texto</legend>
-        <div className="grid grid-cols-4 gap-1.5">
+        <div className="grid grid-cols-4 gap-0.5 rounded-[0.6rem] bg-secondary p-0.5">
           {FONTES.map(({ valor, rotulo, amostra }) => (
             <label key={valor} className={opcao(fonte === valor)} title={rotulo}>
               <input
@@ -199,7 +201,7 @@ export function PreferenciasAcessibilidade({
           id={painelId}
           role="dialog"
           aria-label="Preferências de acessibilidade"
-          className="absolute right-0 z-50 mt-2 w-72 rounded-2xl border bg-popover p-4 text-popover-foreground shadow-xl"
+          className="vidro-menu absolute right-0 z-50 mt-2 w-72 rounded-xl border p-4 text-popover-foreground shadow-[0_12px_40px_-8px_rgb(0_0_0/0.3)]"
         >
           <ControlesLeitura />
         </div>
