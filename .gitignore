@@ -44,3 +44,4 @@ next-env.d.ts
 # conexão com o Supabase gerada no build (contém a chave secreta)
 /electron/conexao.json
 /electron/app/versao.json
+/backups-renomear/
