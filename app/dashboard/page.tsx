@@ -2,7 +2,6 @@
 
 import Image from 'next/image';
 import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
-import Link from 'next/link';
 import {
   Bar,
   BarChart,
@@ -35,7 +34,6 @@ import {
   Gift,
   LayoutDashboard,
   LoaderCircle,
-  LogOut,
   Minus,
   Menu,
   PackageOpen,
@@ -43,7 +41,6 @@ import {
   Printer,
   Plus,
   Search,
-  Settings2,
   ShoppingBag,
   Sparkles,
   Trash2,
@@ -72,7 +69,7 @@ import {
 import { BAKERY_KEY, type BakeryProfile } from '@/lib/bakery';
 import { useUserSession, signOut } from '@/lib/auth';
 import type { Invite } from '@/lib/tenant';
-import { PreferenciasAcessibilidade } from '@/components/preferencias-acessibilidade';
+import { MenuConta } from '@/components/menu-conta';
 
 type View =
   | 'dashboard'
@@ -426,12 +423,20 @@ export default function Home() {
       setView(target);
       setMobileNavOpen(false);
     },
+    conta: {
+      nome: session.name,
+      email: session.email,
+      papel: session.roleLabel,
+      iniciais: session.initials,
+      admin: session.role === 'admin',
+      onSair: () => void signOut(),
+    },
   };
 
   return (
     <main id="conteudo" tabIndex={-1} className="min-h-screen bg-background text-foreground">
       <div className="mx-auto grid min-h-screen max-w-[1680px] lg:grid-cols-[256px_minmax(0,1fr)]">
-        <aside className="hidden border-r border-sidebar-border bg-sidebar px-4 py-6 lg:flex lg:flex-col">
+        <aside className="hidden border-r border-sidebar-border bg-sidebar px-4 py-6 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:self-start">
           <SidebarNav {...sidebarProps} />
         </aside>
         {mobileNavOpen && (
@@ -478,7 +483,6 @@ export default function Home() {
               onNavigate={setView}
             />
             <div className="ml-auto flex items-center gap-3">
-              <PreferenciasAcessibilidade />
               <Badge
                 variant="outline"
                 className="hidden border-[#cce7d7] bg-[#edf9f2] text-[#28724a] sm:inline-flex"
@@ -486,38 +490,6 @@ export default function Home() {
                 <span className="size-1.5 rounded-full bg-[#3aa66c]" /> Dados
                 sincronizados
               </Badge>
-              <div className="flex items-center gap-3 rounded-xl p-1 text-left">
-                <div className="grid size-9 place-items-center rounded-full bg-[#e8d7f1] text-sm font-bold text-[#5a2a7d]">
-                  {session.initials}
-                </div>
-                <div className="hidden sm:block">
-                  <p className="text-sm font-semibold leading-tight">
-                    {session.name}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {session.roleLabel}
-                  </p>
-                </div>
-              </div>
-              {session.role === 'admin' && (
-                <Link
-                  href="/configurar"
-                  className="grid size-9 place-items-center rounded-xl text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                  title="Configurar confeitaria"
-                  aria-label="Configurar confeitaria"
-                >
-                  <Settings2 className="size-4" />
-                </Link>
-              )}
-              <Button
-                variant="ghost"
-                size="icon"
-                title="Sair do painel"
-                aria-label="Sair do painel"
-                onClick={() => void signOut()}
-              >
-                <LogOut />
-              </Button>
             </div>
           </header>
 
@@ -688,17 +660,19 @@ function SidebarNav({
   view,
   orders,
   onNavigate,
+  conta,
 }: {
   bakery: BakeryProfile | null;
   visibleNavItems: { label: string; icon: typeof LayoutDashboard; view: View }[];
   view: View;
   orders: Order[];
   onNavigate: (target: View) => void;
+  conta: Omit<ComponentProps<typeof MenuConta>, 'onAjuda'>;
 }) {
   return (
     <>
       <Brand bakery={bakery} />
-      <nav aria-label="Navegação principal" className="space-y-1">
+      <nav aria-label="Navegação principal" className="-mx-1 min-h-0 flex-1 space-y-1 overflow-y-auto px-1">
         {visibleNavItems.map(({ label, icon: Icon, view: target }) => (
           <button
             key={label}
@@ -715,6 +689,7 @@ function SidebarNav({
           </button>
         ))}
       </nav>
+      <MenuConta {...conta} onAjuda={() => onNavigate('help')} />
     </>
   );
 }

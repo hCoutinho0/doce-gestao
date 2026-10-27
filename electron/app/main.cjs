@@ -654,6 +654,46 @@ function isInternal(url) {
   return Boolean(serverUrl) && url.startsWith(serverUrl);
 }
 
+async function backupComAviso() {
+  try {
+    const target = await runBackup({ force: true });
+    await dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: APP_NAME,
+      message: `Backup salvo em:\n${target}`,
+    });
+    return true;
+  } catch (error) {
+    dialog.showErrorBox(APP_NAME, `Falha no backup: ${error.message}`);
+    return false;
+  }
+}
+
+async function abrirConexao() {
+  if (setupWindow) return setupWindow.focus();
+  if (await showSetup()) await restartServer();
+}
+
+// Ações que o menu da conta (canto inferior esquerdo do painel) chama pela
+// ponte main-preload.cjs. Só respondem à própria página do Confeitto.
+function registrarPonteDesktop() {
+  const daPagina = (event) => isInternal(event.senderFrame?.url ?? '');
+  const handlers = {
+    'desktop:versao': () => APP_VERSION,
+    'desktop:atualizacoes': () => checkForUpdates({ silent: false }),
+    'desktop:backup': () => backupComAviso(),
+    'desktop:pasta': () => shell.openPath(userDir),
+    'desktop:conexao': () => abrirConexao(),
+  };
+  for (const [canal, acao] of Object.entries(handlers)) {
+    ipcMain.removeHandler(canal);
+    ipcMain.handle(canal, async (event) => {
+      if (!daPagina(event)) throw new Error('origem não permitida');
+      return acao();
+    });
+  }
+}
+
 function buildMenu() {
   const template = [
     {
@@ -663,28 +703,8 @@ function buildMenu() {
           label: 'Abrir pasta de backups e configuração',
           click: () => void shell.openPath(userDir),
         },
-        {
-          label: 'Fazer backup agora',
-          click: async () => {
-            try {
-              const target = await runBackup({ force: true });
-              void dialog.showMessageBox(mainWindow, {
-                type: 'info',
-                title: APP_NAME,
-                message: `Backup salvo em:\n${target}`,
-              });
-            } catch (error) {
-              dialog.showErrorBox(APP_NAME, `Falha no backup: ${error.message}`);
-            }
-          },
-        },
-        {
-          label: 'Conexão com o banco de dados…',
-          click: async () => {
-            if (setupWindow) return setupWindow.focus();
-            if (await showSetup()) await restartServer();
-          },
-        },
+        { label: 'Fazer backup agora', click: () => void backupComAviso() },
+        { label: 'Conexão com o banco de dados…', click: () => void abrirConexao() },
         { type: 'separator' },
         {
           label: 'Procurar atualizações',
@@ -738,9 +758,13 @@ function createWindow() {
     title: APP_NAME,
     icon: path.join(__dirname, 'icon.ico'),
     backgroundColor: '#3d1a5c',
-    autoHideMenuBar: true,
+    // Sem barra de menu (nem com Alt): tudo fica no menu da conta, no canto
+    // inferior esquerdo do painel. O menu continua definido só pelos atalhos
+    // (Ctrl+C, Ctrl+R, zoom…).
+    autoHideMenuBar: false,
     show: false,
     webPreferences: {
+      preload: path.join(__dirname, 'main-preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -748,6 +772,8 @@ function createWindow() {
       spellcheck: true,
     },
   });
+  mainWindow.setMenuBarVisibility(false);
+  registrarPonteDesktop();
   const ses = mainWindow.webContents.session;
   ses.setSpellCheckerLanguages(['pt-BR']);
   // O Confeitto não usa câmera, microfone, localização, notificações do site

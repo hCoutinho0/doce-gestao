@@ -55,20 +55,10 @@ function aplicarFonte(fonte: Fonte) {
   else document.documentElement.setAttribute('data-fonte', fonte);
 }
 
-export function PreferenciasAcessibilidade({
-  className = '',
-  claro = false,
-}: {
-  className?: string;
-  /** Botão sobre fundo escuro/foto (ex.: topo do cardápio). */
-  claro?: boolean;
-}) {
-  const [aberto, setAberto] = useState(false);
+/** Os dois grupos de opções (tema e tamanho do texto), sem o botão. */
+export function ControlesLeitura({ compacto = false }: { compacto?: boolean }) {
   const [tema, setTema] = useState<Tema>('sistema');
   const [fonte, setFonte] = useState<Fonte>('normal');
-  const raiz = useRef<HTMLDivElement>(null);
-  const botao = useRef<HTMLButtonElement>(null);
-  const painelId = useId();
   const nomeGrupo = useId();
 
   useEffect(() => {
@@ -84,6 +74,83 @@ export function PreferenciasAcessibilidade({
     mq.addEventListener('change', mudar);
     return () => mq.removeEventListener('change', mudar);
   }, [tema]);
+
+  const escolherTema = (valor: Tema) => {
+    setTema(valor);
+    gravar(CHAVE_TEMA, valor);
+    aplicarTema(valor);
+  };
+  const escolherFonte = (valor: Fonte) => {
+    setFonte(valor);
+    gravar(CHAVE_FONTE, valor);
+    aplicarFonte(valor);
+  };
+
+  const opcao = (ativo: boolean) =>
+    `flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-semibold transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring ${
+      ativo
+        ? 'border-primary bg-primary text-primary-foreground'
+        : 'border-border bg-background text-foreground hover:bg-muted'
+    }`;
+  const legenda = `mb-2 font-bold uppercase tracking-wide text-muted-foreground ${compacto ? 'text-[10px]' : 'text-xs'}`;
+
+  return (
+    <>
+      <fieldset>
+        <legend className={legenda}>Tema</legend>
+        <div className="grid grid-cols-3 gap-1.5">
+          {TEMAS.map(({ valor, rotulo, Icone }) => (
+            <label key={valor} className={opcao(tema === valor)}>
+              <input
+                type="radio"
+                name={`${nomeGrupo}-tema`}
+                value={valor}
+                checked={tema === valor}
+                onChange={() => escolherTema(valor)}
+                className="sr-only"
+              />
+              <Icone className="size-3.5" aria-hidden="true" />
+              {rotulo}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <fieldset className={compacto ? 'mt-3' : 'mt-4'}>
+        <legend className={legenda}>Tamanho do texto</legend>
+        <div className="grid grid-cols-4 gap-1.5">
+          {FONTES.map(({ valor, rotulo, amostra }) => (
+            <label key={valor} className={opcao(fonte === valor)} title={rotulo}>
+              <input
+                type="radio"
+                name={`${nomeGrupo}-fonte`}
+                value={valor}
+                checked={fonte === valor}
+                onChange={() => escolherFonte(valor)}
+                className="sr-only"
+                aria-label={rotulo}
+              />
+              <span aria-hidden="true">{amostra}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+    </>
+  );
+}
+
+export function PreferenciasAcessibilidade({
+  className = '',
+  claro = false,
+}: {
+  className?: string;
+  /** Botão sobre fundo escuro/foto (ex.: topo do cardápio). */
+  claro?: boolean;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const raiz = useRef<HTMLDivElement>(null);
+  const botao = useRef<HTMLButtonElement>(null);
+  const painelId = useId();
 
   useEffect(() => {
     if (!aberto) return;
@@ -103,24 +170,6 @@ export function PreferenciasAcessibilidade({
       document.removeEventListener('keydown', tecla);
     };
   }, [aberto]);
-
-  const escolherTema = (valor: Tema) => {
-    setTema(valor);
-    gravar(CHAVE_TEMA, valor);
-    aplicarTema(valor);
-  };
-  const escolherFonte = (valor: Fonte) => {
-    setFonte(valor);
-    gravar(CHAVE_FONTE, valor);
-    aplicarFonte(valor);
-  };
-
-  const opcao = (ativo: boolean) =>
-    `flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-semibold transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring ${
-      ativo
-        ? 'border-primary bg-primary text-primary-foreground'
-        : 'border-border bg-background text-foreground hover:bg-muted'
-    }`;
 
   return (
     <div ref={raiz} className={`relative ${className}`}>
@@ -148,49 +197,7 @@ export function PreferenciasAcessibilidade({
           aria-label="Preferências de acessibilidade"
           className="absolute right-0 z-50 mt-2 w-72 rounded-2xl border bg-popover p-4 text-popover-foreground shadow-xl"
         >
-          <fieldset>
-            <legend className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-              Tema
-            </legend>
-            <div className="grid grid-cols-3 gap-1.5">
-              {TEMAS.map(({ valor, rotulo, Icone }) => (
-                <label key={valor} className={opcao(tema === valor)}>
-                  <input
-                    type="radio"
-                    name={`${nomeGrupo}-tema`}
-                    value={valor}
-                    checked={tema === valor}
-                    onChange={() => escolherTema(valor)}
-                    className="sr-only"
-                  />
-                  <Icone className="size-3.5" aria-hidden="true" />
-                  {rotulo}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-
-          <fieldset className="mt-4">
-            <legend className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-              Tamanho do texto
-            </legend>
-            <div className="grid grid-cols-4 gap-1.5">
-              {FONTES.map(({ valor, rotulo, amostra }) => (
-                <label key={valor} className={opcao(fonte === valor)} title={rotulo}>
-                  <input
-                    type="radio"
-                    name={`${nomeGrupo}-fonte`}
-                    value={valor}
-                    checked={fonte === valor}
-                    onChange={() => escolherFonte(valor)}
-                    className="sr-only"
-                    aria-label={rotulo}
-                  />
-                  <span aria-hidden="true">{amostra}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
+          <ControlesLeitura />
         </div>
       )}
     </div>

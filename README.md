@@ -21,7 +21,7 @@ veem as mesmas informações).
    O `gerar-instalador.bat` embute essa conexão no instalador
    (`electron/conexao.json`), então quem instala já abre direto no login.
    Sem essas linhas, o app pede a URL e a chave na primeira abertura. Para
-   trocar à mão depois: menu **Arquivo → Conexão com o banco de dados…**
+   trocar à mão depois: menu da conta (canto inferior esquerdo) → **Conexão com o banco de dados**
    (o menu aparece ao apertar `Alt`).
 
 Não publique o instalador nem compartilhe a chave secreta: com ela dá para
@@ -55,8 +55,8 @@ para o Supabase (bucket privado `atualizacoes`).
 
 Os Confeittos instalados conferem ao abrir e a cada hora: baixam a versão
 nova sozinhos e perguntam se querem reiniciar. Se escolher "Depois", ela
-entra na próxima abertura. Para conferir na hora: `Alt` → **Arquivo →
-Procurar atualizações**.
+entra na próxima abertura. Para conferir na hora: menu da conta (canto inferior
+esquerdo, no seu nome) → **Procurar atualizações**.
 
 Se uma versão nova não abrir, o app volta sozinho para a anterior.
 
@@ -96,7 +96,8 @@ aplicativo usa `NEXT_PUBLIC_CARDAPIO_URL` (padrão
 | Backups automáticos (1 por dia, últimos 14) | `%APPDATA%\Confeitto\backups` (um `.json` por dia) |
 | URL/chave do Supabase e log do servidor | `%APPDATA%\Confeitto` |
 
-O menu **Arquivo → Fazer backup agora** baixa uma cópia na hora.
+No menu da conta (canto inferior esquerdo), **Fazer backup agora** salva
+uma cópia na hora.
 
 ## O que mudou em relação à versão na nuvem
 
