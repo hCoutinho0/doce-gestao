@@ -3556,7 +3556,7 @@ function RecipeEditor({
             <DialogTrigger render={<Button className="rounded-xl" />}>
               <Plus /> Adicionar item
             </DialogTrigger>
-            <DialogContent className="ficha-theme">
+            <DialogContent className="ficha-theme sm:max-w-lg">
               <DialogHeader>
                 <DialogTitle>Adicionar item</DialogTitle>
               </DialogHeader>
