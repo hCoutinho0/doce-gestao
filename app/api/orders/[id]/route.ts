@@ -6,6 +6,7 @@ type OrderItem = { name: string; quantity: number; unitPrice: number };
 type Order = {
   id: string;
   customer: string;
+  customerId?: number;
   phone?: string;
   items?: OrderItem[];
   item: string;
@@ -56,13 +57,16 @@ async function awardStamps(
   bakeryId: string,
   customerName: string,
   value: number,
+  customerId?: number,
 ): Promise<Customer | undefined> {
   let awarded: Customer | undefined;
   await updateStateAtomic<Customer[]>(bakeryId, CUSTOMERS_KEY, (current) => {
     const customers = current ?? [];
-    const match = customers.find(
-      (c) => c.name.trim().toLowerCase() === customerName.toLowerCase(),
-    );
+    // Pelo cadastro ligado ao pedido; pedidos antigos (sem customerId)
+    // continuam achando o cliente pelo nome.
+    const match =
+      (customerId != null ? customers.find((c) => c.id === customerId) : undefined) ??
+      customers.find((c) => c.name.trim().toLowerCase() === customerName.toLowerCase());
     if (!match) {
       awarded = undefined;
       return customers;
@@ -179,7 +183,12 @@ export async function PATCH(
     ? await logSale(bakeryId, updatedOrder)
     : undefined;
   const customer = shouldAwardStamps
-    ? await awardStamps(bakeryId, updatedOrder.customer, updatedOrder.value)
+    ? await awardStamps(
+        bakeryId,
+        updatedOrder.customer,
+        updatedOrder.value,
+        updatedOrder.customerId,
+      )
     : undefined;
 
   return NextResponse.json({ ok: true, order: updatedOrder, financeItem, customer });

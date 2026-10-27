@@ -18,6 +18,8 @@ const ALLOWED_KEYS = new Set([
   'doce-tasks',
   'doce-onboarding',
   'doce-compras',
+  'doce-menu-periodo',
+  'doce-caixa',
 ]);
 
 // The dashboard hides Financeiro, Precificação, Produtos, Clientes and
@@ -28,6 +30,7 @@ const ALLOWED_KEYS = new Set([
 // signed-in role; these five are admin-only in both directions.
 const ADMIN_ONLY_KEYS = new Set([
   'doce-finance',
+  'doce-caixa',
   'doce-bakery-profile',
   'doce-pricing',
   'doce-products',
@@ -38,7 +41,7 @@ const ADMIN_ONLY_KEYS = new Set([
 // branding to render at all — everything else is internal panel data. Each
 // confeitaria's own /{bakeryId}/cardapio passes its bakeryId explicitly via
 // query string (obrigatório — sem fallback para nenhuma confeitaria fixa).
-const PUBLIC_READ_KEYS = new Set(['doce-menu', 'doce-bakery-profile']);
+const PUBLIC_READ_KEYS = new Set(['doce-menu', 'doce-bakery-profile', 'doce-menu-periodo']);
 
 // O que o cardápio público pode ver do perfil: só a vitrine. Razão social,
 // telefone interno, fundação, tamanho da equipe etc. ficam no painel.

@@ -2,11 +2,13 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { isDbConfigured, readState, updateStateAtomic } from '@/lib/db';
 import { checkRateLimit, clientIp } from '@/lib/rateLimit';
+import { normalizePhone } from '@/lib/phone';
 
 type OrderItem = { name: string; quantity: number; unitPrice: number };
 type Order = {
   id: string;
   customer: string;
+  customerId?: number;
   phone?: string;
   items?: OrderItem[];
   item: string;
@@ -24,7 +26,12 @@ type Order = {
   financeLogged?: boolean;
 };
 
-type MenuItem = { name: string; price: number; available: boolean };
+type MenuItem = { name: string; flavor?: string; price: number; available: boolean };
+
+// Nome do item como aparece no pedido: "Brownie — Pistache" quando o item
+// do cardápio tem sabor. É o que identifica o item (dois brownies de
+// sabores diferentes são itens diferentes).
+const menuLabel = (m: MenuItem) => (m.flavor?.trim() ? `${m.name} — ${m.flavor.trim()}` : m.name);
 type MenuEdition = { id: string; items: MenuItem[] };
 
 type Customer = {
@@ -71,49 +78,58 @@ async function logSale(bakeryId: string, order: Order): Promise<FinanceItem> {
   return entry;
 }
 
-// A first-time customer becomes a client record automatically — matched by
-// name (trimmed, case-insensitive) so repeat orders don't create
-// duplicates. Stamps are no longer touched here — they're only awarded when
-// an order is actually completed (see app/api/orders/[id]/route.ts), so a
-// cancelled order never earns one. Returns the customer's current stamp
-// count (unchanged by this call) so the checkout can still show their
-// loyalty card.
+// Todo pedido vira (ou encontra) um cadastro de cliente com cartão
+// fidelidade. A busca é primeiro pelo celular — o mesmo número é sempre a
+// mesma pessoa, mesmo que o nome venha escrito de outro jeito ("Maria" e
+// "Maria Alves") — e só depois pelo nome, para clientes antigos que ainda
+// não tinham celular salvo (que então ganham o número). Um nome igual com
+// um celular diferente é outra pessoa: vira um cadastro novo.
+// Os selos só são somados quando o pedido é concluído (app/api/orders/[id]).
 //
-// Wrapped in updateStateAtomic (not a plain readState+writeState) because
-// two customers can check out at nearly the same instant — without the
-// ETag-guarded retry, both requests read the list before either write
-// lands, and whichever writes second silently erases the customer record
-// the other one just created.
+// updateStateAtomic (não readState+writeState): dois clientes fechando
+// pedido no mesmo instante não podem apagar o cadastro um do outro.
 async function ensureCustomer(
   bakeryId: string,
   name: string,
-  phone: string,
+  phone: string | null,
   birthday?: string,
-): Promise<number> {
-  let stamps = 0;
+  newCustomer = false,
+): Promise<Customer> {
+  let result: Customer | undefined;
   await updateStateAtomic<Customer[]>(bakeryId, CUSTOMERS_KEY, (current) => {
     const customers = current ?? [];
-    const match = customers.find(
-      (c) => c.name.trim().toLowerCase() === name.toLowerCase(),
-    );
+    // newCustomer: a pessoa disse "não sou eu" para o cadastro desse
+    // celular (telefone da família, por exemplo) — procura só pelo nome.
+    const byPhone =
+      phone && !newCustomer
+        ? customers.find((c) => normalizePhone(c.phone) === phone)
+        : undefined;
+    const byName = byPhone
+      ? undefined
+      : customers.find(
+          (c) =>
+            c.name.trim().toLowerCase() === name.toLowerCase() &&
+            (!phone || !normalizePhone(c.phone) || normalizePhone(c.phone) === phone),
+        );
+    const match = byPhone ?? byName;
     if (!match) {
-      stamps = 0;
-      const customer: Customer = {
+      result = {
         id: Date.now(),
         name,
-        phone,
+        phone: phone ?? '',
         ...(birthday ? { birthday } : {}),
         stamps: 0,
       };
-      return [...customers, customer];
+      return [...customers, result];
     }
-    stamps = match.stamps;
-    if (!birthday) return customers;
-    return customers.map((c) =>
-      c.id === match.id ? { ...c, birthday } : c,
-    );
+    result = {
+      ...match,
+      ...(phone && !normalizePhone(match.phone) ? { phone } : {}),
+      ...(birthday && !match.birthday ? { birthday } : {}),
+    };
+    return customers.map((c) => (c.id === match.id ? result! : c));
   });
-  return stamps;
+  return result!;
 }
 
 // Sequential, persisted counter — immune to orders being deleted (unlike
@@ -176,14 +192,17 @@ async function priceItems(
       });
       continue;
     }
-    const match = menu.find(
-      (m) =>
-        (editionId || m.available) &&
-        m.name.trim().toLowerCase() === request.name.trim().toLowerCase(),
-    );
+    const wanted = request.name.trim().toLowerCase();
+    const match =
+      menu.find(
+        (m) => (editionId || m.available) && menuLabel(m).trim().toLowerCase() === wanted,
+      ) ??
+      menu.find(
+        (m) => (editionId || m.available) && !m.flavor && m.name.trim().toLowerCase() === wanted,
+      );
     if (!match) return null;
     items.push({
-      name: match.name,
+      name: menuLabel(match),
       quantity: request.quantity,
       unitPrice: match.price,
     });
@@ -236,6 +255,7 @@ export async function POST(request: Request) {
     editionId?: string;
     paymentMethod?: 'Pix' | 'Cartão' | 'Dinheiro' | 'Presente';
     paymentStatus?: 'Pago' | 'Pendente';
+    newCustomer?: boolean;
   };
   // Never falls back to a fixed confeitaria: an anonymous request that
   // omits bakeryId (malformed, or a bare curl/script hitting this route
@@ -248,6 +268,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'missing_bakery' }, { status: 400 });
   }
 
+  const phone = normalizePhone(body.phone);
+  // No painel, um número inválido só é ignorado (o pedido não trava);
+  // no cardápio, o celular válido é obrigatório (logo abaixo).
+  if (!isAuthenticated && body.phone?.trim() && !phone) {
+    return NextResponse.json({ error: 'invalid_phone' }, { status: 400 });
+  }
+  // Pelo cardápio o celular é obrigatório: é ele que liga o pedido ao
+  // cartão fidelidade certo. Cliente já cadastrado pode mandar só o
+  // celular (o nome vem do cadastro).
+  if (!isAuthenticated && !phone) {
+    return NextResponse.json({ error: 'invalid_phone' }, { status: 400 });
+  }
+  if (!body.customer?.trim() && phone && !body.newCustomer) {
+    const customers = (await readState<Customer[]>(bakeryId, CUSTOMERS_KEY)) ?? [];
+    const known = customers.find((c) => normalizePhone(c.phone) === phone);
+    if (known) body.customer = known.name;
+  }
   if (!body.customer?.trim() || !body.date?.trim()) {
     return NextResponse.json({ error: 'invalid_order' }, { status: 400 });
   }
@@ -355,16 +392,22 @@ export async function POST(request: Request) {
   // updateStateAtomic, not readState+writeState — two orders created in
   // the same instant (two customers checking out at once) must not let
   // the second writer's stale snapshot drop the first one's order.
+  const customer = await ensureCustomer(
+    bakeryId,
+    order.customer,
+    phone,
+    body.birthday?.trim() || undefined,
+    Boolean(body.newCustomer),
+  );
+  // Liga o pedido ao cadastro (os selos usam o id, não o nome) e guarda o
+  // celular para a confeitaria conseguir falar com o cliente.
+  order.customerId = customer.id;
+  if (phone) order.phone = phone;
   await updateStateAtomic<Order[]>(bakeryId, ORDERS_KEY, (current) => [
     order,
     ...(current ?? []),
   ]);
-  const stamps = await ensureCustomer(
-    bakeryId,
-    order.customer,
-    body.phone?.trim() ?? '',
-    body.birthday?.trim() || undefined,
-  );
+  const stamps = customer.stamps;
   const financeItem = order.financeLogged
     ? await logSale(bakeryId, order)
     : undefined;

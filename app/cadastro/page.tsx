@@ -106,7 +106,10 @@ export default function CadastroPage() {
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
   const [inviteError, setInviteError] = useState('');
   const [checkingInvite, setCheckingInvite] = useState(false);
-  const isInvite = Boolean(inviteInfo);
+  // "nova": dona(o) criando a confeitaria; "equipe": funcionária(o) que só
+  // entra numa confeitaria que já existe, com o código de convite.
+  const [mode, setMode] = useState<'nova' | 'equipe'>('nova');
+  const isInvite = mode === 'equipe' && Boolean(inviteInfo);
   const totalSteps = isInvite ? 1 : 4;
 
   const checkInvite = async (code: string) => {
@@ -186,6 +189,7 @@ export default function CadastroPage() {
   useEffect(() => {
     const code = new URLSearchParams(window.location.search).get('convite');
     if (code) {
+      setMode('equipe');
       setInviteCode(code.toUpperCase());
       void checkInvite(code);
     }
@@ -233,11 +237,14 @@ export default function CadastroPage() {
     signupPassword.length >= 8 &&
     signupPassword === signupPasswordConfirm;
 
+  // Quem entra pela equipe (Produção) não precisa de CPF nem de escolher
+  // "Administrador/Administradora" — isso é de quem administra.
+  const inviteAsProduction = isInvite && inviteInfo?.role === 'production';
   const personalReady =
     fullName.trim().length > 2 &&
-    isValidCpfCnpj(cpfCnpj) &&
+    (isInvite ? !cpfCnpj || isValidCpfCnpj(cpfCnpj) : isValidCpfCnpj(cpfCnpj)) &&
     phone.trim() &&
-    Boolean(gender);
+    (inviteAsProduction || Boolean(gender));
 
   const canContinue =
     step === 2
@@ -389,7 +396,37 @@ export default function CadastroPage() {
                 title="Crie seu acesso"
                 description="Escolha um email e uma senha para entrar no Confeitto."
               />
-              <div className="mt-7 space-y-3">
+              <div
+                role="radiogroup"
+                aria-label="Tipo de cadastro"
+                className="mt-6 grid gap-2 sm:grid-cols-2"
+              >
+                {(
+                  [
+                    ['nova', 'Criar minha confeitaria', 'Sou dona(o) do negócio'],
+                    ['equipe', 'Entrar numa confeitaria', 'Sou da equipe e tenho um código de convite'],
+                  ] as const
+                ).map(([value, title, hint]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={mode === value}
+                    onClick={() => {
+                      setMode(value);
+                      if (value === 'nova') {
+                        setInviteInfo(null);
+                        setInviteError('');
+                      }
+                    }}
+                    className={`rounded-xl border p-3 text-left transition ${mode === value ? 'border-primary bg-primary/10 ring-2 ring-primary/15' : 'hover:border-primary/40'}`}
+                  >
+                    <span className="block text-sm font-semibold">{title}</span>
+                    <span className="block text-xs text-muted-foreground">{hint}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="mt-6 space-y-3">
                 <SetupInput
                   id="signup-email"
                   label="Email"
@@ -418,7 +455,7 @@ export default function CadastroPage() {
                 />
                 <Button
                   type="button"
-                  disabled={!credentialsReady}
+                  disabled={!credentialsReady || (mode === 'equipe' && !isInvite)}
                   className="h-11 w-full rounded-xl"
                   onClick={() => setStep(1)}
                 >
@@ -426,10 +463,11 @@ export default function CadastroPage() {
                 </Button>
               </div>
 
+              {mode === 'equipe' && (
               <div className="mt-7 border-t pt-6">
                 <SetupInput
                   id="invite-code"
-                  label="Tem um código de convite? (opcional)"
+                  label="Código de convite (peça para quem administra a confeitaria)"
                   icon={<Ticket />}
                   value={inviteCode}
                   onChange={(value) => {
@@ -460,6 +498,7 @@ export default function CadastroPage() {
                   </p>
                 )}
               </div>
+              )}
 
               <p className="mt-6 text-center text-sm text-muted-foreground">
                 Já tem conta?{' '}
@@ -494,12 +533,12 @@ export default function CadastroPage() {
                 </div>
                 <SetupInput
                   id="cpf-cnpj"
-                  label="CPF ou CNPJ"
+                  label={isInvite ? 'CPF (opcional)' : 'CPF ou CNPJ'}
                   icon={<IdCard />}
                   value={cpfCnpj}
                   onChange={(value) => setCpfCnpj(formatCpfCnpj(value))}
                   placeholder="000.000.000-00"
-                  required
+                  required={!isInvite}
                 />
                 <SetupInput
                   id="owner-phone"
@@ -510,6 +549,7 @@ export default function CadastroPage() {
                   placeholder="(11) 99999-9999"
                   required
                 />
+                {!inviteAsProduction && (
                 <div className="space-y-2 sm:col-span-2">
                   <Label>Como podemos te chamar?</Label>
                   <div className="grid grid-cols-2 gap-2">
@@ -529,6 +569,7 @@ export default function CadastroPage() {
                     </button>
                   </div>
                 </div>
+                )}
                 {cpfCnpj && !isValidCpfCnpj(cpfCnpj) && (
                   <p className="text-xs font-medium text-destructive sm:col-span-2">
                     Esse CPF/CNPJ não parece válido — confira os números.

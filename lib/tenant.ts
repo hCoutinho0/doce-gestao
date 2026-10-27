@@ -1,4 +1,4 @@
-import { listDocs, readGlobal, readState, updateGlobalAtomic, writeGlobal } from '@/lib/db';
+import { deleteGlobal, listDocs, readGlobal, readState, updateGlobalAtomic, writeGlobal } from '@/lib/db';
 import { slugify } from '@/lib/slug';
 
 export type UserRole = 'admin' | 'production';
@@ -107,6 +107,15 @@ export async function claimInvite(
     return claimed;
   });
   return outcome;
+}
+
+// Apaga um convite que ainda não foi usado (de outra confeitaria ou já
+// usado, não mexe). Devolve se apagou.
+export async function deleteInvite(code: string, bakeryId: string): Promise<boolean> {
+  const invite = await getInvite(code);
+  if (!invite || invite.bakeryId !== bakeryId || invite.usedBy) return false;
+  await deleteGlobal(inviteDocId(invite.code));
+  return true;
 }
 
 export function saveInvite(invite: Invite): Promise<void> {

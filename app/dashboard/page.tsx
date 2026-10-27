@@ -71,6 +71,7 @@ import { BAKERY_KEY, type BakeryProfile } from '@/lib/bakery';
 import { useUserSession, signOut } from '@/lib/auth';
 import type { Invite } from '@/lib/tenant';
 import { MenuConta } from '@/components/menu-conta';
+import { formatPhone, normalizePhone } from '@/lib/phone';
 
 type View =
   | 'dashboard'
@@ -88,6 +89,7 @@ type OrderItem = { name: string; quantity: number; unitPrice: number };
 type Order = {
   id: string;
   customer: string;
+  customerId?: number;
   phone?: string;
   items?: OrderItem[];
   item: string;
@@ -137,6 +139,9 @@ type ShoppingItem = {
   done: boolean;
   createdAt: string;
 };
+// Caixa da empresa: o saldo que a conta bancária tinha quando foi
+// informado (setAt) + tudo que entrou e saiu no Financeiro depois disso.
+type CashBalance = { amount: number; setAt: number } | null;
 type FinanceItem = {
   id: number;
   description: string;
@@ -229,6 +234,8 @@ type MenuItem = {
   price: number;
   available: boolean;
   emoji: string;
+  // Sabor, mostrado como subtítulo no cardápio ("Brownie" / "Pistache").
+  flavor?: string;
   photoUrl?: string;
   weight?: { value: number; unit: 'kg' | 'g' | 'l' };
   // Marca de qual item do catálogo (Produtos) este veio, quando publicado
@@ -240,6 +247,9 @@ type MenuItem = {
 // A simple named product + flavor, independent of the weekly cardápio —
 // meant for things like custom cakes that aren't part of a given week's
 // published menu but still need to show up when building a pedido.
+// Período a que o cardápio publicado se refere (aparece no topo do
+// cardápio do cliente). Guardado à parte do perfil para ser lido sem login.
+type MenuPeriod = { from: string; to?: string } | null;
 type Product = {
   id: number;
   name: string;
@@ -346,6 +356,10 @@ const navItems: { label: string; icon: typeof LayoutDashboard; view: View }[] =
     { label: 'Fidelidade', icon: Gift, view: 'loyalty' },
     { label: 'Equipe', icon: UserPlus, view: 'team' },
   ];
+// Nome do item como vai no pedido ("Brownie — Pistache"); o servidor
+// confere o preço pelo mesmo nome (app/api/orders).
+const menuLabel = (item: Pick<MenuItem, 'name' | 'flavor'>) =>
+  item.flavor?.trim() ? `${item.name} — ${item.flavor.trim()}` : item.name;
 const money = (value: number) =>
   value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const fieldValue = (data: FormData, name: string) => {
@@ -367,6 +381,8 @@ export default function Home() {
   });
   const [finance, setFinance] = useStoredState('doce-finance', initialFinance);
   const [menuItems, setMenuItems] = useStoredState('doce-menu', initialMenu);
+  const [cash, setCash] = useStoredState<CashBalance>('doce-caixa', null);
+  const [menuPeriod, setMenuPeriod] = useStoredState<MenuPeriod>('doce-menu-periodo', null);
   const [products, setProducts] = useStoredState<Product[]>(
     'doce-products',
     [],
@@ -549,6 +565,7 @@ export default function Home() {
             {view === 'pricing' && (
               <Pricing
                 stock={stock}
+                setStock={setStock}
                 menuItems={menuItems}
                 setMenuItems={setMenuItems}
                 products={products}
@@ -558,13 +575,21 @@ export default function Home() {
               />
             )}
             {view === 'finance' && (
-              <Finance items={finance} setItems={setFinance} />
+              <Finance
+                items={finance}
+                setItems={setFinance}
+                cash={cash}
+                setCash={setCash}
+              />
             )}
             {view === 'menu' && (
               <DigitalMenu
                 items={menuItems}
                 setItems={setMenuItems}
                 bakeryId={session.bakeryId ?? ''}
+                products={products}
+                period={menuPeriod}
+                setPeriod={setMenuPeriod}
               />
             )}
             {view === 'products' && (
@@ -1848,7 +1873,7 @@ function Orders({
     if (!canSubmit) return;
     setSubmitting(true);
     const description = cartItems
-      .map((item) => `${item.quantity}× ${item.name}`)
+      .map((item) => `${item.quantity}× ${menuLabel(item)}`)
       .join(', ');
     const formattedDate = `${deliveryDate.split('-').reverse().join('/')} às ${deliveryTime}`;
     const response = await fetch('/api/orders', {
@@ -1860,7 +1885,7 @@ function Orders({
         birthday:
           customerChoice === NEW_CUSTOMER ? newBirthday : undefined,
         items: cartItems.map((item) => ({
-          name: item.name,
+          name: menuLabel(item),
           quantity: item.quantity,
         })),
         item: description,
@@ -2032,9 +2057,13 @@ function Orders({
                 <Field label="WhatsApp (opcional)">
                   <input
                     value={newPhone}
-                    onChange={(e) => setNewPhone(e.target.value)}
-                    className={inputClass}
-                    placeholder="(11) 90000-0000"
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={16}
+                    onChange={(e) => setNewPhone(formatPhone(e.target.value))}
+                    aria-invalid={Boolean(newPhone) && newPhone.replace(/\D/g, '').length >= 10 && !normalizePhone(newPhone)}
+                    className={`${inputClass} aria-[invalid=true]:border-destructive`}
+                    placeholder="(11) 91234-5678"
                   />
                 </Field>
                 <Field label="Aniversário">
@@ -2129,7 +2158,7 @@ function Orders({
                       className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-muted/40"
                     >
                       <span className="flex-1 truncate text-sm">
-                        {item.name}{' '}
+                        {menuLabel(item)}{' '}
                         <span className="text-xs text-muted-foreground">
                           {money(item.price)}
                         </span>
@@ -2910,6 +2939,7 @@ function recipeKey(recipe: ProductRecipe): number {
 
 function Pricing({
   stock,
+  setStock,
   menuItems,
   setMenuItems,
   products,
@@ -2918,6 +2948,7 @@ function Pricing({
   setRecipes,
 }: {
   stock: StockItem[];
+  setStock: (v: StockItem[] | ((o: StockItem[]) => StockItem[])) => void;
   menuItems: MenuItem[];
   setMenuItems: (v: MenuItem[] | ((o: MenuItem[]) => MenuItem[])) => void;
   products: Product[];
@@ -2998,6 +3029,7 @@ function Pricing({
             key={recipeKey(selectedRecipe)}
             recipe={selectedRecipe}
             stock={stock}
+            setStock={setStock}
             menuItems={menuItems}
             setMenuItems={setMenuItems}
             products={products}
@@ -3215,6 +3247,7 @@ const RECIPE_LINE_UNITS: { value: RecipeLine['unit']; label: string }[] = [
 function RecipeEditor({
   recipe,
   stock,
+  setStock,
   menuItems,
   setMenuItems,
   products,
@@ -3225,6 +3258,7 @@ function RecipeEditor({
 }: {
   recipe: ProductRecipe;
   stock: StockItem[];
+  setStock: (v: StockItem[] | ((o: StockItem[]) => StockItem[])) => void;
   menuItems: MenuItem[];
   setMenuItems: (v: MenuItem[] | ((o: MenuItem[]) => MenuItem[])) => void;
   products: Product[];
@@ -3260,6 +3294,11 @@ function RecipeEditor({
   );
   const [lineUnit, setLineUnit] = useState<RecipeLine['unit']>('un');
   const [addItemOpen, setAddItemOpen] = useState(false);
+  // "estoque": escolhe um item já cadastrado; "novo": cadastra no estoque
+  // ali mesmo (com o estoque vazio, a lista não teria o que escolher).
+  const [addMode, setAddMode] = useState<'estoque' | 'novo'>(stock.length ? 'estoque' : 'novo');
+  const [newCategory, setNewCategory] = useState<'Ingrediente' | 'Embalagem'>('Ingrediente');
+  const [newWeightUnit, setNewWeightUnit] = useState<'g' | 'kg'>('g');
   const [applyOpen, setApplyOpen] = useState(false);
   const [applyKind, setApplyKind] = useState<'menu' | 'catalog'>('menu');
   const [applyId, setApplyId] = useState<number | ''>('');
@@ -3299,9 +3338,39 @@ function RecipeEditor({
   const addStockItem = (e: FormSubmit) => {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
-    const stockId = Number(fieldValue(data, 'stockId'));
     const quantity = Number(fieldValue(data, 'quantity'));
+    if (!Number.isFinite(quantity) || quantity <= 0) return;
     const unit = lineUnit;
+    let stockId = Number(fieldValue(data, 'stockId'));
+    if (addMode === 'novo') {
+      const name = fieldValue(data, 'newName').trim();
+      const boughtQty = Number(fieldValue(data, 'newQty')) || 1;
+      const paid = Number(fieldValue(data, 'newPaid')) || 0;
+      const weightValue = Number(fieldValue(data, 'newWeight'));
+      if (!name) return;
+      const existing = stock.find(
+        (x) =>
+          (x.category ?? 'Ingrediente') === newCategory &&
+          x.name.trim().toLowerCase() === name.toLowerCase(),
+      );
+      if (existing) {
+        stockId = existing.id;
+      } else {
+        stockId = Date.now();
+        const created: StockItem = {
+          id: stockId,
+          name,
+          category: newCategory,
+          qty: boughtQty,
+          unit: 'un',
+          min: 0,
+          cost: boughtQty > 0 ? +(paid / boughtQty).toFixed(4) : 0,
+          ...(weightValue > 0 ? { weight: { value: weightValue, unit: newWeightUnit } } : {}),
+        };
+        setStock((old) => [...old, created]);
+      }
+    }
+    if (!stockId) return;
     setRecipeItems((old) => {
       const found = old.find((item) => item.stockId === stockId && item.unit === unit);
       return found
@@ -3314,6 +3383,8 @@ function RecipeEditor({
     });
     e.currentTarget.reset();
     setLineUnit('un');
+    setNewWeightUnit('g');
+    setAddMode('estoque');
     setJustSaved(false);
     setAddItemOpen(false);
   };
@@ -3475,7 +3546,13 @@ function RecipeEditor({
               Escolha do estoque, a quantidade e a unidade usada nesta receita
             </p>
           </div>
-          <Dialog open={addItemOpen} onOpenChange={setAddItemOpen}>
+          <Dialog
+            open={addItemOpen}
+            onOpenChange={(open) => {
+              setAddItemOpen(open);
+              if (open) setAddMode(stock.length ? 'estoque' : 'novo');
+            }}
+          >
             <DialogTrigger render={<Button className="rounded-xl" />}>
               <Plus /> Adicionar item
             </DialogTrigger>
@@ -3484,6 +3561,81 @@ function RecipeEditor({
                 <DialogTitle>Adicionar item</DialogTitle>
               </DialogHeader>
               <form onSubmit={addStockItem} className="grid gap-3">
+                <div role="radiogroup" aria-label="De onde vem o item" className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1">
+                  {(
+                    [
+                      ['estoque', 'Escolher do estoque'],
+                      ['novo', 'Cadastrar novo'],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={addMode === value}
+                      onClick={() => setAddMode(value)}
+                      className={`rounded-lg px-2 py-1.5 text-sm font-semibold transition ${addMode === value ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {addMode === 'estoque' && stock.length === 0 && (
+                  <p className="rounded-xl bg-muted p-3 text-sm text-muted-foreground">
+                    O estoque ainda está vazio. Use &ldquo;Cadastrar novo&rdquo; para criar o
+                    ingrediente ou a embalagem aqui mesmo.
+                  </p>
+                )}
+                {addMode === 'novo' ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Tipo">
+                        <select
+                          value={newCategory}
+                          onChange={(e) => setNewCategory(e.target.value as 'Ingrediente' | 'Embalagem')}
+                          className={inputClass}
+                        >
+                          <option value="Ingrediente">Ingrediente</option>
+                          <option value="Embalagem">Embalagem</option>
+                        </select>
+                      </Field>
+                      <Field label="Nome">
+                        <input
+                          required
+                          name="newName"
+                          maxLength={80}
+                          className={inputClass}
+                          placeholder={newCategory === 'Ingrediente' ? 'Ex.: Leite condensado' : 'Ex.: Caixa 10x10'}
+                        />
+                      </Field>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <Field label="Qtd. comprada">
+                        <input name="newQty" type="number" min="0.01" step="0.01" defaultValue="1" className={inputClass} />
+                      </Field>
+                      <Field label="Valor pago (R$)">
+                        <input required name="newPaid" type="number" min="0" step="0.01" className={inputClass} />
+                      </Field>
+                      <Field label="Peso de 1 un.">
+                        <div className="flex gap-1">
+                          <input name="newWeight" type="number" min="0" step="0.01" className={inputClass} placeholder="395" />
+                          <select
+                            value={newWeightUnit}
+                            onChange={(e) => setNewWeightUnit(e.target.value as 'g' | 'kg')}
+                            aria-label="Unidade do peso"
+                            className={`${inputClass} w-16!`}
+                          >
+                            <option value="g">g</option>
+                            <option value="kg">kg</option>
+                          </select>
+                        </div>
+                      </Field>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      O item também entra no Estoque. O peso é opcional, mas permite usar g/kg na receita.
+                    </p>
+                  </>
+                ) : (
                 <Field label="Ingrediente ou embalagem do estoque">
                   <select required name="stockId" className={inputClass} defaultValue="">
                     <option value="" disabled>
@@ -3510,8 +3662,9 @@ function RecipeEditor({
                     </optgroup>
                   </select>
                 </Field>
+                )}
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Quantidade">
+                  <Field label="Quantidade usada na receita">
                     <input
                       required
                       name="quantity"
@@ -3968,12 +4121,112 @@ const financeChartConfig = {
   saidas: { label: 'Saídas', color: 'var(--destructive)' },
 } satisfies ChartConfig;
 
+function CashPanel({
+  items,
+  cash,
+  setCash,
+}: {
+  items: FinanceItem[];
+  cash: CashBalance;
+  setCash: (v: CashBalance) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  // Lançamentos criados depois do saldo informado (o id é a hora em que o
+  // lançamento foi criado), para não contar duas vezes o que já estava na
+  // conta.
+  const since = cash ? items.filter((i) => i.id > cash.setAt) : [];
+  const moved = since.reduce((sum, i) => sum + (i.type === 'Entrada' ? i.value : -i.value), 0);
+  const balance = cash ? cash.amount + moved : 0;
+
+  const save = (e: FormSubmit) => {
+    e.preventDefault();
+    // "1.250,50" (jeito brasileiro) ou "1250.50".
+    const raw = value.trim();
+    const amount = Number(raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw);
+    if (!Number.isFinite(amount)) return;
+    setCash({ amount, setAt: Date.now() });
+    setEditing(false);
+  };
+
+  return (
+    <Panel className="mb-5 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+            <WalletCards className="size-4" aria-hidden="true" /> Caixa da empresa (conta bancária)
+          </p>
+          {cash ? (
+            <>
+              <p
+                className={`mt-1 font-heading text-3xl font-bold [overflow-wrap:anywhere] ${balance < 0 ? 'text-destructive' : ''}`}
+              >
+                {money(balance)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Saldo informado em {new Date(cash.setAt).toLocaleDateString('pt-BR')}:{' '}
+                {money(cash.amount)} {moved >= 0 ? '+' : '−'} {money(Math.abs(moved))} de{' '}
+                {since.length} {since.length === 1 ? 'lançamento' : 'lançamentos'} depois disso.
+              </p>
+            </>
+          ) : (
+            <p className="mt-1 text-sm text-muted-foreground">
+              Informe quanto tem hoje na conta da empresa. A partir daí, cada entrada e saída
+              lançada aqui atualiza o caixa sozinha.
+            </p>
+          )}
+        </div>
+        {!editing && (
+          <Button
+            variant={cash ? 'outline' : 'default'}
+            className="h-10 rounded-xl"
+            onClick={() => {
+              setValue(cash ? balance.toFixed(2).replace('.', ',') : '');
+              setEditing(true);
+            }}
+          >
+            <Pencil /> {cash ? 'Ajustar saldo' : 'Informar saldo'}
+          </Button>
+        )}
+      </div>
+      {editing && (
+        <form onSubmit={save} className="mt-4 flex flex-wrap items-end gap-3">
+          <Field label="Quanto tem na conta agora (R$)">
+            <input
+              autoFocus
+              required
+              inputMode="decimal"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              className={`${inputClass} w-48!`}
+              placeholder="Ex.: 1.250,00"
+            />
+          </Field>
+          <Button type="submit" className="h-10 rounded-xl">
+            Salvar
+          </Button>
+          <Button type="button" variant="ghost" className="h-10" onClick={() => setEditing(false)}>
+            Cancelar
+          </Button>
+          <p className="w-full text-xs text-muted-foreground">
+            Confira no app do banco. Lançamentos feitos a partir de agora entram no caixa.
+          </p>
+        </form>
+      )}
+    </Panel>
+  );
+}
+
 function Finance({
   items,
   setItems,
+  cash,
+  setCash,
 }: {
   items: FinanceItem[];
   setItems: (v: FinanceItem[] | ((o: FinanceItem[]) => FinanceItem[])) => void;
+  cash: CashBalance;
+  setCash: (v: CashBalance) => void;
 }) {
   const [viewDate, setViewDate] = useState(() => {
     const now = new Date();
@@ -4054,6 +4307,7 @@ function Finance({
         title="Financeiro"
         subtitle="Registre entradas e saídas para saber o resultado real da confeitaria."
       />
+      <CashPanel items={items} cash={cash} setCash={setCash} />
       <div className="mb-5 flex items-center justify-center gap-3">
         <Button
           variant="outline"
@@ -4260,15 +4514,78 @@ function publicMenuUrl(bakeryId: string) {
   return `${CARDAPIO_SITE}/${bakeryId}`;
 }
 
+// "Cardápio de 27/10 a 02/11" / "Cardápio de 27/10/2026".
+function menuPeriodLabel(period: NonNullable<MenuPeriod>): string {
+  const fmt = (d: string, withYear: boolean) => {
+    const [y, m, day] = d.split('-');
+    return withYear ? `${day}/${m}/${y}` : `${day}/${m}`;
+  };
+  return period.to && period.to !== period.from
+    ? `Cardápio de ${fmt(period.from, false)} a ${fmt(period.to, false)}`
+    : `Cardápio de ${fmt(period.from, true)}`;
+}
+
 function DigitalMenu({
   items,
   setItems,
   bakeryId,
+  products,
+  period,
+  setPeriod,
 }: {
   items: MenuItem[];
   setItems: (v: MenuItem[] | ((o: MenuItem[]) => MenuItem[])) => void;
   bakeryId: string;
+  products: Product[];
+  period: MenuPeriod;
+  setPeriod: (v: MenuPeriod) => void;
 }) {
+  const [importOpen, setImportOpen] = useState(false);
+  // Produtos do catálogo que ainda não estão no cardápio.
+  const importable = products.filter(
+    (p) => !items.some((m) => m.sourceProductId === p.id),
+  );
+  const [picked, setPicked] = useState<Record<number, { on: boolean; price: string }>>({});
+  const [importCategory, setImportCategory] = useState('Doces');
+  const openImport = (open: boolean) => {
+    setImportOpen(open);
+    if (open) {
+      setPicked(
+        Object.fromEntries(
+          importable.map((p) => [p.id, { on: true, price: p.price ? String(p.price) : '' }]),
+        ),
+      );
+    }
+  };
+  const pickedCount = importable.filter(
+    (p) => picked[p.id]?.on && Number(picked[p.id]?.price) > 0,
+  ).length;
+  const importProducts = () => {
+    const now = Date.now();
+    const category = importCategory.trim() || 'Doces';
+    const novos: MenuItem[] = importable
+      .filter((p) => picked[p.id]?.on && Number(picked[p.id]?.price) > 0)
+      .map((p, index) => {
+        const weight =
+          p.weight && (p.weight.unit === 'kg' || p.weight.unit === 'g' || p.weight.unit === 'l')
+            ? { value: p.weight.value, unit: p.weight.unit }
+            : undefined;
+        return {
+          id: now + index,
+          name: p.name,
+          ...(p.flavor ? { flavor: p.flavor } : {}),
+          category,
+          price: Number(picked[p.id].price),
+          available: true,
+          emoji: '🧁',
+          ...(p.photoUrl ? { photoUrl: p.photoUrl } : {}),
+          ...(weight ? { weight } : {}),
+          sourceProductId: p.id,
+        };
+      });
+    if (novos.length) setItems((old) => [...old, ...novos]);
+    setImportOpen(false);
+  };
   const [pendingPhoto, setPendingPhoto] = useState('');
   const [menuLinkCopied, setMenuLinkCopied] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -4305,7 +4622,8 @@ function DigitalMenu({
       ...old,
       {
         id: Date.now(),
-        name: fieldValue(data, 'name'),
+        name: fieldValue(data, 'name').trim(),
+        ...(fieldValue(data, 'flavor').trim() ? { flavor: fieldValue(data, 'flavor').trim() } : {}),
         category: fieldValue(data, 'category'),
         price: Number(fieldValue(data, 'price')),
         emoji: '🧁',
@@ -4357,16 +4675,135 @@ function DigitalMenu({
         }
       />
       <Panel className="mb-5 p-5">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Cardápio válido de">
+            <input
+              type="date"
+              value={period?.from ?? ''}
+              onChange={(e) =>
+                setPeriod(e.target.value ? { from: e.target.value, ...(period?.to ? { to: period.to } : {}) } : null)
+              }
+              className={`${inputClass} w-44!`}
+            />
+          </Field>
+          <Field label="até (opcional)">
+            <input
+              type="date"
+              value={period?.to ?? ''}
+              min={period?.from}
+              disabled={!period?.from}
+              onChange={(e) =>
+                period?.from &&
+                setPeriod({ from: period.from, ...(e.target.value ? { to: e.target.value } : {}) })
+              }
+              className={`${inputClass} w-44!`}
+            />
+          </Field>
+          <p className="min-w-0 flex-1 pb-2 text-xs text-muted-foreground">
+            {period?.from
+              ? `O cliente vê: "${menuPeriodLabel(period)}".`
+              : 'Escolha a data para o cliente saber a que dia ou semana o cardápio se refere.'}
+          </p>
+          <Dialog open={importOpen} onOpenChange={openImport}>
+            <DialogTrigger render={<Button variant="outline" className="h-10 rounded-xl" />}>
+              <Download /> Puxar dos meus produtos
+            </DialogTrigger>
+            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+              <DialogHeader>
+                <DialogTitle>Puxar dos meus produtos</DialogTitle>
+              </DialogHeader>
+              {importable.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {products.length === 0
+                    ? 'Você ainda não cadastrou produtos. Cadastre em Produtos e volte aqui.'
+                    : 'Todos os seus produtos já estão no cardápio.'}
+                </p>
+              ) : (
+                <div className="grid gap-3">
+                  <Field label="Categoria no cardápio">
+                    <input
+                      value={importCategory}
+                      onChange={(e) => setImportCategory(e.target.value)}
+                      maxLength={40}
+                      className={inputClass}
+                    />
+                  </Field>
+                  <ul className="grid gap-2">
+                    {importable.map((p) => {
+                      const choice = picked[p.id] ?? { on: false, price: '' };
+                      return (
+                        <li key={p.id} className="flex items-center gap-3 rounded-xl border p-3">
+                          <input
+                            type="checkbox"
+                            checked={choice.on}
+                            onChange={() =>
+                              setPicked((old) => ({ ...old, [p.id]: { ...choice, on: !choice.on } }))
+                            }
+                            aria-label={`Incluir ${p.name} ${p.flavor}`}
+                            className="size-4 shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold [overflow-wrap:anywhere]">{p.name}</p>
+                            <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{p.flavor}</p>
+                          </div>
+                          <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                            R$
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={choice.price}
+                              onChange={(e) =>
+                                setPicked((old) => ({
+                                  ...old,
+                                  [p.id]: { ...choice, price: e.target.value },
+                                }))
+                              }
+                              aria-label={`Preço de ${p.name} ${p.flavor}`}
+                              className="font-nums h-9 w-24 rounded-lg border bg-background px-2 text-sm text-foreground outline-none focus:border-primary"
+                            />
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <p className="text-xs text-muted-foreground">
+                    Produtos sem preço precisam de um valor para entrar no cardápio.
+                  </p>
+                  <Button
+                    type="button"
+                    disabled={pickedCount === 0}
+                    onClick={importProducts}
+                    className="justify-self-end rounded-xl"
+                  >
+                    <Plus /> Adicionar {pickedCount} {pickedCount === 1 ? 'produto' : 'produtos'}
+                  </Button>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+        </div>
+      </Panel>
+      <Panel className="mb-5 p-5">
         <form
           onSubmit={addProduct}
-          className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1.4fr_.8fr_.7fr_.5fr_.4fr_auto]"
+          className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1.1fr_1fr_.8fr_.6fr_.5fr_.4fr_auto]"
         >
           <Field label="Produto">
             <input
               required
               name="name"
+              maxLength={80}
               className={inputClass}
-              placeholder="Ex.: Brownie de pistache"
+              placeholder="Ex.: Brownie"
+            />
+          </Field>
+          <Field label="Sabor (opcional)">
+            <input
+              name="flavor"
+              maxLength={80}
+              className={inputClass}
+              placeholder="Ex.: Pistache"
             />
           </Field>
           <Field label="Categoria">
@@ -4408,7 +4845,7 @@ function DigitalMenu({
               <Plus /> Adicionar produto
             </Button>
           </div>
-          <div className="md:col-span-6">
+          <div className="sm:col-span-2 xl:col-span-7">
             <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-4 text-center transition hover:border-primary/50">
               <input
                 type="file"
@@ -4466,8 +4903,11 @@ function DigitalMenu({
                   {item.emoji}
                 </span>
               )}
-              <div className="flex-1">
-                <p className="font-semibold">{item.name}</p>
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold [overflow-wrap:anywhere]">{item.name}</p>
+                {item.flavor && (
+                  <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">{item.flavor}</p>
+                )}
                 <p className="text-xs text-muted-foreground">
                   {item.category} • {money(item.price)}
                   {item.weight ? ` • ${item.weight.value}${item.weight.unit}` : ''}
@@ -4582,7 +5022,8 @@ function ProductsCatalog({
       ...old,
       {
         id: Date.now(),
-        name: `${product.name} — ${product.flavor}`,
+        name: product.name,
+        ...(product.flavor ? { flavor: product.flavor } : {}),
         category: 'Catálogo',
         price: product.price!,
         available: true,
@@ -4761,23 +5202,127 @@ function ProductsCatalog({
   );
 }
 
-function favoriteProductOf(orders: Order[], customerName: string): string {
+// Pedidos de um cliente: pelo cadastro ligado ao pedido (customerId) e,
+// nos pedidos antigos que ainda não tinham esse vínculo, pelo nome.
+function ordersOfClient(orders: Order[], client: LoyaltyItem): Order[] {
+  return orders.filter((o) =>
+    o.customerId != null ? o.customerId === client.id : o.customer === client.name,
+  );
+}
+
+function orderDayOf(order: Order): string {
+  return order.orderDate || order.deliveryDate || '';
+}
+
+// Produtos que o cliente mais pede, por quantidade somada.
+function productRanking(orders: Order[]): { name: string; quantity: number }[] {
   const counts = new Map<string, number>();
   for (const order of orders) {
-    if (order.customer !== customerName) continue;
     for (const item of order.items ?? []) {
       counts.set(item.name, (counts.get(item.name) ?? 0) + item.quantity);
     }
   }
-  let best = '';
-  let bestCount = 0;
-  for (const [name, count] of counts) {
-    if (count > bestCount) {
-      best = name;
-      bestCount = count;
-    }
-  }
-  return best;
+  return [...counts]
+    .map(([name, quantity]) => ({ name, quantity }))
+    .sort((a, b) => b.quantity - a.quantity);
+}
+
+function ClientReport({ client, orders }: { client: LoyaltyItem; orders: Order[] }) {
+  const clientOrders = ordersOfClient(orders, client)
+    .slice()
+    .sort((a, b) => orderDayOf(b).localeCompare(orderDayOf(a)));
+  const total = clientOrders.reduce((sum, o) => sum + o.value, 0);
+  const ranking = productRanking(clientOrders);
+  const dates = clientOrders.map(orderDayOf).filter(Boolean).sort();
+  const lastDate = dates[dates.length - 1];
+  const firstDate = dates[0];
+  const daysSince = lastDate
+    ? Math.floor((Date.now() - new Date(`${lastDate}T12:00:00`).getTime()) / 86400000)
+    : null;
+
+  const stat = (label: string, value: React.ReactNode) => (
+    <div className="min-w-0 rounded-xl bg-muted p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-0.5 font-semibold [overflow-wrap:anywhere]">{value}</p>
+    </div>
+  );
+
+  return (
+    <div className="grid gap-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {stat('Pedidos', clientOrders.length)}
+        {stat('Total comprado', money(total))}
+        {stat('Ticket médio', clientOrders.length ? money(total / clientOrders.length) : '—')}
+        {stat('Selos', `${client.stamps}/10`)}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {stat(
+          'Última compra',
+          lastDate ? (
+            <>
+              {formatIsoDate(lastDate)}
+              <span className="block text-xs font-normal text-muted-foreground">
+                {daysSince === 0 ? 'hoje' : daysSince === 1 ? 'há 1 dia' : `há ${daysSince} dias`}
+              </span>
+            </>
+          ) : (
+            'Ainda não comprou'
+          ),
+        )}
+        {stat('Cliente desde', firstDate ? formatIsoDate(firstDate) : '—')}
+      </div>
+
+      <section>
+        <h3 className="mb-2 text-sm font-bold">Produtos mais pedidos</h3>
+        {ranking.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nenhum produto registrado ainda.</p>
+        ) : (
+          <ol className="grid gap-1.5">
+            {ranking.slice(0, 5).map((product, index) => (
+              <li key={product.name} className="flex items-center gap-3 rounded-lg border px-3 py-2 text-sm">
+                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-secondary text-xs font-bold text-primary">
+                  {index + 1}
+                </span>
+                <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{product.name}</span>
+                <span className="shrink-0 font-nums text-muted-foreground">{product.quantity} un.</span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
+      <section>
+        <h3 className="mb-2 text-sm font-bold">Histórico de pedidos</h3>
+        {clientOrders.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nenhum pedido ainda.</p>
+        ) : (
+          <ul className="max-h-72 divide-y overflow-y-auto rounded-xl border">
+            {clientOrders.map((order) => (
+              <li key={order.id} className="flex items-start gap-3 px-3 py-2.5 text-sm">
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">
+                    {order.id}{' '}
+                    <span className="font-normal text-muted-foreground">
+                      • {formatIsoDate(orderDayOf(order), order.date)}
+                    </span>
+                  </p>
+                  <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                    {order.items?.length
+                      ? order.items.map((i) => `${i.quantity}× ${i.name}`).join(', ')
+                      : order.item}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="font-nums font-semibold">{money(order.value)}</p>
+                  <p className="text-xs text-muted-foreground">{order.status}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
 }
 
 function formatIsoDate(date?: string, fallback = 'Sem data cadastrada'): string {
@@ -4796,19 +5341,40 @@ function Customers({
   setLoyalty: (v: LoyaltyItem[] | ((o: LoyaltyItem[]) => LoyaltyItem[])) => void;
 }) {
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [formError, setFormError] = useState('');
+
+  // O WhatsApp é a "chave" do cliente: o mesmo número não vira dois
+  // cadastros (o cardápio também acha o cliente por ele).
+  const checkPhone = (raw: string, ignoreId?: number): string | null | false => {
+    if (!raw.trim()) return null;
+    const phone = normalizePhone(raw);
+    if (!phone) {
+      setFormError('WhatsApp inválido: use DDD + 9 dígitos, ex.: (11) 91234-5678.');
+      return false;
+    }
+    const twin = loyalty.find((c) => c.id !== ignoreId && normalizePhone(c.phone) === phone);
+    if (twin) {
+      setFormError(`Esse WhatsApp já é de ${twin.name}.`);
+      return false;
+    }
+    return phone;
+  };
 
   const addClient = (e: FormSubmit) => {
     e.preventDefault();
+    setFormError('');
     const data = new FormData(e.currentTarget);
     const name = fieldValue(data, 'name').trim();
     const birthday = fieldValue(data, 'birthday').trim();
     if (!name || !birthday) return;
+    const phone = checkPhone(fieldValue(data, 'phone'));
+    if (phone === false) return;
     setLoyalty((old) => [
       ...old,
       {
         id: Date.now(),
         name,
-        phone: fieldValue(data, 'phone'),
+        phone: phone ?? '',
         birthday,
         stamps: 0,
       },
@@ -4822,7 +5388,10 @@ function Customers({
     const name = fieldValue(data, 'name').trim();
     const birthday = fieldValue(data, 'birthday').trim();
     if (!name || !birthday) return;
-    const phone = fieldValue(data, 'phone').trim();
+    setFormError('');
+    const checked = checkPhone(fieldValue(data, 'phone'), client.id);
+    if (checked === false) return;
+    const phone = checked ?? '';
     const response = await fetch(
       `/api/customers/${encodeURIComponent(client.id)}`,
       {
@@ -4868,7 +5437,17 @@ function Customers({
             />
           </Field>
           <Field label="WhatsApp (opcional)">
-            <input name="phone" className={inputClass} placeholder="(11) 90000-0000" />
+            <input
+              name="phone"
+              type="tel"
+              inputMode="numeric"
+              maxLength={16}
+              onChange={(e) => {
+                e.currentTarget.value = formatPhone(e.currentTarget.value);
+              }}
+              className={inputClass}
+              placeholder="(11) 91234-5678"
+            />
           </Field>
           <Field label="Aniversário">
             <input
@@ -4884,6 +5463,11 @@ function Customers({
             </Button>
           </div>
         </form>
+        {formError && (
+          <p role="alert" className="mt-3 text-sm font-medium text-destructive">
+            {formError}
+          </p>
+        )}
       </Panel>
       {loyalty.length === 0 && (
         <Panel className="p-10 text-center text-sm text-muted-foreground">
@@ -4892,12 +5476,11 @@ function Customers({
       )}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {loyalty.map((client) => {
-          const clientOrders = orders.filter((o) => o.customer === client.name);
+          const clientOrders = ordersOfClient(orders, client);
           const totalPurchased = clientOrders.reduce(
             (sum, o) => sum + o.value,
             0,
           );
-          const favorite = favoriteProductOf(orders, client.name);
           if (editingId === client.id) {
             return (
               <Panel key={client.id} className="p-5">
@@ -4916,7 +5499,13 @@ function Customers({
                   <Field label="WhatsApp">
                     <input
                       name="phone"
-                      defaultValue={client.phone}
+                      type="tel"
+                      inputMode="numeric"
+                      maxLength={16}
+                      defaultValue={client.phone ? formatPhone(client.phone) : ''}
+                      onChange={(e) => {
+                        e.currentTarget.value = formatPhone(e.currentTarget.value);
+                      }}
                       className={inputClass}
                     />
                   </Field>
@@ -4937,11 +5526,19 @@ function Customers({
                       type="button"
                       variant="outline"
                       className="flex-1"
-                      onClick={() => setEditingId(null)}
+                      onClick={() => {
+                        setEditingId(null);
+                        setFormError('');
+                      }}
                     >
                       Cancelar
                     </Button>
                   </div>
+                  {formError && (
+                    <p role="alert" className="text-sm font-medium text-destructive">
+                      {formError}
+                    </p>
+                  )}
                 </form>
               </Panel>
             );
@@ -4957,10 +5554,10 @@ function Customers({
                       .slice(0, 2)
                       .join('')}
                   </span>
-                  <div>
-                    <p className="font-semibold">{client.name}</p>
+                  <div className="min-w-0">
+                    <p className="font-semibold [overflow-wrap:anywhere]">{client.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {client.phone || 'Sem WhatsApp'}
+                      {client.phone ? formatPhone(client.phone) : 'Sem WhatsApp'}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       🎂 {formatIsoDate(client.birthday)}
@@ -4968,6 +5565,30 @@ function Customers({
                   </div>
                 </div>
                 <div className="flex shrink-0 gap-1">
+                  <Dialog>
+                    <DialogTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Relatório de ${client.name}`}
+                          title="Relatório do cliente"
+                        />
+                      }
+                    >
+                      <ClipboardList />
+                    </DialogTrigger>
+                    <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+                      <DialogHeader>
+                        <DialogTitle>{client.name}</DialogTitle>
+                        <p className="text-xs text-muted-foreground">
+                          {client.phone ? formatPhone(client.phone) : 'Sem WhatsApp'} • 🎂{' '}
+                          {formatIsoDate(client.birthday)}
+                        </p>
+                      </DialogHeader>
+                      <ClientReport client={client} orders={orders} />
+                    </DialogContent>
+                  </Dialog>
                   <Button
                     variant="ghost"
                     size="icon-sm"
@@ -5001,12 +5622,6 @@ function Customers({
                     {money(totalPurchased)}
                   </p>
                 </div>
-              </div>
-              <div className="mt-3 rounded-xl bg-muted p-3">
-                <p className="text-xs text-muted-foreground">Produto favorito</p>
-                <p className="text-sm font-semibold">
-                  {favorite || 'Ainda sem pedidos estruturados'}
-                </p>
               </div>
             </Panel>
           );
@@ -5222,12 +5837,25 @@ function Team({ isAdmin }: { isAdmin: boolean }) {
     loadInvites();
   };
 
-  const copyLink = (code: string) => {
-    const link = `${window.location.origin}/cadastro?convite=${code}`;
-    void navigator.clipboard.writeText(link).then(() => {
+  const [confirmDelete, setConfirmDelete] = useState('');
+
+  // O cadastro acontece dentro do aplicativo (não existe link público),
+  // então o que se compartilha é o código, com o passo a passo.
+  const copyCode = (code: string) => {
+    const text = `Seu código de convite do Confeitto: ${code}\nNo aplicativo, toque em "Criar conta", escolha "Entrar numa confeitaria" e digite o código.`;
+    void navigator.clipboard.writeText(text).then(() => {
       setCopiedCode(code);
       setTimeout(() => setCopiedCode(''), 2000);
     });
+  };
+
+  const removeInvite = async (code: string) => {
+    setConfirmDelete('');
+    const response = await fetch(`/api/invites/${encodeURIComponent(code)}`, {
+      method: 'DELETE',
+    });
+    if (response.ok) setInvites((old) => old.filter((i) => i.code !== code));
+    else loadInvites();
   };
 
   if (!isAdmin) {
@@ -5285,7 +5913,7 @@ function Team({ isAdmin }: { isAdmin: boolean }) {
               key={invite.code}
               className="flex flex-wrap items-center gap-3 px-5 py-4"
             >
-              <div className="flex-1">
+              <div className="min-w-0 flex-1">
                 <p className="font-mono text-sm font-bold tracking-wide">
                   {invite.code}
                 </p>
@@ -5304,12 +5932,44 @@ function Team({ isAdmin }: { isAdmin: boolean }) {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => copyLink(invite.code)}
+                  onClick={() => copyCode(invite.code)}
                 >
                   {copiedCode === invite.code ? <Check /> : <Copy />}
-                  {copiedCode === invite.code ? 'Copiado' : 'Copiar link'}
+                  {copiedCode === invite.code ? 'Copiado' : 'Copiar código'}
                 </Button>
               )}
+              {!invite.usedBy &&
+                (confirmDelete === invite.code ? (
+                  <span className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => void removeInvite(invite.code)}
+                    >
+                      Excluir convite
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setConfirmDelete('')}
+                    >
+                      Cancelar
+                    </Button>
+                  </span>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Excluir o convite ${invite.code}`}
+                    title="Excluir convite"
+                    onClick={() => setConfirmDelete(invite.code)}
+                  >
+                    <Trash2 />
+                  </Button>
+                ))}
             </div>
           ))}
         </div>

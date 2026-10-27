@@ -35,14 +35,14 @@ export async function POST(request: Request) {
   const gender = body.gender === 'M' || body.gender === 'F' ? body.gender : undefined;
   const inviteCode = body.inviteCode?.trim().toUpperCase();
 
+  // CPF e "Administrador/Administradora" são opcionais para quem entra
+  // pela equipe — a confeitaria já existe e quem administra já os deu.
   if (
     !email ||
     !name ||
-    !cpfCnpj ||
     !phone ||
-    !gender ||
     !inviteCode ||
-    !isValidCpfCnpj(cpfCnpj) ||
+    (cpfCnpj && !isValidCpfCnpj(cpfCnpj)) ||
     email.length > 254 ||
     !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
     name.length > 120 ||
@@ -82,9 +82,9 @@ export async function POST(request: Request) {
     id: email,
     email,
     name,
-    cpfCnpj,
+    cpfCnpj: cpfCnpj ?? '',
     phone,
-    gender,
+    ...(gender ? { gender } : {}),
     bakeryId: invite.bakeryId,
     role: invite.role,
     provider: 'credentials',

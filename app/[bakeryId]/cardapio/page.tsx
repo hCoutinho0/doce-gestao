@@ -19,6 +19,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { BakeryProfile } from '@/lib/bakery';
+import { formatPhone, normalizePhone } from '@/lib/phone';
 import { PreferenciasAcessibilidade } from '@/components/preferencias-acessibilidade';
 
 type MenuItem = {
@@ -28,9 +29,25 @@ type MenuItem = {
   price: number;
   available: boolean;
   emoji: string;
+  flavor?: string;
   photoUrl?: string;
   weight?: { value: number; unit: 'kg' | 'g' | 'l' };
 };
+type MenuPeriod = { from: string; to?: string } | null;
+
+// Mesmo nome que o servidor usa para conferir o preço ("Brownie — Pistache").
+const menuLabel = (item: Pick<MenuItem, 'name' | 'flavor'>) =>
+  item.flavor?.trim() ? `${item.name} — ${item.flavor.trim()}` : item.name;
+
+function periodLabel(period: NonNullable<MenuPeriod>): string {
+  const fmt = (d: string, withYear: boolean) => {
+    const [y, m, day] = d.split('-');
+    return withYear ? `${day}/${m}/${y}` : `${day}/${m}`;
+  };
+  return period.to && period.to !== period.from
+    ? `Cardápio de ${fmt(period.from, false)} a ${fmt(period.to, false)}`
+    : `Cardápio de ${fmt(period.from, true)}`;
+}
 type Cart = Record<number, number>;
 // Mercado Pago ("Pagar agora") is off for every confeitaria for now — it
 // used a single shared access token (Lavily's own account), which would
@@ -70,6 +87,57 @@ export default function CardapioPage() {
   const [cashChange, setCashChange] = useState('');
   const [paymentError, setPaymentError] = useState('');
   const [bakery, setBakery] = useState<BakeryProfile | null>(null);
+  const [period, setPeriod] = useState<MenuPeriod>(null);
+  // Cliente que já comprou antes: achado pelo celular, não precisa digitar
+  // nome e aniversário de novo (e não vira um cadastro duplicado).
+  const [lookup, setLookup] = useState<
+    | { status: 'idle' | 'checking' | 'new' }
+    | { status: 'found'; name: string; stamps: number; hasBirthday: boolean }
+  >({ status: 'idle' });
+  const [notMe, setNotMe] = useState(false);
+  const phoneDigits = normalizePhone(phone);
+  const phoneTouchedInvalid = phone.replace(/\D/g, '').length >= 10 && !phoneDigits;
+  const known = lookup.status === 'found' && !notMe ? lookup : null;
+  const needsName = !known;
+  const needsBirthday = !known || !known.hasBirthday;
+
+  useEffect(() => {
+    setNotMe(false);
+    if (!phoneDigits || !bakeryId) {
+      setLookup({ status: 'idle' });
+      return;
+    }
+    let cancelled = false;
+    setLookup({ status: 'checking' });
+    const timer = setTimeout(() => {
+      void fetch(
+        `/api/customers/lookup?bakeryId=${encodeURIComponent(bakeryId)}&phone=${phoneDigits}`,
+      )
+        .then((res) => (res.ok ? res.json() : null))
+        .then(
+          (
+            data: { found: boolean; name?: string; stamps?: number; hasBirthday?: boolean } | null,
+          ) => {
+            if (cancelled) return;
+            setLookup(
+              data?.found
+                ? {
+                    status: 'found',
+                    name: data.name ?? '',
+                    stamps: data.stamps ?? 0,
+                    hasBirthday: Boolean(data.hasBirthday),
+                  }
+                : { status: 'new' },
+            );
+          },
+        )
+        .catch(() => !cancelled && setLookup({ status: 'new' }));
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [phoneDigits, bakeryId]);
 
   useEffect(() => {
     if (!bakeryId) return;
@@ -85,6 +153,12 @@ export default function CardapioPage() {
       .then((data: { value: BakeryProfile } | null) => {
         if (data?.value) setBakery(data.value);
       });
+    void fetch(`/api/data/doce-menu-periodo?bakeryId=${encodeURIComponent(bakeryId)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { value: MenuPeriod } | null) => {
+        if (data?.value?.from) setPeriod(data.value);
+      })
+      .catch(() => {});
   }, [bakeryId]);
 
   const available = items.filter((item) => item.available);
@@ -123,7 +197,7 @@ export default function CardapioPage() {
   };
   const createOrder = async (paymentDetails: string, status: string) => {
     const description = cartItems
-      .map((item) => `${item.quantity}× ${item.name}`)
+      .map((item) => `${item.quantity}× ${menuLabel(item)}`)
       .join(', ');
     const details = `${description} • Pagamento: ${paymentDetails}${notes.trim() ? ` • ${notes.trim()}` : ''}`;
     const response = await fetch('/api/orders', {
@@ -131,11 +205,14 @@ export default function CardapioPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         bakeryId,
-        customer: customer.trim(),
-        phone: phone.trim(),
-        birthday,
+        // Cliente reconhecido pelo celular: o nome vem do cadastro.
+        customer: needsName ? customer.trim() : '',
+        phone: phoneDigits,
+        // "Não é você?": mesmo celular, outra pessoa (ex.: telefone da família).
+        ...(notMe ? { newCustomer: true } : {}),
+        ...(needsBirthday && birthday ? { birthday } : {}),
         items: cartItems.map((item) => ({
-          name: item.name,
+          name: menuLabel(item),
           quantity: item.quantity,
         })),
         item: details,
@@ -160,6 +237,8 @@ export default function CardapioPage() {
     setCustomer('');
     setPhone('');
     setBirthday('');
+    setLookup({ status: 'idle' });
+    setNotMe(false);
     setDeliveryDate('');
     setNotes('');
     setPayment('');
@@ -168,8 +247,9 @@ export default function CardapioPage() {
   };
   const finishOrder = async () => {
     if (
-      !customer.trim() ||
-      !birthday ||
+      !phoneDigits ||
+      (needsName && !customer.trim()) ||
+      (needsBirthday && !birthday) ||
       !deliveryDate ||
       !cartItems.length ||
       !payment ||
@@ -242,7 +322,7 @@ export default function CardapioPage() {
         <div className="relative mx-auto flex min-h-[320px] max-w-7xl items-center px-5 py-10 sm:px-8">
           <div className="max-w-xl text-white">
             <Badge className="mb-4 bg-white/15 text-white backdrop-blur">
-              Cardápio online
+              {period ? periodLabel(period) : 'Cardápio online'}
             </Badge>
             <h1 className="font-heading text-4xl font-bold leading-tight sm:text-5xl">
               Um carinho doce para cada ocasião.
@@ -282,7 +362,7 @@ export default function CardapioPage() {
                 {item.photoUrl ? (
                   <Image
                     src={item.photoUrl}
-                    alt={item.name}
+                    alt={menuLabel(item)}
                     width={48}
                     height={48}
                     unoptimized
@@ -294,9 +374,14 @@ export default function CardapioPage() {
                   </span>
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-heading text-base font-bold sm:text-lg">
+                  <h3 className="font-heading text-lg font-bold leading-snug [overflow-wrap:anywhere] sm:text-xl">
                     {item.name}
-                  </p>
+                  </h3>
+                  {item.flavor && (
+                    <p className="text-base font-medium leading-snug text-foreground/75 [overflow-wrap:anywhere]">
+                      {item.flavor}
+                    </p>
+                  )}
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {item.category}
                     {item.weight
@@ -317,7 +402,7 @@ export default function CardapioPage() {
                         onClick={() => changeQuantity(item.id, -1)}
                         variant="ghost"
                         size="icon-sm"
-                        aria-label={`Diminuir ${item.name}`}
+                        aria-label={`Diminuir ${menuLabel(item)}`}
                       >
                         <Minus />
                       </Button>
@@ -327,7 +412,7 @@ export default function CardapioPage() {
                       <Button
                         onClick={() => changeQuantity(item.id, 1)}
                         size="icon-sm"
-                        aria-label={`Adicionar ${item.name}`}
+                        aria-label={`Adicionar ${menuLabel(item)}`}
                       >
                         <Plus />
                       </Button>
@@ -336,7 +421,7 @@ export default function CardapioPage() {
                     <Button
                       size="icon-sm"
                       onClick={() => changeQuantity(item.id, 1)}
-                      aria-label={`Adicionar ${item.name}`}
+                      aria-label={`Adicionar ${menuLabel(item)}`}
                     >
                       <Plus />
                     </Button>
@@ -370,7 +455,7 @@ export default function CardapioPage() {
                   Recebemos o pedido <strong>{success}</strong>. A confeitaria
                   entrará em contato para confirmar a disponibilidade.
                 </p>
-                {stamps > 0 && (
+                {(
                   <div className="mt-5 overflow-hidden rounded-2xl text-left">
                     <div className="bg-gradient-to-br from-[#4f1f6e] to-[#a374c9] p-5 text-white">
                       <div className="flex items-center justify-between">
@@ -396,7 +481,9 @@ export default function CardapioPage() {
                       <p className="mt-4 text-xs text-white/75">
                         {stamps >= 10
                           ? 'Desconto de 10% liberado! Combine com a confeitaria.'
-                          : `Faltam ${10 - stamps} selos para 10% de desconto`}
+                          : stamps === 0
+                            ? 'Seu cartão está pronto: cada pedido entregue vale selo. Com 10 selos, 10% de desconto.'
+                            : `Faltam ${10 - stamps} selos para 10% de desconto`}
                       </p>
                     </div>
                   </div>
@@ -412,8 +499,13 @@ export default function CardapioPage() {
                     <div key={item.id} className="flex items-center gap-3 p-4">
                       <span className="text-2xl">{item.emoji}</span>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold">
+                        <p className="text-sm font-semibold [overflow-wrap:anywhere]">
                           {item.name}
+                          {item.flavor && (
+                            <span className="block font-normal text-muted-foreground">
+                              {item.flavor}
+                            </span>
+                          )}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {item.quantity} × {money(item.price)}
@@ -425,7 +517,7 @@ export default function CardapioPage() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        aria-label={`Remover ${item.name}`}
+                        aria-label={`Remover ${menuLabel(item)}`}
                         onClick={() => {
                           setCart((old) => {
                             const next = { ...old };
@@ -452,35 +544,79 @@ export default function CardapioPage() {
                 </div>
                 <div className="space-y-4 border-t p-5">
                   <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
-                    Seu nome
-                    <input
-                      value={customer}
-                      maxLength={120}
-                      onChange={(e) => setCustomer(e.target.value)}
-                      className="h-10 rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
-                      placeholder="Nome para o pedido"
-                    />
-                  </label>
-                  <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
-                    WhatsApp (opcional)
-                    <input
-                      value={phone}
-                      maxLength={40}
-                      onChange={(e) => setPhone(e.target.value)}
-                      className="h-10 rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
-                      placeholder="(11) 90000-0000"
-                    />
-                  </label>
-                  <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
-                    Data de aniversário
+                    Seu WhatsApp (celular)
                     <input
                       required
-                      type="date"
-                      value={birthday}
-                      onChange={(e) => setBirthday(e.target.value)}
-                      className="h-10 rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+                      type="tel"
+                      inputMode="numeric"
+                      autoComplete="tel-national"
+                      value={phone}
+                      maxLength={16}
+                      onChange={(e) => setPhone(formatPhone(e.target.value))}
+                      aria-invalid={phoneTouchedInvalid}
+                      aria-describedby="telefone-ajuda"
+                      className="h-10 rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 aria-[invalid=true]:border-destructive"
+                      placeholder="(11) 91234-5678"
                     />
                   </label>
+                  <p id="telefone-ajuda" aria-live="polite" className="-mt-2 text-xs">
+                    {phoneTouchedInvalid ? (
+                      <span className="font-semibold text-destructive">
+                        Confira o número: DDD + 9 dígitos, começando com 9.
+                      </span>
+                    ) : lookup.status === 'checking' ? (
+                      <span className="text-muted-foreground">Procurando seu cadastro…</span>
+                    ) : known ? null : (
+                      <span className="text-muted-foreground">
+                        Usamos o celular para o seu cartão fidelidade.
+                      </span>
+                    )}
+                  </p>
+                  {known && (
+                    <div className="flex items-start gap-3 rounded-xl bg-secondary p-3 text-secondary-foreground">
+                      <Gift className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
+                      <div className="min-w-0 text-sm">
+                        <p className="font-semibold">Que bom te ver de novo, {known.name}!</p>
+                        <p className="text-xs">
+                          Você tem {known.stamps} {known.stamps === 1 ? 'selo' : 'selos'} no cartão
+                          fidelidade. Este pedido entra no mesmo cartão.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setNotMe(true)}
+                          className="mt-1 text-xs font-semibold underline underline-offset-2"
+                        >
+                          Não é você?
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {needsName && (
+                    <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
+                      Seu nome
+                      <input
+                        required
+                        value={customer}
+                        maxLength={120}
+                        autoComplete="name"
+                        onChange={(e) => setCustomer(e.target.value)}
+                        className="h-10 rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+                        placeholder="Nome para o pedido"
+                      />
+                    </label>
+                  )}
+                  {needsBirthday && (
+                    <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
+                      Data de aniversário
+                      <input
+                        required
+                        type="date"
+                        value={birthday}
+                        onChange={(e) => setBirthday(e.target.value)}
+                        className="h-10 rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+                      />
+                    </label>
+                  )}
                   <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
                     Data da entrega
                     <span className="relative">
@@ -607,8 +743,10 @@ export default function CardapioPage() {
                     onClick={() => void finishOrder()}
                     disabled={
                       !cartItems.length ||
-                      !customer.trim() ||
-                      !birthday ||
+                      !phoneDigits ||
+                      lookup.status === 'checking' ||
+                      (needsName && !customer.trim()) ||
+                      (needsBirthday && !birthday) ||
                       !deliveryDate ||
                       !payment ||
                       invalidChange

@@ -213,6 +213,10 @@ export function readGlobal<T>(id: string): Promise<T | null> {
   return readDoc<T>(id);
 }
 
+export async function deleteGlobal(id: string): Promise<void> {
+  await rest('DELETE', `?id=eq.${enc(id)}`, undefined, 'return=minimal');
+}
+
 export function writeGlobal<T>(id: string, value: T): Promise<void> {
   return writeDoc(id, value);
 }

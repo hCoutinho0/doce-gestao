@@ -54,6 +54,9 @@ function cardapioOnly(req: NextRequest) {
       (method === 'GET' &&
         (pathname === '/api/data/doce-menu' ||
           pathname === '/api/data/doce-bakery-profile' ||
+          pathname === '/api/data/doce-menu-periodo' ||
+          // Celular já cadastrado? (só primeiro nome e selos)
+          pathname === '/api/customers/lookup' ||
           pathname.startsWith('/api/media/'))) ||
       (method === 'POST' &&
         (pathname === '/api/orders' ||

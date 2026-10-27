@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isDbConfigured, readState } from '@/lib/db';
-import { getInvite } from '@/lib/tenant';
+import { deleteInvite, getInvite } from '@/lib/tenant';
+import { auth } from '@/auth';
 import { checkRateLimit, clientIp } from '@/lib/rateLimit';
 import type { BakeryProfile } from '@/lib/bakery';
 
@@ -37,4 +38,23 @@ export async function GET(
     },
     { headers: { 'Cache-Control': 'no-store' } },
   );
+}
+
+// Administrador(a) cancela um convite que ainda não foi usado.
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ code: string }> },
+) {
+  const session = await auth();
+  if (!session?.user.bakeryId || session.user.role !== 'admin') {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+  if (!isDbConfigured()) {
+    return NextResponse.json({ error: 'not_configured' }, { status: 503 });
+  }
+  const { code } = await params;
+  const deleted = await deleteInvite(code.slice(0, 32), session.user.bakeryId);
+  return deleted
+    ? NextResponse.json({ ok: true })
+    : NextResponse.json({ error: 'not_found' }, { status: 404 });
 }
