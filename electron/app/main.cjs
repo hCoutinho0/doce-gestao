@@ -588,7 +588,17 @@ async function checkForUpdates({ silent = true } = {}) {
       return;
     }
     const manifest = await response.json();
-    if (!manifest.version || RUNTIME.compareVersions(manifest.version, APP_VERSION) <= 0) {
+    // Versão e nome do arquivo viram caminho de pasta e endereço de download:
+    // só formatos conhecidos, e o hash é obrigatório (sem ele não há como
+    // saber se o pacote veio como foi publicado).
+    if (
+      !/^\d+\.\d+\.\d+$/.test(String(manifest.version)) ||
+      !/^[\w.-]+\.tgz$/.test(String(manifest.file)) ||
+      !/^[0-9a-f]{64}$/.test(String(manifest.sha256))
+    ) {
+      throw new Error('manifesto de atualização inválido');
+    }
+    if (RUNTIME.compareVersions(manifest.version, APP_VERSION) <= 0) {
       await tell(`O Confeitto já está na versão mais nova (${APP_VERSION}).`);
       return;
     }
@@ -610,7 +620,7 @@ async function checkForUpdates({ silent = true } = {}) {
       if (!download.ok) throw new Error(`download ${download.status}`);
       const data = Buffer.from(await download.arrayBuffer());
       const hash = crypto.createHash('sha256').update(data).digest('hex');
-      if (manifest.sha256 && hash !== manifest.sha256) throw new Error('arquivo corrompido (hash)');
+      if (hash !== manifest.sha256) throw new Error('arquivo corrompido (hash)');
 
       const tgz = path.join(RUNTIME.updatesDir, `${manifest.version}.tgz`);
       const tmp = path.join(RUNTIME.updatesDir, `${manifest.version}.tmp`);

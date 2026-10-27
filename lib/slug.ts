@@ -35,6 +35,12 @@ export const RESERVED_SLUGS = new Set([
   'configurar',
   'cardapio',
   'api',
+  'assets',
+  // Prefixos dos documentos globais no banco (`user:…`, `invite:…`,
+  // `ratelimit:…`): uma confeitaria com esse nome compartilharia o prefixo.
+  'user',
+  'invite',
+  'ratelimit',
   'favicon.ico',
   'robots.txt',
   'sitemap.xml',

@@ -43,6 +43,8 @@ const ADMIN_ONLY_KEYS = new Set([
 // query string (obrigatório — sem fallback para nenhuma confeitaria fixa).
 const PUBLIC_READ_KEYS = new Set(['doce-menu', 'doce-bakery-profile', 'doce-menu-periodo']);
 
+const MAX_BODY_CHARS = 5_000_000;
+
 // O que o cardápio público pode ver do perfil: só a vitrine. Razão social,
 // telefone interno, fundação, tamanho da equipe etc. ficam no painel.
 const PUBLIC_PROFILE_FIELDS = [
@@ -142,7 +144,18 @@ export async function PUT(
   if (!isDbConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
-  const body = (await request.json()) as { value: unknown };
+  // Limite de tamanho: nenhum documento legítimo chega perto disso, e sem
+  // teto uma conta (ou um script com o cookie dela) enche o banco de graça.
+  const raw = await request.text();
+  if (raw.length > MAX_BODY_CHARS) {
+    return NextResponse.json({ error: 'too_large' }, { status: 413 });
+  }
+  let body: { value: unknown };
+  try {
+    body = JSON.parse(raw) as { value: unknown };
+  } catch {
+    return NextResponse.json({ error: 'invalid_json' }, { status: 400 });
+  }
   await writeState(session.user.bakeryId, key, body.value);
   return NextResponse.json({ ok: true });
 }
