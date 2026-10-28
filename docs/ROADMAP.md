@@ -36,11 +36,10 @@ de uma ação sua fora do código.
 
 1. **Trocar o `AUTH_SECRET` do Vercel** e, para usar o painel no iPhone, apagar a
    variável `CARDAPIO_ONLY` (passo a passo em `docs/SEGURANCA.md`).
-2. Revogar as chaves antigas do Azure/Google/WhatsApp (`docs/SEGURANCA.md`).
-3. Preencher em **Ajustes** a chave Pix e o limite de pedidos por dia.
-4. Plano grátis do Supabase **pausa** após ~7 dias sem uso: abrir o app ao
+2. Preencher em **Ajustes** a chave Pix e o limite de pedidos por dia.
+3. Plano grátis do Supabase **pausa** após ~7 dias sem uso: abrir o app ao
    menos uma vez por semana. As fotos do cardápio não entram no backup.
-5. Antes de vender: Vercel Hobby é só para uso não comercial (plano Pro), e
+4. Antes de vender: Vercel Hobby é só para uso não comercial (plano Pro), e
    `ALLOW_SIGNUP=1` abre o cadastro de confeitarias novas.
 
 ## Ideias que ainda não foram feitas

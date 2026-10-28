@@ -5,7 +5,7 @@
 //   .next/static/**       -> desktop-server/.next/static/
 //   public/**             -> desktop-server/public/
 //
-// Também remove arquivos .env (que podem ter chaves antigas do Azure) e
+// Também remove arquivos .env (que podem ter chaves) e
 // qualquer pasta de dados local que o build tenha arrastado junto — nada
 // disso pode ir parar dentro do instalador.
 

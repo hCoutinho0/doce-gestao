@@ -1,5 +1,5 @@
 // Pure string helpers for the confeitaria's link (`confeitto.com.br/{slug}`)
-// — no Cosmos import here on purpose, so this stays safe to use from a
+// — no database import here on purpose, so this stays safe to use from a
 // 'use client' component for the live preview while typing, not just from
 // API routes.
 

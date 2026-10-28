@@ -53,8 +53,7 @@ linguagem simples (o usuário não é programador).
   do perfil; upload confere assinatura do arquivo; rate limits em login,
   cadastro, convites, upload, lookup de celular e checkout.
 - Segredos só em `.env.local` (gitignored) e nas variáveis do Vercel. Nunca
-  imprimir chaves. `.env.local` já não tem as chaves antigas (Azure/Google/WhatsApp/VAPID); falta o
-  usuário revogá-las nos serviços de origem.
+  imprimir chaves.
 - **Mercado Pago (cartão no site):** integração pronta (Checkout Pro +
   webhook com assinatura), mas desligada no cardápio ("Cartão — Em breve").
   Não remover. Precisa de `MERCADOPAGO_ACCESS_TOKEN` e
@@ -97,6 +96,6 @@ ficha técnica.
 
 ## Pendências conhecidas
 
-- Usuário: revogar as chaves antigas (Azure/Google/WhatsApp), trocar o `AUTH_SECRET` do Vercel (`docs/SEGURANCA.md`).
+- Usuário: trocar o `AUTH_SECRET` do Vercel (`docs/SEGURANCA.md`).
 - Preencher WhatsApp/Instagram em Configurações para os botões aparecerem no site.
 - Ativar o cartão (Mercado Pago) quando o usuário quiser.

@@ -50,13 +50,10 @@ perdido, instalador enviado por canal público, repositório com a chave):
 3. **Apague a chave antiga** e gere/publique o app de Windows de novo
    (`publicar-atualizacao.bat`; instalador novo só para PCs novos).
 
-### 3. Revogar o que sobrou da versão antiga
+### 3. Projeto antigo do Supabase
 
-- **Azure** (portal.azure.com): apague o Cosmos DB, o Storage Account e o App
-  Registration do login Microsoft.
-- **Google** (console.cloud.google.com → Credenciais): apague o OAuth client.
-- **WhatsApp/Meta** (developers.facebook.com): revogue o token ou apague o app.
-- O projeto Supabase **antigo** (EUA): apague uns 7 dias depois de tudo estável.
+O projeto Supabase **antigo** (EUA) deve ser apagado uns 7 dias depois de tudo estável
+(*Project Settings → General → Delete project*).
 
 ### 4. Hábitos
 

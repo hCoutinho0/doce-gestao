@@ -106,25 +106,6 @@ traz os dados da própria confeitaria. Manual: menu da conta → **Baixar backup
 dos dados**. Restaurar: `node scripts/restaurar-backup.mjs "arquivo.json"`
 (usa o `.env.local`).
 
-## O que mudou em relação à versão na nuvem
-
-- **Banco de dados**: o Azure Cosmos DB virou uma tabela no Supabase
-  (`lib/db.ts`, pela API REST, sem biblioteca extra), com controle de
-  versão por documento para dois computadores gravarem ao mesmo tempo sem
-  um apagar a alteração do outro — a mesma API de antes (`readState`,
-  `writeState`, `updateStateAtomic`…).
-- **Fotos**: o Azure Blob Storage virou o Supabase Storage (bucket `fotos`).
-- **Login**: só email e senha. Google e Microsoft Entra ID foram removidos
-  (precisavam de endereço público e de conta no Azure).
-- **Lembrete de tarefas**: em vez de Web Push + GitHub Actions, o próprio
-  aplicativo mostra uma notificação do Windows uma vez por dia, a partir das
-  8h, se houver tarefas pendentes.
-- **Aplicativo**: o Next.js roda como servidor interno (modo standalone)
-  dentro de uma janela Electron (`electron/app/main.cjs`), só em
-  `127.0.0.1` — nada fica acessível pela rede.
-- Removidos: `@azure/cosmos`, `@azure/storage-blob`, `web-push` e os
-  workflows de deploy do GitHub Actions.
-
 ## Acessibilidade
 
 O botão **Aa** (no topo do painel, do cardápio, do login e do cadastro)
