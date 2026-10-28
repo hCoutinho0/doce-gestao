@@ -21,7 +21,12 @@ export async function GET(request: Request) {
   const keys = readableKeys(requested, session.user.role).slice(0, 30);
   const found = await readStates(session.user.bakeryId, keys);
   return NextResponse.json(
-    { values: Object.fromEntries(keys.map((k) => [k, found[k] ?? null])) },
+    {
+      values: Object.fromEntries(keys.map((k) => [k, found[k]?.value ?? null])),
+      // Versão de cada documento (0 = ainda não existe): o painel manda de
+      // volta ao gravar, para o servidor perceber se outro mexeu antes.
+      versions: Object.fromEntries(keys.map((k) => [k, found[k]?.version ?? 0])),
+    },
     { headers: { 'Cache-Control': 'no-store' } },
   );
 }

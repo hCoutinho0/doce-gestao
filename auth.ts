@@ -78,6 +78,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // user só vem no login; trigger 'update' vem logo depois do /cadastro.
       if ((user || trigger === 'update' || stale) && token.email) {
         const account = await getUserByEmail(token.email);
+        const lastChecked = t.checkedAt ?? 0;
         t.checkedAt = Date.now();
         if (account) {
           t.bakeryId = account.bakeryId;
@@ -85,6 +86,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           t.gender = account.gender;
           t.needsOnboarding = false;
           t.revoked = false;
+          // Senha trocada depois da última conferência desta sessão: derruba
+          // (quem trocou entra de novo com a senha nova). Usa checkedAt e não
+          // o iat do token, que se renova a cada uso.
+          if (!user && account.passwordChangedAt && lastChecked < account.passwordChangedAt) {
+            t.revoked = true;
+          }
         } else if (user || trigger === 'update') {
           // Logado mas ainda sem confeitaria (meio do cadastro).
           t.bakeryId = null;

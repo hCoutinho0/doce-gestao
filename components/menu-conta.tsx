@@ -7,11 +7,13 @@ import {
   ChevronsUpDown,
   CircleHelp,
   Info,
+  KeyRound,
   LogOut,
   RefreshCw,
   Settings,
   Type,
 } from 'lucide-react';
+import { AlterarSenha } from '@/components/alterar-senha';
 import { ControlesLeitura } from '@/components/preferencias-acessibilidade';
 
 // Funções do aplicativo de desktop (electron/app/main-preload.cjs). No
@@ -43,6 +45,7 @@ type Props = {
 export function MenuConta({ nome, email, papel, iniciais, admin, onAjuda, onSair }: Props) {
   const [aberto, setAberto] = useState(false);
   const [leituraAberta, setLeituraAberta] = useState(false);
+  const [senhaAberta, setSenhaAberta] = useState(false);
   const [desktop, setDesktop] = useState<Desktop | null>(null);
   const [versao, setVersao] = useState('');
   const [ocupado, setOcupado] = useState(false);
@@ -143,6 +146,18 @@ export function MenuConta({ nome, email, papel, iniciais, admin, onAjuda, onSair
             className={item}
             onClick={() => {
               fechar();
+              setSenhaAberta(true);
+            }}
+          >
+            <KeyRound className={icone} aria-hidden="true" />
+            Alterar minha senha
+          </button>
+
+          <button
+            type="button"
+            className={item}
+            onClick={() => {
+              fechar();
               onAjuda();
             }}
           >
@@ -181,6 +196,8 @@ export function MenuConta({ nome, email, papel, iniciais, admin, onAjuda, onSair
           </button>
         </div>
       )}
+
+      <AlterarSenha aberto={senhaAberta} onFechar={() => setSenhaAberta(false)} />
 
       <button
         ref={botao}

@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps } from 'react';
+import { useEffect, useMemo, useState, type ComponentProps } from 'react';
 import {
   Bar,
   BarChart,
@@ -76,6 +76,7 @@ import {
   IconeProdutos,
   IconeVisaoGeral,
 } from '@/components/icones-interface';
+import { usePanelLoading, useServerFetchedState, useStoredState } from '@/lib/use-painel';
 import { BAKERY_KEY, type BakeryProfile } from '@/lib/bakery';
 import { useUserSession, signOut } from '@/lib/auth';
 import type { Invite } from '@/lib/tenant';
@@ -386,9 +387,7 @@ export default function Home() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [orders, setOrders] = useServerFetchedState('doce-orders', initialOrders);
   const [stock, setStock] = useStoredState('doce-stock-v2', initialStock);
-  const [shopping, setShopping] = useStoredState<ShoppingItem[]>('doce-compras', [], {
-    refreshOnFocus: true,
-  });
+  const [shopping, setShopping] = useStoredState<ShoppingItem[]>('doce-compras', []);
   const [finance, setFinance] = useStoredState('doce-finance', initialFinance);
   const [menuItems, setMenuItems] = useStoredState('doce-menu', initialMenu);
   const [cash, setCash] = useStoredState<CashBalance>('doce-caixa', null);
@@ -403,21 +402,11 @@ export default function Home() {
     'doce-pricing',
     [],
   );
-  const [bakery, setBakery] = useState<BakeryProfile | null>(null);
+  const [bakery] = useServerFetchedState<BakeryProfile | null>(BAKERY_KEY, null);
   const { session, isLoading: sessionLoading } = useUserSession();
   const isBrowserReady = !sessionLoading;
 
   const panelLoading = usePanelLoading();
-
-  useEffect(() => {
-    let cancelled = false;
-    void fetchPanelKey<BakeryProfile>(BAKERY_KEY).then((data) => {
-      if (!cancelled && data?.value) setBakery(data.value);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     if (isBrowserReady && !session) window.location.replace('/login');
@@ -633,167 +622,6 @@ export default function Home() {
       </div>
     </main>
   );
-}
-
-// Todas as leituras iniciais do painel saem juntas: cada hook pede sua chave
-// e, no mesmo instante, uma única chamada a /api/data/bulk traz tudo (uma ida
-// ao banco em vez de ~13). Se a leitura falhar (rede, timeout, Supabase
-// acordando), tenta de novo em vez de entregar "vazio": um hook que acha que
-// carregou com dados vazios regrava o documento inteiro por cima do real na
-// próxima edição. Sessão caída (401) é o único caso que vira "vazio" — a tela
-// volta para o login de qualquer jeito.
-type PanelRead = { value: unknown } | null;
-type PanelBatch = [string, ((result: PanelRead) => void)[]][];
-const waitingKeys = new Map<string, ((result: PanelRead) => void)[]>();
-let flushTimer: ReturnType<typeof setTimeout> | null = null;
-let firstBatchDone = false;
-const panelListeners = new Set<() => void>();
-const PANEL_RETRY_MS = 3000;
-
-async function flushPanelKeys(batch: PanelBatch) {
-  let values: Record<string, unknown> | null = null;
-  let retry = false;
-  try {
-    const res = await fetch(`/api/data/bulk?keys=${batch.map(([key]) => key).join(',')}`);
-    if (res.ok) values = ((await res.json()) as { values: Record<string, unknown> }).values;
-    else retry = res.status !== 401;
-  } catch {
-    retry = true;
-  }
-  if (retry) {
-    setTimeout(() => void flushPanelKeys(batch), PANEL_RETRY_MS);
-    return;
-  }
-  for (const [key, resolvers] of batch) {
-    const value = values?.[key];
-    for (const resolve of resolvers) resolve(value === undefined ? null : { value });
-  }
-  firstBatchDone = true;
-  panelListeners.forEach((notify) => notify());
-}
-
-function fetchPanelKey<T>(key: string): Promise<{ value: T } | null> {
-  return new Promise((resolve) => {
-    const resolvers = waitingKeys.get(key) ?? [];
-    resolvers.push(resolve as (result: PanelRead) => void);
-    waitingKeys.set(key, resolvers);
-    flushTimer ??= setTimeout(() => {
-      const batch: PanelBatch = [...waitingKeys];
-      waitingKeys.clear();
-      flushTimer = null;
-      void flushPanelKeys(batch);
-    }, 0);
-  });
-}
-
-// true até a primeira leva de dados do painel chegar.
-function usePanelLoading(): boolean {
-  return useSyncExternalStore(
-    (notify) => {
-      panelListeners.add(notify);
-      return () => void panelListeners.delete(notify);
-    },
-    () => !firstBatchDone,
-    () => true,
-  );
-}
-
-// Same shape as the old localStorage-backed hook it replaces, so every
-// call site below stays untouched — only the storage moved, from the
-// browser to a Cosmos DB document shared by every device signed in to this
-// confeitaria.
-function useStoredState<T>(
-  key: string,
-  initial: T,
-  options: { refreshOnFocus?: boolean } = {},
-): [T, (value: T | ((old: T) => T)) => void] {
-  const [state, setState] = useState<T>(initial);
-  const [loaded, setLoaded] = useState(false);
-  const skipNextWrite = useRef(true);
-  const { refreshOnFocus = false } = options;
-
-  // Dados que duas pessoas mexem no mesmo dia (lista de compras): ao voltar
-  // para a janela, busca de novo para ver o que a outra pessoa mudou.
-  useEffect(() => {
-    if (!refreshOnFocus) return;
-    const refresh = () => {
-      if (document.visibilityState === 'hidden') return;
-      void fetch(`/api/data/${key}`, { headers: { 'X-Panel-Request': '1' } })
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data: { value: T } | null) => {
-          if (data?.value === null || data?.value === undefined) return;
-          skipNextWrite.current = true;
-          setState(data.value);
-        })
-        .catch(() => {});
-    };
-    window.addEventListener('focus', refresh);
-    document.addEventListener('visibilitychange', refresh);
-    return () => {
-      window.removeEventListener('focus', refresh);
-      document.removeEventListener('visibilitychange', refresh);
-    };
-  }, [key, refreshOnFocus]);
-
-  useEffect(() => {
-    let cancelled = false;
-    skipNextWrite.current = true;
-    // Only the admin panel sends this header — it tells the API "read MY
-    // confeitaria's data" even for the handful of keys (menu, bakery
-    // profile) the public cardápio also reads anonymously and expects
-    // pinned to one fixed confeitaria regardless of whose session cookie
-    // happens to be in the browser.
-    void fetchPanelKey<T>(key).then((data) => {
-      if (cancelled) return;
-      if (data?.value !== null && data?.value !== undefined) {
-        setState(data.value);
-      }
-      setLoaded(true);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [key]);
-
-  useEffect(() => {
-    if (!loaded) return;
-    if (skipNextWrite.current) {
-      skipNextWrite.current = false;
-      return;
-    }
-    void fetch(`/api/data/${key}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: state }),
-    });
-  }, [key, state, loaded]);
-
-  return [state, setState];
-}
-
-// Orders are touched from two independent places — the admin panel and the
-// public cardápio — so a full-array PUT of a stale in-memory snapshot from
-// here can silently erase whatever the other side wrote in between (that's
-// exactly how two real customer orders were lost). This variant only ever
-// reads; every mutation goes through /api/orders instead, which reads the
-// current database state and writes back just its own change.
-function useServerFetchedState<T>(key: string, initial: T): [T, (value: T | ((old: T) => T)) => void] {
-  const [state, setState] = useState<T>(initial);
-
-  useEffect(() => {
-    let cancelled = false;
-    void fetchPanelKey<T>(key).then((data) => {
-      if (cancelled) return;
-      if (data?.value !== null && data?.value !== undefined) {
-        setState(data.value);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [key]);
-
-  return [state, setState];
 }
 
 function SidebarNav({

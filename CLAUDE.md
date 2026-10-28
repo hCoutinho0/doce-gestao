@@ -52,8 +52,8 @@ linguagem simples (o usuário não é programador).
   do perfil; upload confere assinatura do arquivo; rate limits em login,
   cadastro, convites, upload, lookup de celular e checkout.
 - Segredos só em `.env.local` (gitignored) e nas variáveis do Vercel. Nunca
-  imprimir chaves. `.env.local` ainda tem chaves antigas de Azure/Google/
-  WhatsApp/VAPID que o usuário deve apagar e revogar.
+  imprimir chaves. `.env.local` já não tem as chaves antigas (Azure/Google/WhatsApp/VAPID); falta o
+  usuário revogá-las nos serviços de origem.
 - **Mercado Pago (cartão no site):** integração pronta (Checkout Pro +
   webhook com assinatura), mas desligada no cardápio ("Cartão — Em breve").
   Não remover. Precisa de `MERCADOPAGO_ACCESS_TOKEN` e
@@ -81,10 +81,25 @@ relatório do cliente; excluir convite; caixa da empresa no Financeiro; puxar
 produtos para o cardápio escolhendo um a um; cadastro de item novo direto na
 ficha técnica.
 
+## Dados: gravação com versão (dois computadores)
+
+- Cada documento do `app_state` tem `version`. O painel (`lib/use-painel.ts`)
+  manda a versão que leu em `PUT /api/data/[key]`; se mudou, a rota responde 409
+  com o valor atual e o painel mescla (`lib/merge.ts`: itens por `id`/`productId`,
+  campos um a um, o meu ganha no mesmo campo) e tenta de novo. Leituras em lote por
+  `/api/data/bulk` (valores + versões); a cada 30 s e ao voltar para a janela o painel
+  busca as versões novas. Gravação sem `version` (só a tela `/configurar`) é cega, mas
+  também sobe a versão (`writeDoc` passa por `updateAtomic`).
+- Backup diário: `%APPDATA%\Confeitto\backups` + cópia em `OneDrive\Confeitto\backups`
+  (`pastaBackupExtra` no config.json troca a pasta). Repor: `scripts/restaurar-backup.mjs`.
+- Conta: "Alterar minha senha" no menu da conta (`/api/auth/change-password`);
+  esqueceu: `scripts/redefinir-senha.mjs`. `passwordChangedAt` derruba sessões antigas.
+- Migração de projeto Supabase: `scripts/migrar-supabase.mjs` (`docs/MIGRACAO_SAO_PAULO.md`).
+  Segurança e revogação de chaves: `docs/SEGURANCA.md`.
+
 ## Pendências conhecidas
 
-- Usuário apagar as chaves antigas do `.env.local` e revogá-las (Azure/Google).
-- Trocar o `AUTH_SECRET` do Vercel (o valor de exemplo apareceu numa conversa).
+- Usuário: revogar as chaves antigas (Azure/Google/WhatsApp — já saíram do `.env.local`), trocar o `AUTH_SECRET` do Vercel e migrar o Supabase para São Paulo (`docs/SEGURANCA.md`, `docs/MIGRACAO_SAO_PAULO.md`).
 - Preencher WhatsApp/Instagram em Configurações para os botões aparecerem no
   site.
 - Ativar o cartão (Mercado Pago) quando o usuário quiser.

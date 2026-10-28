@@ -17,6 +17,8 @@ export type PlatformUser = {
   role: UserRole;
   provider: AuthProvider;
   createdAt: string;
+  // Quando a senha foi trocada (ms): sessões abertas antes disso são derrubadas.
+  passwordChangedAt?: number;
 };
 
 function userDocId(email: string): string {

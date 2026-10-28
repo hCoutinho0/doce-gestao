@@ -130,27 +130,70 @@ function backupFileName(force) {
   return `${today()}_${time}.json`;
 }
 
+// Pasta do OneDrive para uma segunda cópia do backup: a do computador pode
+// morrer junto com o PC. Usa a pasta "Confeitto\backups" dentro do OneDrive
+// (detectado pelas variáveis do Windows) ou a que estiver em
+// `pastaBackupExtra` no config.json. Sem OneDrive, fica só a cópia local.
+function extraBackupDir() {
+  const config = readConfig();
+  if (config.pastaBackupExtra) return String(config.pastaBackupExtra);
+  const root = process.env.OneDrive || process.env.OneDriveConsumer || process.env.OneDriveCommercial;
+  return root && fs.existsSync(root) ? path.join(root, 'Confeitto', 'backups') : null;
+}
+
+// Mantém só os últimos BACKUPS_TO_KEEP arquivos de uma pasta de backups.
+function pruneBackups(dir) {
+  const all = fs
+    .readdirSync(dir)
+    .filter((name) => /^d{4}-d{2}-d{2}.*.json$/.test(name))
+    .sort();
+  for (const old of all.slice(0, Math.max(0, all.length - BACKUPS_TO_KEEP))) {
+    fs.rmSync(path.join(dir, old), { force: true });
+  }
+}
+
 // Baixa todos os dados do Supabase (pela rota interna /api/backup) e guarda
-// um JSON por dia em %APPDATA%\Confeitto\backups — mantém os últimos 14.
+// um JSON por dia em %APPDATA%\Confeitto\backups — mantém os últimos 14 — e
+// uma segunda cópia na pasta do OneDrive. Devolve onde ficou cada cópia
+// (`extra` é null se não há OneDrive ou se a cópia falhou).
 async function runBackup({ force = false } = {}) {
   if (!serverUrl) throw new Error('O Confeitto ainda está abrindo.');
   fs.mkdirSync(backupDir, { recursive: true });
-  const target = path.join(backupDir, backupFileName(force));
-  if (!force && fs.existsSync(target)) return target;
+  const name = backupFileName(force);
+  const target = path.join(backupDir, name);
+  const extraDir = extraBackupDir();
+  const extraTarget = extraDir ? path.join(extraDir, name) : null;
+  if (!force && fs.existsSync(target)) {
+    // Já tem o de hoje; se o OneDrive ainda não tem a cópia, completa.
+    if (extraTarget && !fs.existsSync(extraTarget)) {
+      try {
+        fs.mkdirSync(extraDir, { recursive: true });
+        fs.copyFileSync(target, extraTarget);
+      } catch (error) {
+        console.error('Cópia do backup para o OneDrive falhou:', error);
+      }
+    }
+    return { target, extra: extraTarget && fs.existsSync(extraTarget) ? extraTarget : null };
+  }
   const response = await fetch(`${serverUrl}/api/backup`, {
     headers: { 'X-Confeitto-Secret': internalSecret },
     signal: AbortSignal.timeout(120000),
   });
   if (!response.ok) throw new Error(`o servidor respondeu ${response.status}`);
   fs.writeFileSync(target, await response.text());
-  const all = fs
-    .readdirSync(backupDir)
-    .filter((name) => /^\d{4}-\d{2}-\d{2}.*\.json$/.test(name))
-    .sort();
-  for (const old of all.slice(0, Math.max(0, all.length - BACKUPS_TO_KEEP))) {
-    fs.rmSync(path.join(backupDir, old), { force: true });
+  pruneBackups(backupDir);
+  let extra = null;
+  if (extraTarget) {
+    try {
+      fs.mkdirSync(extraDir, { recursive: true });
+      fs.copyFileSync(target, extraTarget);
+      pruneBackups(extraDir);
+      extra = extraTarget;
+    } catch (error) {
+      console.error('Cópia do backup para o OneDrive falhou:', error);
+    }
   }
-  return target;
+  return { target, extra };
 }
 
 // ---------------------------------------------------------------------------
@@ -666,11 +709,14 @@ function isInternal(url) {
 
 async function backupComAviso() {
   try {
-    const target = await runBackup({ force: true });
+    const { target, extra } = await runBackup({ force: true });
     await dialog.showMessageBox(mainWindow, {
       type: 'info',
       title: APP_NAME,
       message: `Backup salvo em:\n${target}`,
+      detail: extra
+        ? `Cópia no OneDrive:\n${extra}`
+        : 'Sem cópia no OneDrive (a pasta do OneDrive não foi encontrada).',
     });
     return true;
   } catch (error) {

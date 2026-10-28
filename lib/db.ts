@@ -112,13 +112,11 @@ async function readDoc<T>(id: string): Promise<T | null> {
   return row ? row.value : null;
 }
 
-async function writeDoc<T>(id: string, value: T): Promise<void> {
-  await rest(
-    'POST',
-    '?on_conflict=id',
-    { id, value, expires_at: null, updated_at: new Date().toISOString() },
-    'resolution=merge-duplicates,return=minimal',
-  );
+// Gravação "cega" (sem checar versão): usada por contas, convites e perfil
+// da confeitaria. Passa por updateAtomic para SEMPRE subir a versão — quem
+// grava com checagem de versão (o painel) precisa enxergar essa mudança.
+function writeDoc<T>(id: string, value: T): Promise<void> {
+  return updateAtomic<T>(id, () => value).then(() => undefined);
 }
 
 // Tenta gravar `next` só se o documento ainda estiver na versão lida.
@@ -225,19 +223,56 @@ export function writeGlobal<T>(id: string, value: T): Promise<void> {
 export async function readStates(
   bakeryId: string,
   keys: string[],
-): Promise<Record<string, unknown>> {
+): Promise<Record<string, { value: unknown; version: number }>> {
   if (keys.length === 0) return {};
   const ids = keys.map((key) => `${bakeryId}:${key}`);
   const response = await rest(
     'GET',
-    `?id=in.(${ids.map(enc).join(',')})&select=id,value,expires_at`,
+    `?id=in.(${ids.map(enc).join(',')})&select=id,value,version,expires_at`,
   );
   const rows = (await response.json()) as Row<unknown>[];
-  const found: Record<string, unknown> = {};
+  const found: Record<string, { value: unknown; version: number }> = {};
   for (const row of rows) {
-    if (!isExpired(row)) found[row.id.slice(bakeryId.length + 1)] = row.value;
+    if (!isExpired(row)) {
+      found[row.id.slice(bakeryId.length + 1)] = { value: row.value, version: row.version };
+    }
   }
   return found;
+}
+
+// Um documento com a versão (0 = ainda não existe).
+export async function readStateVersioned<T>(
+  bakeryId: string,
+  key: string,
+): Promise<{ value: T | null; version: number }> {
+  const row = await readRow<T>(`${bakeryId}:${key}`);
+  return { value: row ? row.value : null, version: row ? row.version : 0 };
+}
+
+export type VersionedWrite =
+  | { ok: true; version: number }
+  | { ok: false; value: unknown; version: number };
+
+// Grava só se ninguém mudou o documento desde a versão que o painel leu.
+// Se mudou (outro computador, ou um pedido do cardápio), não grava e devolve
+// o que está lá agora para o painel mesclar e tentar de novo.
+export async function writeStateIfVersion<T>(
+  bakeryId: string,
+  key: string,
+  value: T,
+  baseVersion: number,
+): Promise<VersionedWrite> {
+  const id = `${bakeryId}:${key}`;
+  return withLock(id, async () => {
+    const row = await readDocRowIncludingExpired<T>(id);
+    const live = row && !isExpired(row) ? row : null;
+    const currentVersion = live ? live.version : 0;
+    if (currentVersion === baseVersion && (await writeIfUnchanged(id, row, value, null))) {
+      return { ok: true as const, version: currentVersion + 1 };
+    }
+    const now = await readRow<unknown>(id);
+    return { ok: false as const, value: now ? now.value : null, version: now ? now.version : 0 };
+  });
 }
 
 export async function readState<T>(

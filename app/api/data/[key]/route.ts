@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { ADMIN_ONLY_KEYS, ALLOWED_KEYS } from '@/lib/dataKeys';
-import { isDbConfigured, readState, writeState } from '@/lib/db';
+import {
+  isDbConfigured,
+  readStateVersioned,
+  writeState,
+  writeStateIfVersion,
+} from '@/lib/db';
 
 // The public cardápio (no login) needs the published menu and the bakery's
 // branding to render at all — everything else is internal panel data. Each
@@ -76,7 +81,7 @@ export async function GET(
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }
   const isPanel = !PUBLIC_READ_KEYS.has(key) || Boolean(request.headers.get('X-Panel-Request'));
-  const stored = await readState(bakeryId, key);
+  const { value: stored, version } = await readStateVersioned(bakeryId, key);
   const value = isPanel ? stored : publicView(key, stored);
   // The same URL can legitimately answer with a different confeitaria's
   // data depending on the session cookie and the X-Panel-Request header —
@@ -84,7 +89,7 @@ export async function GET(
   // cached response here would risk serving one confeitaria's data to
   // another, so every response is explicitly marked as never cacheable.
   return NextResponse.json(
-    { value },
+    isPanel ? { value, version } : { value },
     { headers: { 'Cache-Control': 'no-store' } },
   );
 }
@@ -116,11 +121,32 @@ export async function PUT(
   if (raw.length > MAX_BODY_CHARS) {
     return NextResponse.json({ error: 'too_large' }, { status: 413 });
   }
-  let body: { value: unknown };
+  let body: { value: unknown; version?: unknown };
   try {
-    body = JSON.parse(raw) as { value: unknown };
+    body = JSON.parse(raw) as { value: unknown; version?: unknown };
   } catch {
     return NextResponse.json({ error: 'invalid_json' }, { status: 400 });
+  }
+  // Com `version` (o painel sempre manda): só grava se ninguém mexeu no
+  // documento desde a leitura; senão 409 com o que está no banco agora, para
+  // o painel mesclar e tentar de novo. Sem `version`: grava direto (tela de
+  // configuração inicial, onde não há o que conflitar).
+  if (body.version !== undefined) {
+    if (!Number.isInteger(body.version) || (body.version as number) < 0) {
+      return NextResponse.json({ error: 'invalid_version' }, { status: 400 });
+    }
+    const result = await writeStateIfVersion(
+      session.user.bakeryId,
+      key,
+      body.value,
+      body.version as number,
+    );
+    return result.ok
+      ? NextResponse.json({ ok: true, version: result.version })
+      : NextResponse.json(
+          { error: 'conflict', value: result.value, version: result.version },
+          { status: 409 },
+        );
   }
   await writeState(session.user.bakeryId, key, body.value);
   return NextResponse.json({ ok: true });
