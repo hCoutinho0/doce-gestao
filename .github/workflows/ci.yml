@@ -1,0 +1,23 @@
+name: Verificação
+
+# Roda a cada push e pull request na main. O Vercel publica o site a cada
+# push; esta verificação aponta quebra de tipos, de testes ou de build.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      # --ignore-scripts: o instalador do Electron não é preciso aqui.
+      - run: npm ci --ignore-scripts
+      - run: node node_modules/typescript/bin/tsc --noEmit -p .
+      - run: npm test
+      - run: npm run build

@@ -3,8 +3,8 @@ import { auth } from '@/auth';
 import { isDbConfigured, readState, updateStateAtomic } from '@/lib/db';
 import { checkRateLimit, clientIp } from '@/lib/rateLimit';
 import { normalizePhone } from '@/lib/phone';
+import { priceFromMenu, type MenuItem, type OrderItem } from '@/lib/pricing';
 
-type OrderItem = { name: string; quantity: number; unitPrice: number };
 type Order = {
   id: string;
   customer: string;
@@ -26,12 +26,7 @@ type Order = {
   financeLogged?: boolean;
 };
 
-type MenuItem = { name: string; flavor?: string; price: number; available: boolean };
 
-// Nome do item como aparece no pedido: "Brownie — Pistache" quando o item
-// do cardápio tem sabor. É o que identifica o item (dois brownies de
-// sabores diferentes são itens diferentes).
-const menuLabel = (m: MenuItem) => (m.flavor?.trim() ? `${m.name} — ${m.flavor.trim()}` : m.name);
 type MenuEdition = { id: string; items: MenuItem[] };
 
 type Customer = {
@@ -175,43 +170,7 @@ async function priceItems(
       []) as MenuItem[];
   }
 
-  const items: OrderItem[] = [];
-  for (const request of requested) {
-    if (!Number.isFinite(request.quantity) || request.quantity <= 0) {
-      return null;
-    }
-    if (
-      isAuthenticated &&
-      Number.isFinite(request.unitPrice) &&
-      (request.unitPrice as number) > 0
-    ) {
-      items.push({
-        name: request.name.trim(),
-        quantity: request.quantity,
-        unitPrice: request.unitPrice as number,
-      });
-      continue;
-    }
-    const wanted = request.name.trim().toLowerCase();
-    const match =
-      menu.find(
-        (m) => (editionId || m.available) && menuLabel(m).trim().toLowerCase() === wanted,
-      ) ??
-      menu.find(
-        (m) => (editionId || m.available) && !m.flavor && m.name.trim().toLowerCase() === wanted,
-      );
-    if (!match) return null;
-    items.push({
-      name: menuLabel(match),
-      quantity: request.quantity,
-      unitPrice: match.price,
-    });
-  }
-  const value = items.reduce(
-    (sum, item) => sum + item.quantity * item.unitPrice,
-    0,
-  );
-  return { items, value };
+  return priceFromMenu(menu, requested, { isAuthenticated, fromEdition: Boolean(editionId) });
 }
 
 // Deliberately separate from PUT /api/data/doce-orders: a customer placing

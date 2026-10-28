@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { isDbConfigured, updateStateAtomic } from '@/lib/db';
+import { applyOrderPatch, STAMPS_FOR_DISCOUNT, stampsForValue } from '@/lib/orders';
 
 type OrderItem = { name: string; quantity: number; unitPrice: number };
 type Order = {
@@ -44,14 +45,6 @@ type FinanceItem = {
 const ORDERS_KEY = 'doce-orders';
 const CUSTOMERS_KEY = 'doce-loyalty';
 const FINANCE_KEY = 'doce-finance';
-const STAMPS_FOR_DISCOUNT = 10;
-
-// Orders under R$100 are worth 1 stamp, R$100+ are worth 2 — awarded once,
-// only when the order is actually completed (not on creation, so an order
-// that's cancelled before delivery never earns one).
-function stampsForValue(value: number): number {
-  return value >= 100 ? 2 : 1;
-}
 
 async function awardStamps(
   bakeryId: string,
@@ -130,7 +123,6 @@ export async function PATCH(
   if (!body.status?.trim() && !body.paymentStatus) {
     return NextResponse.json({ error: 'invalid_status' }, { status: 400 });
   }
-  const status = body.status?.trim();
 
   let updatedOrder: Order | undefined;
   let shouldLogFinance = false;
@@ -144,33 +136,10 @@ export async function PATCH(
       return orders;
     }
 
-    let next: Order = { ...target, ...(status ? { status } : {}) };
-    shouldLogFinance = false;
-    shouldAwardStamps = false;
-    if (body.paymentStatus === 'Pago' && target.paymentStatus !== 'Pago') {
-      next = {
-        ...next,
-        paymentStatus: 'Pago',
-        paymentDate: new Date().toISOString().slice(0, 10),
-        ...(body.paymentMethod ? { paymentMethod: body.paymentMethod } : {}),
-      };
-      // A sale only counts toward Financeiro once the customer actually
-      // pays — not when the order is placed, and not when it's completed
-      // in the kitchen. Fires exactly once per order (guarded by the
-      // flag), regardless of how many times this route is called after.
-      if (!target.financeLogged) {
-        shouldLogFinance = true;
-        next = { ...next, financeLogged: true };
-      }
-    } else if (body.paymentMethod && !body.paymentStatus) {
-      next = { ...next, paymentMethod: body.paymentMethod };
-    }
-    // The loyalty stamp still rewards actually completing the order, not
-    // getting paid for it — independent transition, independent flag.
-    if (status === 'Concluído' && !target.stampsAwarded) {
-      shouldAwardStamps = true;
-      next = { ...next, stampsAwarded: true };
-    }
+    const patched = applyOrderPatch(target, body, new Date().toISOString().slice(0, 10));
+    const next: Order = patched.next;
+    shouldLogFinance = patched.shouldLogFinance;
+    shouldAwardStamps = patched.shouldAwardStamps;
     updatedOrder = next;
     return orders.map((order) => (order.id === id ? next : order));
   });

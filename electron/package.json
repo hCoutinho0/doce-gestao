@@ -1,7 +1,7 @@
 {
   "name": "confeitto",
   "productName": "Confeitto",
-  "version": "1.3.7",
+  "version": "1.3.9",
   "description": "Confeitto - Gestão que adoça seu negócio",
   "author": "Confeitto",
   "main": "bootstrap.cjs",

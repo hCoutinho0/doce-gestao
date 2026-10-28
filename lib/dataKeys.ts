@@ -33,3 +33,11 @@ export const ADMIN_ONLY_KEYS = new Set([
   'doce-loyalty',
 ]);
 
+
+// Das chaves pedidas, só as que esta conta pode ler: desconhecidas somem e
+// as de admin somem para a conta "Produção".
+export function readableKeys(requested: string[], role: string): string[] {
+  return [...new Set(requested)].filter(
+    (k) => ALLOWED_KEYS.has(k) && !(ADMIN_ONLY_KEYS.has(k) && role !== 'admin'),
+  );
+}

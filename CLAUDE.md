@@ -43,6 +43,7 @@ linguagem simples (o usuário não é programador).
 - Instalador (`gerar-instalador.bat`) só é preciso quando muda a versão do
   Electron. **Nunca publique o .exe**: ele leva a chave do Supabase embutida.
 - Verificação de tipos: `node node_modules/typescript/bin/tsc --noEmit -p .`
+- Testes: `npm test` (Node `node:test`, pasta `tests/`; só lógica pura de `lib/`: preço do pedido, pagamento/selos, permissões, validações). O CI (`.github/workflows/ci.yml`) roda tipos + testes + build a cada push. Sugestões e pendências: `docs/ROADMAP.md`.
 
 ## Regras e decisões já tomadas
 
