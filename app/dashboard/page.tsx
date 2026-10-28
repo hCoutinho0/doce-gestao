@@ -19,7 +19,6 @@ import {
   ArrowUpRight,
   BadgeDollarSign,
   Bell,
-  CakeSlice,
   Check,
   CheckCircle2,
   ChevronLeft,
@@ -31,7 +30,6 @@ import {
   Download,
   Eye,
   Gift,
-  LayoutDashboard,
   LoaderCircle,
   Minus,
   Menu,
@@ -48,7 +46,6 @@ import {
   Copy,
   Upload,
   UserPlus,
-  Users,
   WalletCards,
   X,
 } from 'lucide-react';
@@ -67,6 +64,18 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  IconeCardapio,
+  IconeClientes,
+  IconeEquipe,
+  IconeEstoque,
+  IconeFidelidade,
+  IconeFinanceiro,
+  IconePedidos,
+  IconePrecificacao,
+  IconeProdutos,
+  IconeVisaoGeral,
+} from '@/components/icones-interface';
 import { BAKERY_KEY, type BakeryProfile } from '@/lib/bakery';
 import { useUserSession, signOut } from '@/lib/auth';
 import type { Invite } from '@/lib/tenant';
@@ -343,18 +352,19 @@ const initialFinance: FinanceItem[] = [];
 const initialMenu: MenuItem[] = [];
 const initialLoyalty: LoyaltyItem[] = [];
 
-const navItems: { label: string; icon: typeof LayoutDashboard; view: View }[] =
+type NavIcon = (props: { className?: string }) => React.ReactNode;
+const navItems: { label: string; icon: NavIcon; view: View }[] =
   [
-    { label: 'Visão geral', icon: LayoutDashboard, view: 'dashboard' },
-    { label: 'Pedidos', icon: ShoppingBag, view: 'orders' },
-    { label: 'Estoque', icon: PackageOpen, view: 'stock' },
-    { label: 'Precificação', icon: BadgeDollarSign, view: 'pricing' },
-    { label: 'Financeiro', icon: CircleDollarSign, view: 'finance' },
-    { label: 'Cardápio', icon: CakeSlice, view: 'menu' },
-    { label: 'Produtos', icon: ClipboardList, view: 'products' },
-    { label: 'Clientes', icon: Users, view: 'customers' },
-    { label: 'Fidelidade', icon: Gift, view: 'loyalty' },
-    { label: 'Equipe', icon: UserPlus, view: 'team' },
+    { label: 'Visão geral', icon: IconeVisaoGeral, view: 'dashboard' },
+    { label: 'Pedidos', icon: IconePedidos, view: 'orders' },
+    { label: 'Estoque', icon: IconeEstoque, view: 'stock' },
+    { label: 'Precificação', icon: IconePrecificacao, view: 'pricing' },
+    { label: 'Financeiro', icon: IconeFinanceiro, view: 'finance' },
+    { label: 'Cardápio', icon: IconeCardapio, view: 'menu' },
+    { label: 'Produtos', icon: IconeProdutos, view: 'products' },
+    { label: 'Clientes', icon: IconeClientes, view: 'customers' },
+    { label: 'Fidelidade', icon: IconeFidelidade, view: 'loyalty' },
+    { label: 'Equipe', icon: IconeEquipe, view: 'team' },
   ];
 // Nome do item como vai no pedido ("Brownie — Pistache"); o servidor
 // confere o preço pelo mesmo nome (app/api/orders).
@@ -735,7 +745,7 @@ function SidebarNav({
   conta,
 }: {
   bakery: BakeryProfile | null;
-  visibleNavItems: { label: string; icon: typeof LayoutDashboard; view: View }[];
+  visibleNavItems: { label: string; icon: NavIcon; view: View }[];
   view: View;
   orders: Order[];
   onNavigate: (target: View) => void;
@@ -905,7 +915,7 @@ function Brand({ bakery }: { bakery: BakeryProfile | null }) {
         ) : bakery?.icon ? (
           bakery.icon
         ) : (
-          <CakeSlice className="size-5" />
+          <Image src="/assets/brand/app-icon.svg" alt="Confeitto" width={40} height={40} unoptimized className="size-full" />
         )}
       </span>
       <div>

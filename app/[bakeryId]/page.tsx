@@ -81,7 +81,7 @@ export default async function BakeryLinkHubPage({
             ) : bakery.icon ? (
               bakery.icon
             ) : (
-              <CakeSlice className="size-8" />
+              <Image src="/assets/brand/app-icon.svg" alt="Confeitto" width={64} height={64} unoptimized className="size-full" />
             )}
           </span>
           <h1 className="mt-5 font-heading text-2xl font-bold">

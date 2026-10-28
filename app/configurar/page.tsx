@@ -1,12 +1,12 @@
 'use client';
 
 import Image from 'next/image';
+import { LogoConfeitto } from '@/components/marca';
 import { useEffect, useState, type ComponentProps } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
   Building2,
-  CakeSlice,
   Check,
   MapPin,
   Palette,
@@ -136,11 +136,8 @@ export default function SetupPage() {
     <main id="conteudo" tabIndex={-1} className="min-h-screen bg-background text-foreground">
       <header className="border-b bg-card">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-5">
-          <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">
-            <CakeSlice className="size-5" />
-          </span>
           <div>
-            <p className="font-heading font-bold">Confeitto</p>
+            <LogoConfeitto className="h-8 w-auto" />
             <p className="text-[11px] text-muted-foreground">
               Configuração inicial
             </p>

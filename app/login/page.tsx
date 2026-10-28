@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Image from 'next/image';
+import { LogoConfeitto } from '@/components/marca';
 import Link from 'next/link';
 import { signIn } from 'next-auth/react';
 import {
-  CakeSlice,
   CheckCircle2,
   KeyRound,
   LoaderCircle,
@@ -52,16 +53,20 @@ export default function LoginPage() {
 
   return (
     <main id="conteudo" tabIndex={-1} className="grid min-h-screen bg-background lg:grid-cols-[minmax(380px,0.9fr)_minmax(520px,1.1fr)]">
-      <section className="relative hidden overflow-hidden bg-[#3d1a5c] p-12 text-white lg:flex lg:flex-col">
-        <div className="absolute -left-24 top-1/4 size-80 rounded-full bg-[#c99fe0]/25 blur-3xl" />
-        <div className="absolute -right-20 bottom-12 size-72 rounded-full bg-[#e0c8ef]/20 blur-3xl" />
+      <section className="relative hidden overflow-hidden bg-[#6A3F7D] p-12 text-white lg:flex lg:flex-col">
+        <div className="absolute -left-24 top-1/4 size-80 rounded-full bg-[#C9B0E3]/30 blur-3xl" />
+        <div className="absolute -right-20 bottom-12 size-72 rounded-full bg-[#F2B8C6]/20 blur-3xl" />
         <div className="relative flex items-center gap-3">
-          <span className="grid size-11 place-items-center rounded-2xl bg-white/15 backdrop-blur">
-            <CakeSlice className="size-6" />
-          </span>
           <div>
-            <p className="font-heading text-xl font-bold">Confeitto</p>
-            <p className="text-xs text-white/65">Gestão para confeitaria</p>
+          <Image
+            src="/assets/brand/logo-horizontal-branco.svg"
+            alt="Confeitto"
+            width={176}
+            height={51}
+            unoptimized
+            className="h-12 w-auto"
+          />
+            <p className="mt-1 text-xs text-white/75">Gestão para confeitaria</p>
           </div>
         </div>
         <div className="relative my-auto max-w-lg">
@@ -93,11 +98,8 @@ export default function LoginPage() {
         <PreferenciasAcessibilidade className="absolute right-5 top-5" />
         <div className="w-full max-w-md">
           <div className="mb-7 flex items-center justify-center gap-3 lg:hidden">
-            <span className="grid size-10 place-items-center rounded-2xl bg-primary text-primary-foreground">
-              <CakeSlice className="size-5" />
-            </span>
             <div className="text-left">
-              <p className="font-heading text-lg font-bold">Confeitto</p>
+              <LogoConfeitto className="h-10 w-auto" />
               <p className="text-xs text-muted-foreground">
                 Gestão para confeitaria
               </p>

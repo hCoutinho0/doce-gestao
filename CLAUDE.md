@@ -60,8 +60,8 @@ linguagem simples (o usuário não é programador).
 - Cliente é identificado pelo **celular** (`lib/phone.ts`): o mesmo número
   nunca vira dois cadastros; todo pedido cria/encontra o cartão fidelidade;
   selos entram quando o pedido é concluído.
-- Visual **inspirado na Apple** (fonte SF/Inter, vidro fosco, controles
-  segmentados, menus estilo macOS), com o **roxo da Lavily** como destaque.
+- Visual **inspirado na Apple** (vidro fosco, controles
+  segmentados, menus estilo macOS), com o **Roxo Profundo da marca Confeitto** (`#6A3F7D`) como destaque. Identidade visual aplicada em `public/assets/brand/` (logos, favicon, manifest), `components/marca.tsx`, `components/icones-interface.tsx` (ícones do menu) e fonte **Poppins**.
   Tokens em `app/globals.css`. Estoque e Ficha técnica mantêm o tema
   terracota com títulos serifados (`.ficha-theme`), a pedido do usuário.
 - Acessibilidade: tema claro/escuro/automático e 4 tamanhos de texto

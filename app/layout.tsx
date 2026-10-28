@@ -1,14 +1,13 @@
-import type { Metadata } from 'next';
-import { Inter, Lora } from 'next/font/google';
+import type { Metadata, Viewport } from 'next';
+import { Poppins, Lora } from 'next/font/google';
 import { Providers } from './providers';
 import './globals.css';
 
-// Inter: no Windows, faz o papel da SF Pro (fonte do sistema da Apple), que
-// o navegador já usa direto no Mac e no iPhone (ver --font-sans em
-// globals.css).
-const inter = Inter({
-  variable: '--font-inter',
+// Poppins: fonte da identidade visual (texto Regular/Medium, títulos SemiBold).
+const poppins = Poppins({
+  variable: '--font-poppins',
   subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
 });
 
 // Usada só dentro de `.ficha-theme` (Estoque e Precificação) — a serifada
@@ -19,7 +18,18 @@ const lora = Lora({
   subsets: ['latin'],
 });
 
+export const viewport: Viewport = { themeColor: '#6A3F7D' };
+
 export const metadata: Metadata = {
+  // Arquivos em /assets/ ficam fora do proxy do site do cardápio.
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+    ],
+    apple: '/assets/brand/apple-touch-icon.png',
+  },
+  manifest: '/assets/brand/site.webmanifest',
   title: 'Confeitto | Gestão completa para confeitaria',
   description: 'Estoque, pedidos, precificação, financeiro, cardápio e fidelidade em um só lugar.',
   openGraph: {
@@ -42,7 +52,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html
       lang="pt-BR"
-      className={`${inter.variable} ${lora.variable}`}
+      className={`${poppins.variable} ${lora.variable}`}
       suppressHydrationWarning
     >
       <head>

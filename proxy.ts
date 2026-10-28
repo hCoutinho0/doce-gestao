@@ -102,5 +102,5 @@ export default function proxy(req: NextRequest, event: NextFetchEvent) {
 
 export const config = {
   // Tudo, menos os arquivos estáticos do Next e os ícones/imagens públicos.
-  matcher: ['/((?!_next/static|_next/image|favicon\\.svg|assets/).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon\\.svg|favicon\\.ico|assets/).*)'],
 };

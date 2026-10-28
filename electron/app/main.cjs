@@ -653,7 +653,7 @@ async function checkForUpdates({ silent = true } = {}) {
 const LOADING_HTML = `data:text/html;charset=utf-8,${encodeURIComponent(`
 <!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
 <style>
-  html,body{margin:0;height:100%;font-family:'Segoe UI',sans-serif;background:#3d1a5c;color:#fff}
+  html,body{margin:0;height:100%;font-family:'Segoe UI',sans-serif;background:#6A3F7D;color:#fff}
   .c{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px}
   .s{width:42px;height:42px;border:4px solid rgba(255,255,255,.25);border-top-color:#e6cdf2;border-radius:50%;animation:r 1s linear infinite}
   @keyframes r{to{transform:rotate(360deg)}}
@@ -764,7 +764,7 @@ function createWindow() {
     minHeight: 640,
     title: APP_NAME,
     icon: path.join(__dirname, 'icon.ico'),
-    backgroundColor: '#3d1a5c',
+    backgroundColor: '#6A3F7D',
     // Sem barra de menu (nem com Alt): tudo fica no menu da conta, no canto
     // inferior esquerdo do painel. O menu continua definido só pelos atalhos
     // (Ctrl+C, Ctrl+R, zoom…).

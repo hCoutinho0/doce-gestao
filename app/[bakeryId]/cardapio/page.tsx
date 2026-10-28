@@ -6,7 +6,6 @@ import { useParams } from 'next/navigation';
 import {
   Banknote,
   Camera,
-  CakeSlice,
   CalendarDays,
   CheckCircle2,
   CreditCard,
@@ -340,7 +339,7 @@ export default function CardapioPage() {
               ) : bakery?.icon ? (
                 bakery.icon
               ) : (
-                <CakeSlice className="size-5" />
+                <Image src="/assets/brand/app-icon.svg" alt="Confeitto" width={40} height={40} unoptimized className="size-full" />
               )}
             </span>
             <p className="font-heading text-lg font-bold leading-none">
@@ -402,7 +401,7 @@ export default function CardapioPage() {
             ) : bakery?.icon ? (
               bakery.icon
             ) : (
-              <CakeSlice className="size-5" />
+              <Image src="/assets/brand/app-icon.svg" alt="Confeitto" width={40} height={40} unoptimized className="size-full" />
             )}
           </span>
           <div>
