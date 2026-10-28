@@ -637,23 +637,32 @@ export default function Home() {
 
 // Todas as leituras iniciais do painel saem juntas: cada hook pede sua chave
 // e, no mesmo instante, uma única chamada a /api/data/bulk traz tudo (uma ida
-// ao banco em vez de ~13). Resposta ausente/erro vira null, como antes.
+// ao banco em vez de ~13). Se a leitura falhar (rede, timeout, Supabase
+// acordando), tenta de novo em vez de entregar "vazio": um hook que acha que
+// carregou com dados vazios regrava o documento inteiro por cima do real na
+// próxima edição. Sessão caída (401) é o único caso que vira "vazio" — a tela
+// volta para o login de qualquer jeito.
 type PanelRead = { value: unknown } | null;
+type PanelBatch = [string, ((result: PanelRead) => void)[]][];
 const waitingKeys = new Map<string, ((result: PanelRead) => void)[]>();
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let firstBatchDone = false;
 const panelListeners = new Set<() => void>();
+const PANEL_RETRY_MS = 3000;
 
-async function flushPanelKeys() {
-  flushTimer = null;
-  const batch = [...waitingKeys];
-  waitingKeys.clear();
+async function flushPanelKeys(batch: PanelBatch) {
   let values: Record<string, unknown> | null = null;
+  let retry = false;
   try {
     const res = await fetch(`/api/data/bulk?keys=${batch.map(([key]) => key).join(',')}`);
-    values = res.ok ? ((await res.json()) as { values: Record<string, unknown> }).values : null;
+    if (res.ok) values = ((await res.json()) as { values: Record<string, unknown> }).values;
+    else retry = res.status !== 401;
   } catch {
-    values = null;
+    retry = true;
+  }
+  if (retry) {
+    setTimeout(() => void flushPanelKeys(batch), PANEL_RETRY_MS);
+    return;
   }
   for (const [key, resolvers] of batch) {
     const value = values?.[key];
@@ -668,7 +677,12 @@ function fetchPanelKey<T>(key: string): Promise<{ value: T } | null> {
     const resolvers = waitingKeys.get(key) ?? [];
     resolvers.push(resolve as (result: PanelRead) => void);
     waitingKeys.set(key, resolvers);
-    flushTimer ??= setTimeout(() => void flushPanelKeys(), 0);
+    flushTimer ??= setTimeout(() => {
+      const batch: PanelBatch = [...waitingKeys];
+      waitingKeys.clear();
+      flushTimer = null;
+      void flushPanelKeys(batch);
+    }, 0);
   });
 }
 
