@@ -1,66 +1,69 @@
 # Roadmap e pontos de melhoria
 
-Lista para você avaliar e executar conforme as demandas aparecerem. Está em
-ordem de importância dentro de cada bloco. Itens marcados **(você)** dependem
-de uma ação sua fora do código.
+O Confeitto é de uso exclusivo do Vitor e da namorada, para organizar a Lavily
+Confeitaria. Não será vendido: cobrança, termos de uso, vários clientes no
+mesmo banco e afins estão **fora do escopo**. A lista abaixo é para avaliar e
+executar conforme a necessidade aparecer, em ordem de importância dentro de
+cada bloco. Itens marcados **(você)** dependem de uma ação sua fora do código.
 
-## A. Antes de vender para outra confeitaria
+## A. Não perder dados
 
-1. **A chave secreta do Supabase fica dentro do app instalado.** Ela dá acesso
-   a TODO o banco. Com uma confeitaria só, tudo bem; com clientes diferentes
-   no mesmo banco, qualquer cliente conseguiria ler os dados dos outros.
-   Caminho: o app de desktop passa a abrir o site (Vercel) com login, sem
-   nenhuma chave no computador do cliente. É a mudança mais importante e a
-   maior. Alternativa pior: um projeto Supabase por cliente.
-2. **Cobrança e plano.** Assinatura mensal (Asaas, Mercado Pago ou Stripe),
-   período de teste e bloqueio gentil quando não paga. Hoje não existe.
-3. **LGPD e termos.** Termos de Uso e Política de Privacidade (revisados por
-   advogado), aceite no cadastro, e ferramentas para exportar/apagar os dados
-   de um cliente final (o cardápio guarda nome, celular e aniversário de
-   clientes das confeitarias).
-4. **Banco em produção de verdade.** Projeto Supabase pago, na região de São
-   Paulo (hoje cada leitura leva 0,2–0,5 s; ficaria em ~0,05 s), com backup
-   gerenciado. O plano grátis pausa por inatividade. **(você)**
-5. **Monitoramento de erros** (Sentry ou similar) e aviso quando o site cair.
-6. **Domínio de e-mail e suporte**: um canal de suporte e uma página de status.
+1. **Dois computadores editando ao mesmo tempo.** O painel grava o documento
+   inteiro; se vocês dois mexem no mesmo assunto (estoque, financeiro...) ao
+   mesmo tempo, vence quem salvar por último e a outra alteração some. É o
+   risco mais real para duas pessoas. Solução: gravar por item, ou com número
+   de versão e aviso de conflito. (A leitura inicial já não regrava dados
+   vazios depois de uma falha.)
+2. **Backup em um segundo lugar.** O backup diário fica só em
+   `%APPDATA%\Confeitto\backups`, no mesmo PC. Copiar essa pasta para o
+   OneDrive/Google Drive de vez em quando. O plano grátis do Supabase não tem
+   backup próprio. **(você)**
+3. **Plano grátis do Supabase pausa o projeto** depois de uns 7 dias sem uso.
+   Os dados ficam, mas é preciso "despausar" no painel do Supabase. Abrir o
+   app pelo menos uma vez por semana evita isso. **(você)**
 
-## B. Segurança e dívidas já conhecidas
+## B. Segurança básica
 
-7. Apagar e revogar as chaves antigas do `.env.local` (Azure/Google/WhatsApp/
+4. Apagar e revogar as chaves antigas do `.env.local` (Azure/Google/WhatsApp/
    VAPID) e trocar o `AUTH_SECRET` do Vercel. **(você)**
-8. Conferir se o `CARDAPIO_ONLY=1` e as chaves do Mercado Pago estão certos no
-   Vercel. **(você)**
-9. Recuperação de senha por e-mail (hoje não existe) e troca de senha dentro
-   do app.
-10. Papel de cada pessoa da equipe: hoje só `admin` e `production`.
+5. **Nunca publicar nem compartilhar o `.exe` do instalador**: ele leva a chave
+   do Supabase embutida. Para instalar no computador da namorada, use a pasta
+   do instalador direto do seu PC, sem enviar por e-mail ou nuvem pública.
+   **(você)**
+6. Recuperação de senha: hoje não existe. Anote a senha das duas contas num
+   lugar seguro, ou peça aqui para criar uma forma de redefinir.
+7. Conferir no Vercel se `CARDAPIO_ONLY=1` e as chaves do Mercado Pago (se o
+   cartão for ativado) estão certas. **(você)**
 
-## C. Qualidade do código
+## C. Velocidade e conforto
 
-11. **Gravação com versão.** Hoje o painel grava o documento inteiro; se dois
-    computadores editam ao mesmo tempo, vence quem salvar por último. Trocar por
-    gravação por item (ou com número de versão e aviso de conflito). A leitura
-    inicial já não regrava dados vazios após falha, mas este problema continua.
-12. **Quebrar `app/dashboard/page.tsx`** (~5,5 mil linhas) em um arquivo por
-    área (Pedidos, Estoque, Financeiro...). Faça depois de ter mais testes.
-13. Mais testes: rotas de API com banco de teste e um teste de ponta a ponta
-    (Playwright) para o caminho cadastro → pedido → pagamento. O CI já roda
-    `tsc`, os testes e o build a cada push.
-14. Zerar os avisos antigos do `npm run lint`.
-15. Atualizar `mercadopago` para a versão 3 (corrige um aviso moderado do
-    `uuid`).
+8. **Supabase na região de São Paulo.** Hoje cada leitura leva 0,2–0,5 s
+   (projeto longe do Brasil). Em São Paulo ficaria em ~0,05 s e o app abriria
+   e salvaria bem mais rápido. Exige criar um projeto novo e migrar os dados
+   (dá para fazer com o backup). **(você decide; eu ajudo na migração)**
+9. App no celular (PWA instalável): o manifest já existe; falta o service
+   worker e testar a instalação. Útil para a namorada ver pedidos e estoque
+   fora do computador.
 
-## D. Produto: o que mais agrada confeitaria
+## D. O que mais ajudaria o dia a dia da confeitaria
 
-16. **Aviso de pedido novo** no painel (som/notificação) quando chega pelo
-    cardápio.
-17. **Relatórios**: lucro real por produto, mais vendidos, vendas por mês,
+10. **Aviso de pedido novo** no painel (som/notificação) quando chega pelo
+    cardápio do site.
+11. **Relatórios**: lucro real por produto, mais vendidos, vendas por mês,
     exportar para PDF/Excel.
-18. **WhatsApp**: mensagem pronta para confirmar pedido, cobrar e avisar
+12. **WhatsApp**: mensagem pronta para confirmar pedido, cobrar e avisar
     aniversariantes (link `wa.me`, sem API paga).
-19. **Importar planilha** de estoque e clientes, para quem está migrando.
-20. **Impressão** de comanda e etiqueta do pedido.
-21. **Agenda de entregas** (visão semanal) e limite de pedidos por dia.
-22. **Pix com QR Code** dentro do pedido (copia-e-cola).
-23. **Mais de um usuário com papel de entrega**, e foto do pedido pronto.
-24. App no celular (PWA instalável): o manifest já existe; falta o service
-    worker e testar a instalação.
+13. **Agenda de entregas** (visão semanal) e limite de pedidos por dia.
+14. **Pix com QR Code / copia-e-cola** dentro do pedido.
+15. **Impressão** de comanda e etiqueta do pedido.
+16. Lista de compras mais esperta (sugerir pelo que os pedidos da semana vão
+    consumir, conforme as fichas técnicas).
+
+## E. Qualidade do código (só se for mexer muito)
+
+17. Quebrar `app/dashboard/page.tsx` (~5,5 mil linhas) em um arquivo por área.
+    Faça depois de ter mais testes.
+18. Mais testes: rotas de API e um teste de ponta a ponta (Playwright) para
+    pedido → pagamento. O CI já roda tipos, testes e build a cada push.
+19. Zerar os avisos antigos do `npm run lint` e atualizar `mercadopago` para a
+    versão 3 (só se o cartão for ativado).
