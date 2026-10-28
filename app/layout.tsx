@@ -18,7 +18,7 @@ const lora = Lora({
   subsets: ['latin'],
 });
 
-export const viewport: Viewport = { themeColor: '#6A3F7D' };
+export const viewport: Viewport = { themeColor: '#6A3F7D', viewportFit: 'cover' };
 
 export const metadata: Metadata = {
   // Arquivos em /assets/ ficam fora do proxy do site do cardápio.
@@ -30,6 +30,9 @@ export const metadata: Metadata = {
     apple: '/assets/brand/apple-touch-icon.png',
   },
   manifest: '/assets/brand/site.webmanifest',
+  // iPhone: abre em tela cheia quando adicionado à Tela de Início.
+  appleWebApp: { capable: true, title: 'Confeitto', statusBarStyle: 'default' },
+  formatDetection: { telephone: false },
   title: 'Confeitto | Gestão completa para confeitaria',
   description: 'Estoque, pedidos, precificação, financeiro, cardápio e fidelidade em um só lugar.',
   openGraph: {

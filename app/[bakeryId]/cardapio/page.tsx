@@ -251,7 +251,10 @@ export default function CardapioPage() {
         status,
       }),
     });
-    if (!response.ok) throw new Error('order_failed');
+    if (!response.ok) {
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error === 'day_full' ? 'day_full' : 'order_failed');
+    }
     const data = (await response.json()) as {
       order: SavedOrder;
       stamps?: number;
@@ -295,9 +298,11 @@ export default function CardapioPage() {
       const order = await createOrder(paymentDetails, 'Novo');
       setSuccess(order.id);
       resetForm();
-    } catch {
+    } catch (error) {
       setPaymentError(
-        'Não foi possível registrar o pedido agora. Tente novamente em instantes.',
+        error instanceof Error && error.message === 'day_full'
+          ? 'A agenda desse dia já está cheia. Escolha outra data de entrega.'
+          : 'Não foi possível registrar o pedido agora. Tente novamente em instantes.',
       );
     }
   };

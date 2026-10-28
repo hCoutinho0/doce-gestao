@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyOrderPatch, stampsForValue, type PaymentMethod } from '../lib/orders.ts';
+import { applyOrderPatch, balanceDue, stampsForValue, type PaymentMethod } from '../lib/orders.ts';
 import { priceFromMenu, type MenuItem } from '../lib/pricing.ts';
 
 const menu: MenuItem[] = [
@@ -48,17 +48,21 @@ test('painel logado: preço manual vale; edição antiga aceita item indisponív
 
 type Pedido = {
   status: string;
+  value: number;
+  paidAmount?: number;
+  stockDeducted?: boolean;
   paymentStatus: 'Pago' | 'Pendente';
   paymentDate?: string;
   paymentMethod?: PaymentMethod;
   financeLogged?: boolean;
   stampsAwarded?: boolean;
 };
-const pedido: Pedido = { status: 'Novo', paymentStatus: 'Pendente' };
+const pedido: Pedido = { status: 'Novo', value: 100, paymentStatus: 'Pendente' };
 
 test('pagar lança no Financeiro uma única vez', () => {
   const um = applyOrderPatch(pedido, { paymentStatus: 'Pago', paymentMethod: 'Pix' }, '2026-10-27');
   assert.equal(um.shouldLogFinance, true);
+  assert.equal(um.financeAmount, 100);
   assert.equal(um.next.paymentDate, '2026-10-27');
   assert.equal(um.next.paymentMethod, 'Pix');
   const dois = applyOrderPatch(um.next, { paymentStatus: 'Pago' }, '2026-10-28');
@@ -96,4 +100,30 @@ test('trocar só a forma de pagamento não marca como pago', () => {
 test('selos: 1 abaixo de R$ 100, 2 a partir de R$ 100', () => {
   assert.equal(stampsForValue(99.99), 1);
   assert.equal(stampsForValue(100), 2);
+});
+
+test('sinal: recebe parte, saldo fica pendente e cada recebimento lança uma entrada', () => {
+  const a = applyOrderPatch(pedido, { receive: 30, paymentMethod: 'Pix' }, '2026-10-27');
+  assert.equal(a.financeAmount, 30);
+  assert.equal(a.next.paymentStatus, 'Pendente');
+  assert.equal(a.next.paidAmount, 30);
+  const b = applyOrderPatch(a.next, { receive: 500 }, '2026-10-28');
+  assert.equal(b.financeAmount, 70); // não passa do saldo
+  assert.equal(b.next.paymentStatus, 'Pago');
+  assert.equal(b.next.paymentDate, '2026-10-28');
+  const c = applyOrderPatch(a.next, { paymentStatus: 'Pago' }, '2026-10-28');
+  assert.equal(c.financeAmount, 70);
+});
+
+test('saldo a receber', () => {
+  assert.equal(balanceDue({ value: 100, paymentStatus: 'Pendente', paidAmount: 30 }), 70);
+  assert.equal(balanceDue({ value: 100, paymentStatus: 'Pago' }), 0);
+  assert.equal(balanceDue({ value: 100, paymentStatus: 'Pendente' }), 100);
+});
+
+test('concluir baixa o estoque uma única vez', () => {
+  const a = applyOrderPatch(pedido, { status: 'Concluído' }, '2026-10-27');
+  assert.equal(a.shouldDeductStock, true);
+  assert.equal(applyOrderPatch(a.next, { status: 'Concluído' }, '2026-10-27').shouldDeductStock, false);
+  assert.equal(applyOrderPatch(pedido, { status: 'Pronto' }, '2026-10-27').shouldDeductStock, false);
 });

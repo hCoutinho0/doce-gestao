@@ -16,6 +16,8 @@ export const ALLOWED_KEYS = new Set([
   'doce-compras',
   'doce-menu-periodo',
   'doce-caixa',
+  'doce-ajustes',
+  'doce-perdas',
 ]);
 
 // The dashboard hides Financeiro, Precificação, Produtos, Clientes and
@@ -31,6 +33,7 @@ export const ADMIN_ONLY_KEYS = new Set([
   'doce-pricing',
   'doce-products',
   'doce-loyalty',
+  'doce-ajustes',
 ]);
 
 

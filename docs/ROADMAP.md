@@ -2,65 +2,58 @@
 
 O Confeitto é de uso exclusivo do Vitor e da namorada, para organizar a Lavily
 Confeitaria. Não será vendido: cobrança, termos de uso, vários clientes no
-mesmo banco e afins estão **fora do escopo**. A lista abaixo é para avaliar e
-executar conforme a necessidade aparecer, em ordem de importância dentro de
-cada bloco. Itens marcados **(você)** dependem de uma ação sua fora do código.
+mesmo banco e afins estão **fora do escopo**. Itens marcados **(você)** dependem
+de uma ação sua fora do código.
 
 ## Já resolvido
 
 - **Dois computadores ao mesmo tempo**: gravação com versão e mescla
-  automática (`lib/merge.ts`, `lib/use-painel.ts`). Quem edita ao mesmo tempo
-  não apaga o trabalho do outro, e cada tela se atualiza sozinha a cada 30 s.
-- **Backup em segundo lugar**: cada backup diário também é copiado para
-  `OneDrive\Confeitto\backups`. Para repor: `scripts/restaurar-backup.mjs`.
-- **Segurança básica**: trocar a senha no app, `scripts/redefinir-senha.mjs`,
-  chaves antigas apagadas do `.env.local` (veja `docs/SEGURANCA.md`).
-- **Migração para São Paulo**: script pronto e testado (`docs/MIGRACAO_SAO_PAULO.md`);
-  falta você criar o projeto novo e rodar. **(você)**
+  automática (`lib/merge.ts`, `lib/use-painel.ts`).
+- **Backup em segundo lugar** (OneDrive) e **segurança básica** (trocar senha,
+  `scripts/redefinir-senha.mjs`, `docs/SEGURANCA.md`).
+- **Migração para São Paulo** concluída (projeto "Confeitto SP").
+- **Estoque baixa sozinho** quando o pedido é concluído (pela ficha técnica).
+- **Sinal e pagamento parcial**: cada recebimento entra no Financeiro; saldo a
+  receber aparece no pedido.
+- **Agenda de entregas** (semana) e **limite de pedidos por dia** (Ajustes).
+- **Aviso de pedido novo** (som e faixa, com o app aberto).
+- **WhatsApp**: confirmar, cobrar saldo, avisar que está pronto e parabenizar
+  aniversariantes (links wa.me).
+- **Impressão** de comanda e etiqueta do pedido.
+- **Relatórios**: vendas por mês, ticket médio, produtos com lucro, perdas;
+  exportar para Excel (CSV) e PDF.
+- **Pix com QR Code e copia e cola** no recebimento (chave em Ajustes).
+- **Lista de compras pelos pedidos da semana**.
+- **Validade** dos ingredientes e **registro de perdas**.
+- **App para iPhone (PWA)**: manifest, service worker, tela cheia e campos
+  ajustados para o Safari.
+- Código do painel começou a ser separado (`lib/tipos.ts`, `lib/custos.ts`,
+  `components/*`); sobram as telas antigas dentro de `app/dashboard/page.tsx`.
 
-## A. O que falta fazer **(você)**
+## O que falta fazer **(você)**
 
-1. Criar o projeto Supabase em São Paulo e rodar a migração
-   (`docs/MIGRACAO_SAO_PAULO.md`).
-2. Revogar as chaves antigas do Azure/Google/WhatsApp e trocar o
-   `AUTH_SECRET` do Vercel (`docs/SEGURANCA.md`).
-3. O plano grátis do Supabase **pausa o projeto** depois de uns 7 dias sem uso
-   (os dados ficam, mas é preciso despausar no painel). Abrir o app pelo menos
-   uma vez por semana evita isso; um projeto pago não pausa.
-4. As fotos do cardápio ficam no Supabase e **não** entram no backup. Se
-   quiser, guarde uma cópia das fotos originais numa pasta.
+1. Revogar as chaves antigas do Azure/Google/WhatsApp e trocar o `AUTH_SECRET`
+   do Vercel (`docs/SEGURANCA.md`).
+2. **Usar no iPhone**: o site `www.confeitto.com.br` só mostra o cardápio. Para
+   o painel no celular é preciso um segundo deploy do mesmo repositório no
+   Vercel, **sem** `CARDAPIO_ONLY`, num endereço próprio (ex.:
+   `app.confeitto.com.br`, com um CNAME no HostGator), com as mesmas
+   `SUPABASE_URL`/`SUPABASE_SERVICE_KEY`, um `AUTH_SECRET` novo e
+   `NEXTAUTH_URL` do endereço. Isso deixa a tela de login do painel pública na
+   internet (protegida por senha e limite de tentativas). Depois, no Safari:
+   Compartilhar → Adicionar à Tela de Início.
+3. Preencher em **Ajustes** a chave Pix e o limite de pedidos por dia.
+4. Plano grátis do Supabase **pausa** após ~7 dias sem uso: abrir o app ao
+   menos uma vez por semana. As fotos do cardápio não entram no backup.
 
-## B. Segurança — o que ainda vale
+## Ideias que ainda não foram feitas
 
-5. Conferir no Vercel se `CARDAPIO_ONLY=1` e as chaves do Mercado Pago (se o
-   cartão for ativado) estão certas. **(você)**
-6. Nunca enviar o `.exe` do instalador (leva a chave do banco).
-
-## C. Velocidade e conforto
-
-7. App no celular (PWA instalável): o manifest já existe; falta o service
-   worker e testar a instalação. Útil para a namorada ver pedidos e estoque
-   fora do computador.
-
-## D. O que mais ajudaria o dia a dia da confeitaria
-
-8. **Aviso de pedido novo** no painel (som/notificação) quando chega pelo
-    cardápio do site.
-9. **Relatórios**: lucro real por produto, mais vendidos, vendas por mês,
-    exportar para PDF/Excel.
-10. **WhatsApp**: mensagem pronta para confirmar pedido, cobrar e avisar
-    aniversariantes (link `wa.me`, sem API paga).
-11. **Agenda de entregas** (visão semanal) e limite de pedidos por dia.
-12. **Pix com QR Code / copia-e-cola** dentro do pedido.
-13. **Impressão** de comanda e etiqueta do pedido.
-14. Lista de compras mais esperta (sugerir pelo que os pedidos da semana vão
-    consumir, conforme as fichas técnicas).
-
-## E. Qualidade do código (só se for mexer muito)
-
-15. Quebrar `app/dashboard/page.tsx` (~5,5 mil linhas) em um arquivo por área.
-    Faça depois de ter mais testes.
-16. Mais testes: rotas de API e um teste de ponta a ponta (Playwright) para
-    pedido → pagamento. O CI já roda tipos, testes e build a cada push.
-17. Zerar os avisos antigos do `npm run lint` e atualizar `mercadopago` para a
-    versão 3 (só se o cartão for ativado).
+- **Aviso com a tela bloqueada** no iPhone (Web Push): precisa de chaves VAPID e
+  de um envio a partir do servidor quando o pedido chega.
+- Dar baixa também em receita "vendida por peso" (hoje o pedido conta unidades).
+- Desfazer a baixa de estoque se um pedido concluído for reaberto.
+- Quebrar o resto de `app/dashboard/page.tsx` em um arquivo por área
+  (Pedidos, Estoque, Precificação, Financeiro, Cardápio...).
+- Mais testes: rotas de API e um teste de ponta a ponta (Playwright) no CI.
+- Zerar os avisos antigos do `npm run lint`; atualizar `mercadopago` para a
+  versão 3 só se o cartão for ativado.

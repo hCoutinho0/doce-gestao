@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { isDbConfigured, updateStateAtomic } from '@/lib/db';
+import { isDbConfigured, readState, updateStateAtomic } from '@/lib/db';
 import { applyOrderPatch, STAMPS_FOR_DISCOUNT, stampsForValue } from '@/lib/orders';
+import { consumptionForOrder, deductStock, type ConsumoMenuItem, type ConsumoProduct, type ConsumoRecipe, type ConsumoStock } from '@/lib/consumo';
 
 type OrderItem = { name: string; quantity: number; unitPrice: number };
 type Order = {
@@ -21,8 +22,10 @@ type Order = {
   paymentMethod?: 'Pix' | 'Cartão' | 'Dinheiro' | 'Presente';
   paymentStatus: 'Pago' | 'Pendente';
   paymentDate?: string;
+  paidAmount?: number;
   stampsAwarded?: boolean;
   financeLogged?: boolean;
+  stockDeducted?: boolean;
 };
 
 type Customer = {
@@ -45,6 +48,10 @@ type FinanceItem = {
 const ORDERS_KEY = 'doce-orders';
 const CUSTOMERS_KEY = 'doce-loyalty';
 const FINANCE_KEY = 'doce-finance';
+const STOCK_KEY = 'doce-stock-v2';
+const MENU_KEY = 'doce-menu';
+const PRODUCTS_KEY = 'doce-products';
+const RECIPES_KEY = 'doce-pricing';
 
 async function awardStamps(
   bakeryId: string,
@@ -74,13 +81,13 @@ async function awardStamps(
   return awarded;
 }
 
-async function logSale(bakeryId: string, order: Order): Promise<FinanceItem> {
+async function logSale(bakeryId: string, order: Order, amount: number): Promise<FinanceItem> {
   const entry: FinanceItem = {
     id: Date.now(),
-    description: `Pedido ${order.id} - ${order.customer}`,
+    description: `Pedido ${order.id} - ${order.customer}${amount < order.value ? ' (recebimento parcial)' : ''}`,
     type: 'Entrada',
     category: 'Vendas',
-    value: order.value,
+    value: amount,
     // The payment date, not orderDate/deliveryDate — a sale only counts
     // toward a given month's Financeiro once the customer actually pays.
     date: order.paymentDate ?? new Date().toISOString().slice(0, 10),
@@ -90,6 +97,22 @@ async function logSale(bakeryId: string, order: Order): Promise<FinanceItem> {
     ...(current ?? []),
   ]);
   return entry;
+}
+
+// Baixa no estoque o que o pedido concluído consumiu, pela ficha técnica.
+// Item sem receita (ou sem conversão de unidade) não é baixado.
+async function deductOrderStock(bakeryId: string, order: Order) {
+  if (!order.items?.length) return;
+  const [menu, products, recipes] = await Promise.all([
+    readState<ConsumoMenuItem[]>(bakeryId, MENU_KEY),
+    readState<ConsumoProduct[]>(bakeryId, PRODUCTS_KEY),
+    readState<ConsumoRecipe[]>(bakeryId, RECIPES_KEY),
+  ]);
+  await updateStateAtomic<ConsumoStock[]>(bakeryId, STOCK_KEY, (current) => {
+    const stock = current ?? [];
+    const used = consumptionForOrder(order.items!, menu ?? [], products ?? [], recipes ?? [], stock);
+    return used.size ? deductStock(stock, used) : stock;
+  });
 }
 
 // Read-modify-write against the current database state at request time,
@@ -119,14 +142,17 @@ export async function PATCH(
     status?: string;
     paymentMethod?: 'Pix' | 'Cartão' | 'Dinheiro' | 'Presente';
     paymentStatus?: 'Pago' | 'Pendente';
+    receive?: number;
   };
-  if (!body.status?.trim() && !body.paymentStatus) {
+  if (!body.status?.trim() && !body.paymentStatus && !(Number(body.receive) > 0)) {
     return NextResponse.json({ error: 'invalid_status' }, { status: 400 });
   }
 
   let updatedOrder: Order | undefined;
   let shouldLogFinance = false;
   let shouldAwardStamps = false;
+  let shouldDeductStock = false;
+  let financeAmount = 0;
 
   await updateStateAtomic<Order[]>(bakeryId, ORDERS_KEY, (current) => {
     const orders = current ?? [];
@@ -140,6 +166,8 @@ export async function PATCH(
     const next: Order = patched.next;
     shouldLogFinance = patched.shouldLogFinance;
     shouldAwardStamps = patched.shouldAwardStamps;
+    shouldDeductStock = patched.shouldDeductStock;
+    financeAmount = patched.financeAmount;
     updatedOrder = next;
     return orders.map((order) => (order.id === id ? next : order));
   });
@@ -149,7 +177,7 @@ export async function PATCH(
   }
 
   const financeItem = shouldLogFinance
-    ? await logSale(bakeryId, updatedOrder)
+    ? await logSale(bakeryId, updatedOrder, financeAmount)
     : undefined;
   const customer = shouldAwardStamps
     ? await awardStamps(
@@ -159,6 +187,8 @@ export async function PATCH(
         updatedOrder.customerId,
       )
     : undefined;
+
+  if (shouldDeductStock) await deductOrderStock(bakeryId, updatedOrder);
 
   return NextResponse.json({ ok: true, order: updatedOrder, financeItem, customer });
 }

@@ -22,6 +22,7 @@ type Order = {
   paymentMethod?: 'Pix' | 'Cartão' | 'Dinheiro' | 'Presente';
   paymentStatus: 'Pago' | 'Pendente';
   paymentDate?: string;
+  paidAmount?: number;
   stampsAwarded?: boolean;
   financeLogged?: boolean;
 };
@@ -52,18 +53,19 @@ const CUSTOMERS_KEY = 'doce-loyalty';
 const MENU_KEY = 'doce-menu';
 const MENU_EDITIONS_KEY = 'doce-menu-editions';
 const FINANCE_KEY = 'doce-finance';
+const SETTINGS_KEY = 'doce-ajustes';
 
 // Same shape/purpose as logSale in app/api/orders/[id]/route.ts — an order
 // created already marked paid (e.g. "Presente" handed over on the spot)
 // never goes through PATCH's Pago transition, so it needs to post to
 // Financeiro right here at creation time instead.
-async function logSale(bakeryId: string, order: Order): Promise<FinanceItem> {
+async function logSale(bakeryId: string, order: Order, amount = order.value): Promise<FinanceItem> {
   const entry: FinanceItem = {
     id: Date.now(),
-    description: `Pedido ${order.id} - ${order.customer}`,
+    description: `Pedido ${order.id} - ${order.customer}${amount < order.value ? ' (sinal)' : ''}`,
     type: 'Entrada',
     category: 'Vendas',
-    value: order.value,
+    value: amount,
     date: order.paymentDate ?? new Date().toISOString().slice(0, 10),
   };
   await updateStateAtomic<FinanceItem[]>(bakeryId, FINANCE_KEY, (current) => [
@@ -214,6 +216,7 @@ export async function POST(request: Request) {
     editionId?: string;
     paymentMethod?: 'Pix' | 'Cartão' | 'Dinheiro' | 'Presente';
     paymentStatus?: 'Pago' | 'Pendente';
+    deposit?: number;
     newCustomer?: boolean;
   };
   // Never falls back to a fixed confeitaria: an anonymous request that
@@ -296,6 +299,20 @@ export async function POST(request: Request) {
     }
   }
 
+  // Limite de pedidos por dia de entrega (Ajustes): só o cardápio público
+  // é barrado; no painel a confeitaria decide e recebe só o aviso.
+  if (!isAuthenticated && body.deliveryDate) {
+    const settings = await readState<{ dailyLimit?: number }>(bakeryId, SETTINGS_KEY);
+    const limit = Number(settings?.dailyLimit);
+    if (Number.isInteger(limit) && limit > 0) {
+      const existing = (await readState<Order[]>(bakeryId, ORDERS_KEY)) ?? [];
+      const sameDay = existing.filter((o) => o.deliveryDate === body.deliveryDate).length;
+      if (sameDay >= limit) {
+        return NextResponse.json({ error: 'day_full' }, { status: 409 });
+      }
+    }
+  }
+
   let items: OrderItem[] | undefined;
   let value: number;
   let itemSummary: string;
@@ -348,6 +365,20 @@ export async function POST(request: Request) {
         }
       : {}),
   };
+  // Sinal informado no painel: entra no Financeiro já; se cobrir o valor
+  // todo, o pedido nasce pago.
+  const deposit =
+    isAuthenticated && order.paymentStatus !== 'Pago' && Number(body.deposit) > 0
+      ? Math.min(order.value, Math.round(Number(body.deposit) * 100) / 100)
+      : 0;
+  if (deposit > 0) {
+    order.paidAmount = deposit;
+    if (deposit >= order.value) {
+      order.paymentStatus = 'Pago';
+      order.paymentDate = new Date().toISOString().slice(0, 10);
+      order.financeLogged = true;
+    }
+  }
   // updateStateAtomic, not readState+writeState — two orders created in
   // the same instant (two customers checking out at once) must not let
   // the second writer's stale snapshot drop the first one's order.
@@ -369,7 +400,9 @@ export async function POST(request: Request) {
   const stamps = customer.stamps;
   const financeItem = order.financeLogged
     ? await logSale(bakeryId, order)
-    : undefined;
+    : deposit > 0
+      ? await logSale(bakeryId, order, deposit)
+      : undefined;
 
   return NextResponse.json({ order, stamps, financeItem });
 }

@@ -18,7 +18,9 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   BadgeDollarSign,
+  BarChart3,
   Bell,
+  CalendarDays,
   Check,
   CheckCircle2,
   ChevronLeft,
@@ -37,6 +39,7 @@ import {
   Pencil,
   Printer,
   Plus,
+  Settings,
   Search,
   ShoppingBag,
   ShoppingCart,
@@ -82,6 +85,33 @@ import { useUserSession, signOut } from '@/lib/auth';
 import type { Invite } from '@/lib/tenant';
 import { MenuConta } from '@/components/menu-conta';
 import { formatPhone, normalizePhone } from '@/lib/phone';
+import type {
+  FinanceItem,
+  LoyaltyItem,
+  MenuItem,
+  MenuPeriod,
+  Order,
+  Product,
+  ProductRecipe,
+  RecipeLine,
+  ShoppingItem,
+  StockItem,
+} from '@/lib/tipos';
+import { computeRecipeCost, gramCostOf, lineCost, lineWeightGrams, recipeKey } from '@/lib/custos';
+import { Empty, Field, PageHeading, Panel, PanelTitle, inputClass, money } from '@/components/painel-ui';
+import { Agenda } from '@/components/agenda';
+import { Lembretes } from '@/components/lembretes';
+import { Ajustes as AjustesPanel } from '@/components/ajustes';
+import { AcoesPedido } from '@/components/acoes-pedido';
+import { AvisoPedidos } from '@/components/aviso-pedidos';
+import { Relatorios } from '@/components/relatorios';
+import { ReceberPagamento } from '@/components/receber-pagamento';
+import { RegistrarPerda } from '@/components/registrar-perda';
+import { balanceDue, paidSoFar } from '@/lib/orders';
+import { dayIsFull } from '@/lib/agenda';
+import { expiryStatus, daysUntil } from '@/lib/validade';
+import { suggestPurchases } from '@/lib/compras';
+import type { Ajustes, Perda } from '@/lib/tipos';
 
 type View =
   | 'dashboard'
@@ -94,72 +124,15 @@ type View =
   | 'customers'
   | 'loyalty'
   | 'team'
+  | 'agenda'
+  | 'reports'
+  | 'settings'
   | 'help';
-type OrderItem = { name: string; quantity: number; unitPrice: number };
-type Order = {
-  id: string;
-  customer: string;
-  customerId?: number;
-  phone?: string;
-  items?: OrderItem[];
-  item: string;
-  notes?: string;
-  orderDate?: string;
-  deliveryDate?: string;
-  deliveryTime?: string;
-  date: string;
-  value: number;
-  status: string;
-  paymentMethod?: 'Pix' | 'Cartão' | 'Dinheiro' | 'Presente';
-  paymentStatus: 'Pago' | 'Pendente';
-  paymentDate?: string;
-  stampsAwarded?: boolean;
-  financeLogged?: boolean;
-};
 const ORDER_STATUSES = ['Novo', 'Produção', 'Pronto', 'Entrega', 'Concluído'];
 const PAYMENT_METHODS = ['Pix', 'Cartão', 'Dinheiro', 'Presente'] as const;
-// `cost` é sempre o preço por `unit` (uma unidade/pacote comprado) — o
-// formulário de cadastro pede "valor pago" e calcula esse preço unitário na
-// hora, não pede o valor por unidade diretamente. `weight` é opcional e só
-// existe em ingredientes: o peso de UM pacote/unidade comprado (ex.: uma
-// lata de leite condensado com 395g) — é o que permite uma linha de receita
-// dizer "usei 200g disso" e cobrar só a fração correspondente do valor
-// pago, em vez do pacote inteiro.
-type StockItem = {
-  id: number;
-  name: string;
-  qty: number;
-  unit: string;
-  min: number;
-  cost: number;
-  category?: 'Ingrediente' | 'Embalagem';
-  weight?: { value: number; unit: 'g' | 'kg' };
-  // Onde foi comprado da última vez — só controle de fornecedor/reposição,
-  // não entra em nenhum cálculo de custo.
-  supplier?: string;
-};
-// Lista de compras (Estoque): compartilhada por todos da confeitaria.
-// stockId liga o item ao estoque (para mostrar onde costuma ser comprado e
-// não sugerir de novo o que já está na lista); itens avulsos não têm.
-type ShoppingItem = {
-  id: number;
-  name: string;
-  qty: string;
-  stockId?: number;
-  done: boolean;
-  createdAt: string;
-};
 // Caixa da empresa: o saldo que a conta bancária tinha quando foi
 // informado (setAt) + tudo que entrou e saiu no Financeiro depois disso.
 type CashBalance = { amount: number; setAt: number } | null;
-type FinanceItem = {
-  id: number;
-  description: string;
-  type: 'Entrada' | 'Saída';
-  category?: string;
-  value: number;
-  date: string;
-};
 
 const FINANCE_CATEGORIES: Record<'Entrada' | 'Saída', string[]> = {
   Entrada: ['Vendas', 'Investimentos'],
@@ -237,37 +210,7 @@ function bestAndWorst(counts: Map<string, number>): {
   }
   return { best, worst };
 }
-type MenuItem = {
-  id: number;
-  name: string;
-  category: string;
-  price: number;
-  available: boolean;
-  emoji: string;
-  // Sabor, mostrado como subtítulo no cardápio ("Brownie" / "Pistache").
-  flavor?: string;
-  photoUrl?: string;
-  weight?: { value: number; unit: 'kg' | 'g' | 'l' };
-  // Marca de qual item do catálogo (Produtos) este veio, quando publicado
-  // por lá — evita publicar o mesmo produto duas vezes. É uma cópia, não
-  // um vínculo: editar o produto depois não atualiza o item já publicado.
-  sourceProductId?: number;
-};
 
-// A simple named product + flavor, independent of the weekly cardápio —
-// meant for things like custom cakes that aren't part of a given week's
-// published menu but still need to show up when building a pedido.
-// Período a que o cardápio publicado se refere (aparece no topo do
-// cardápio do cliente). Guardado à parte do perfil para ser lido sem login.
-type MenuPeriod = { from: string; to?: string } | null;
-type Product = {
-  id: number;
-  name: string;
-  flavor: string;
-  price?: number;
-  weight?: { value: number; unit: 'g' | 'kg' | 'ml' | 'l' | 'unidade' };
-  photoUrl?: string;
-};
 
 // Grams/ml are the base units so kg and l (×1000) compare on the same
 // scale — used to show "quanto custa por grama/ml" while precificando.
@@ -286,63 +229,6 @@ function pricePerBaseUnit(product: Product): string | null {
 // suggestions, just whatever the admin types.
 type Task = { id: number; text: string; done: boolean; createdAt: string };
 
-// `unit` é a unidade em que ESSA linha da receita foi medida — pode ser
-// diferente da unidade em que o item foi comprado no estoque. É o que
-// permite comprar um pacote de 395g e usar só 200g numa receita.
-type RecipeLine = {
-  id: number;
-  stockId: number;
-  quantity: number;
-  unit: 'un' | 'g' | 'kg';
-};
-// Uma receita é uma entidade própria — não depende de já existir um
-// produto no cardápio ou em Produtos para ser criada. `productId`/
-// `productKind` só aparecem quando ela foi vinculada a um item real (na
-// criação, opcionalmente, ou depois via "Precificar produto"); uma receita
-// avulsa não tem nenhum dos dois. `id` é a chave própria da receita —
-// receitas salvas antes desse campo existir não têm `id`, só `productId`
-// (sempre presente nelas, já que só dava pra criar vinculado); nesse caso
-// `productId` também serve de `id`, ver `recipeKey`.
-type ProductRecipe = {
-  id?: number;
-  productId?: number;
-  productKind?: 'menu' | 'catalog';
-  productName?: string;
-  yieldCount: number;
-  recipeItems: RecipeLine[];
-  // Único percentual de custos fixos/variáveis (aluguel, embalagem
-  // avulsa, marketing...), aplicado sobre ingredientes+embalagens da
-  // receita — substitui a antiga lista de "gastos invisíveis" nomeados.
-  overheadPercent: number;
-  profit: number;
-  // Taxa única de cartão/iFood — substitui os antigos cardFee+tax
-  // separados.
-  feePercent: number;
-  // Preço de venda: começa igual à sugestão (custo + margem), mas o
-  // usuário pode digitar um valor diferente (ex.: arredondar) — uma vez
-  // editado, para de seguir a sugestão automaticamente.
-  sellPrice?: number;
-  // Adicional cobrado fora da precificação (ex.: embalagem especial sob
-  // pedido) — soma só no preço final, não entra na distribuição de lucro.
-  extraCharge?: number;
-  // Como o "lucro disponível" (preço de venda − custo total) se divide.
-  proLaborePercent?: number;
-  companyPercent?: number;
-  // Vendido por peso (ex.: bolo confeitado por kg) em vez de por unidade —
-  // muda o preço sugerido de "por unidade" para "por kg".
-  soldByWeight?: boolean;
-  // Perda de peso ao assar/cozinhar, opcional — reduz o peso final da
-  // receita antes de calcular o preço por kg (a água evapora, o peso cru
-  // não é o peso vendido).
-  weightLossPercent?: number;
-};
-type LoyaltyItem = {
-  id: number;
-  name: string;
-  phone: string;
-  birthday?: string;
-  stamps: number;
-};
 
 // Real confeitarias start with none of this — orders, stock, finance,
 // cardápio and clientes all begin empty and fill up from what the admin
@@ -358,21 +244,22 @@ const navItems: { label: string; icon: NavIcon; view: View }[] =
   [
     { label: 'Visão geral', icon: IconeVisaoGeral, view: 'dashboard' },
     { label: 'Pedidos', icon: IconePedidos, view: 'orders' },
+    { label: 'Agenda', icon: CalendarDays, view: 'agenda' },
     { label: 'Estoque', icon: IconeEstoque, view: 'stock' },
     { label: 'Precificação', icon: IconePrecificacao, view: 'pricing' },
     { label: 'Financeiro', icon: IconeFinanceiro, view: 'finance' },
+    { label: 'Relatórios', icon: BarChart3, view: 'reports' },
     { label: 'Cardápio', icon: IconeCardapio, view: 'menu' },
     { label: 'Produtos', icon: IconeProdutos, view: 'products' },
     { label: 'Clientes', icon: IconeClientes, view: 'customers' },
     { label: 'Fidelidade', icon: IconeFidelidade, view: 'loyalty' },
     { label: 'Equipe', icon: IconeEquipe, view: 'team' },
+    { label: 'Ajustes', icon: Settings, view: 'settings' },
   ];
 // Nome do item como vai no pedido ("Brownie — Pistache"); o servidor
 // confere o preço pelo mesmo nome (app/api/orders).
 const menuLabel = (item: Pick<MenuItem, 'name' | 'flavor'>) =>
   item.flavor?.trim() ? `${item.name} — ${item.flavor.trim()}` : item.name;
-const money = (value: number) =>
-  value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const fieldValue = (data: FormData, name: string) => {
   const value = data.get(name);
   return typeof value === 'string' ? value : '';
@@ -402,6 +289,8 @@ export default function Home() {
     'doce-pricing',
     [],
   );
+  const [ajustes, setAjustes] = useStoredState<Ajustes>('doce-ajustes', {});
+  const [perdas, setPerdas] = useStoredState<Perda[]>('doce-perdas', []);
   const [bakery] = useServerFetchedState<BakeryProfile | null>(BAKERY_KEY, null);
   const { session, isLoading: sessionLoading } = useUserSession();
   const isBrowserReady = !sessionLoading;
@@ -411,6 +300,14 @@ export default function Home() {
   useEffect(() => {
     if (isBrowserReady && !session) window.location.replace('/login');
   }, [isBrowserReady, session]);
+
+  // App no celular: registra o service worker (não no aplicativo de desktop,
+  // que roda em 127.0.0.1).
+  useEffect(() => {
+    if ('serviceWorker' in navigator && location.hostname !== '127.0.0.1') {
+      void navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+    }
+  }, []);
 
   // "Este mês" segue a mesma convenção da aba Pedidos: agrupa pela data de
   // entrega, não pela data em que o pedido foi feito.
@@ -426,7 +323,7 @@ export default function Home() {
   const visibleNavItems =
     session?.role === 'production'
       ? navItems.filter((item) =>
-          ['dashboard', 'orders', 'stock', 'menu', 'help'].includes(item.view),
+          ['dashboard', 'orders', 'agenda', 'stock', 'menu', 'help'].includes(item.view),
         )
       : navItems;
   const pageTitle =
@@ -465,7 +362,7 @@ export default function Home() {
   };
 
   return (
-    <main id="conteudo" tabIndex={-1} className="min-h-screen bg-background text-foreground">
+    <main id="conteudo" tabIndex={-1} className="min-h-screen bg-background pb-[env(safe-area-inset-bottom)] text-foreground">
       <div className="mx-auto grid min-h-screen max-w-[1680px] lg:grid-cols-[16rem_minmax(0,1fr)]">
         <aside className="vidro-sidebar hidden border-r border-sidebar-border px-3 py-5 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:self-start">
           <SidebarNav {...sidebarProps} />
@@ -514,6 +411,7 @@ export default function Home() {
               onNavigate={setView}
             />
             <div className="ml-auto flex items-center gap-3">
+              <AvisoPedidos orders={orders} ready={!panelLoading} onOpen={() => setView('orders')} />
               <Badge
                 variant="outline"
                 className="hidden border-[#cce7d7] bg-[#edf9f2] text-[#28724a] sm:inline-flex"
@@ -544,6 +442,8 @@ export default function Home() {
                 stock={stock}
                 recipes={recipes}
                 menuItems={menuItems}
+                customers={loyalty}
+                confeitaria={bakery?.name ?? 'Confeitaria'}
               />
             )}
             {view === 'help' && <HelpCenter />}
@@ -555,6 +455,16 @@ export default function Home() {
                 customers={loyalty}
                 setFinance={setFinance}
                 setLoyalty={setLoyalty}
+                ajustes={ajustes}
+                confeitaria={bakery?.name ?? 'Confeitaria'}
+              />
+            )}
+            {view === 'agenda' && (
+              <Agenda
+                orders={orders}
+                dailyLimit={ajustes.dailyLimit}
+                confeitaria={bakery?.name ?? 'Confeitaria'}
+                onOpenOrders={() => setView('orders')}
               />
             )}
             {view === 'stock' && (
@@ -563,6 +473,11 @@ export default function Home() {
                 setStock={setStock}
                 shopping={shopping}
                 setShopping={setShopping}
+                orders={orders}
+                menuItems={menuItems}
+                products={products}
+                recipes={recipes}
+                setPerdas={setPerdas}
               />
             )}
             {view === 'pricing' && (
@@ -614,6 +529,19 @@ export default function Home() {
               <Loyalty items={loyalty} setItems={setLoyalty} />
             )}
             {view === 'team' && <Team isAdmin={session.role === 'admin'} />}
+            {view === 'reports' && (
+              <Relatorios
+                orders={orders}
+                finance={finance}
+                recipes={recipes}
+                stock={stock}
+                menuItems={menuItems}
+                products={products}
+                perdas={perdas}
+                confeitaria={bakery?.name ?? 'Confeitaria'}
+              />
+            )}
+            {view === 'settings' && <AjustesPanel ajustes={ajustes} setAjustes={setAjustes} />}
             <p className="mt-8 text-center text-xs text-muted-foreground">
               {pageTitle} • Dados sincronizados na nuvem • Acesso: {session.roleLabel}
             </p>
@@ -842,56 +770,6 @@ function MobileNav({
   );
 }
 
-function PageHeading({
-  title,
-  subtitle,
-  action,
-}: {
-  title: string;
-  subtitle: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-      <div>
-        <h1 className="font-heading text-[1.75rem] font-bold leading-tight sm:text-[2.125rem]">
-          {title}
-        </h1>
-        <p className="mt-1 text-[0.9375rem] text-muted-foreground">{subtitle}</p>
-      </div>
-      {action}
-    </div>
-  );
-}
-function Panel({
-  children,
-  className = '',
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <section className={`rounded-2xl border bg-card shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_-8px_rgb(0_0_0/0.08)] ${className}`}>
-      {children}
-    </section>
-  );
-}
-function Field({
-  label,
-  children,
-}: {
-  label: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="grid min-w-0 gap-1.5 text-xs font-semibold text-muted-foreground">
-      <span>{label}</span>
-      {children}
-    </label>
-  );
-}
-const inputClass =
-  'h-10 w-full min-w-0 rounded-xl border bg-background px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15';
 
 function Dashboard({
   orders,
@@ -907,6 +785,8 @@ function Dashboard({
   stock,
   recipes,
   menuItems,
+  customers,
+  confeitaria,
 }: {
   orders: Order[];
   activeOrdersCount: number;
@@ -921,6 +801,8 @@ function Dashboard({
   stock: StockItem[];
   recipes: ProductRecipe[];
   menuItems: MenuItem[];
+  customers: LoyaltyItem[];
+  confeitaria: string;
 }) {
   const entries = finance
     .filter((item) => item.type === 'Entrada')
@@ -984,6 +866,7 @@ function Dashboard({
           detail="Itens abaixo do mínimo"
         />
       </section>
+      <Lembretes stock={stock} customers={customers} confeitaria={confeitaria} />
       <TasksPanel tasks={tasks} setTasks={setTasks} />
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.75fr)]">
         <Panel className="overflow-hidden">
@@ -1490,30 +1373,6 @@ function MetricCard({
     </article>
   );
 }
-function PanelTitle({
-  title,
-  subtitle,
-  action,
-  icon,
-}: {
-  title: string;
-  subtitle: string;
-  action?: React.ReactNode;
-  icon?: string;
-}) {
-  return (
-    <div className="flex items-center justify-between border-b px-5 py-4">
-      <div>
-        <h2 className="font-heading font-bold">
-          {icon ? <span className="mr-1.5">{icon}</span> : null}
-          {title}
-        </h2>
-        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
-      </div>
-      {action}
-    </div>
-  );
-}
 function StatusBadge({ status }: { status: string }) {
   const style: Record<string, string> = {
     Novo: 'bg-[#f3ecf8] text-[#7a4a97]',
@@ -1544,13 +1403,17 @@ function OrderTable({
   compact = false,
   onStatus,
   onDelete,
-  onMarkPaid,
+  onReceive,
+  ajustes,
+  confeitaria = 'Confeitaria',
 }: {
   orders: Order[];
   compact?: boolean;
   onStatus?: (id: string, status: string) => void;
   onDelete?: (id: string) => void;
-  onMarkPaid?: (id: string, method: Order['paymentMethod']) => void;
+  onReceive?: (id: string, amount: number, method: Order['paymentMethod']) => Promise<void>;
+  ajustes?: Ajustes;
+  confeitaria?: string;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -1600,7 +1463,7 @@ function OrderTable({
               </td>
               <td className="px-3 py-3.5 font-medium">{money(order.value)}</td>
               <td className="px-3 py-3.5">
-                {compact || !onMarkPaid ? (
+                {compact || !onReceive ? (
                   <PaymentBadge order={order} />
                 ) : order.paymentStatus === 'Pago' ? (
                   <div className="space-y-0.5">
@@ -1612,24 +1475,20 @@ function OrderTable({
                     )}
                   </div>
                 ) : (
-                  <select
-                    defaultValue=""
-                    aria-label={`Marcar pedido ${order.id} como pago`}
-                    onChange={(e) => {
-                      if (!e.target.value) return;
-                      onMarkPaid(order.id, e.target.value as Order['paymentMethod']);
-                    }}
-                    className="h-8 rounded-lg border border-orange-300 bg-orange-50 px-2 text-xs font-semibold text-orange-800 outline-none focus:border-primary"
-                  >
-                    <option value="" disabled>
-                      Marcar como pago...
-                    </option>
-                    {PAYMENT_METHODS.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="space-y-1">
+                    <PaymentBadge order={order} />
+                    {paidSoFar(order) > 0 && (
+                      <p className="text-[11px] text-muted-foreground">
+                        recebido {money(paidSoFar(order))} · falta {money(balanceDue(order))}
+                      </p>
+                    )}
+                    <ReceberPagamento
+                      order={order}
+                      ajustes={ajustes ?? {}}
+                      confeitaria={confeitaria}
+                      onReceive={(amount, method) => onReceive(order.id, amount, method)}
+                    />
+                  </div>
                 )}
               </td>
               <td className="px-3 py-3.5">
@@ -1652,14 +1511,17 @@ function OrderTable({
               </td>
               {!compact && (
                 <td className="px-3 py-3.5">
-                  <Button
-                    onClick={() => onDelete?.(order.id)}
-                    size="icon-sm"
-                    variant="destructive"
-                    aria-label="Excluir pedido"
-                  >
-                    <Trash2 />
-                  </Button>
+                  <div className="flex items-center gap-1.5">
+                    <AcoesPedido order={order} confeitaria={confeitaria} />
+                    <Button
+                      onClick={() => onDelete?.(order.id)}
+                      size="icon-sm"
+                      variant="destructive"
+                      aria-label="Excluir pedido"
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
                 </td>
               )}
             </tr>
@@ -1678,7 +1540,7 @@ function PaymentBadge({ order }: { order: Order }) {
     </span>
   ) : (
     <span className="inline-flex rounded-full bg-orange-100 px-2.5 py-1 text-[11px] font-bold text-orange-800">
-      Pendente
+      {paidSoFar(order) > 0 ? 'Parcial' : 'Pendente'}
     </span>
   );
 }
@@ -1692,6 +1554,8 @@ function Orders({
   customers,
   setFinance,
   setLoyalty,
+  ajustes,
+  confeitaria,
 }: {
   orders: Order[];
   setOrders: (v: Order[] | ((o: Order[]) => Order[])) => void;
@@ -1699,6 +1563,8 @@ function Orders({
   customers: LoyaltyItem[];
   setFinance: (v: FinanceItem[] | ((o: FinanceItem[]) => FinanceItem[])) => void;
   setLoyalty: (v: LoyaltyItem[] | ((o: LoyaltyItem[]) => LoyaltyItem[])) => void;
+  ajustes: Ajustes;
+  confeitaria: string;
 }) {
   const [customerChoice, setCustomerChoice] = useState('');
   const [newName, setNewName] = useState('');
@@ -1713,6 +1579,7 @@ function Orders({
   const [paymentMethod, setPaymentMethod] =
     useState<Order['paymentMethod']>('Pix');
   const [alreadyPaid, setAlreadyPaid] = useState(false);
+  const [deposit, setDeposit] = useState('');
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [submitting, setSubmitting] = useState(false);
   const [monthView, setMonthView] = useState(() => {
@@ -1796,6 +1663,9 @@ function Orders({
         status: 'Novo',
         paymentMethod,
         paymentStatus: alreadyPaid ? 'Pago' : 'Pendente',
+        ...(!alreadyPaid && Number(deposit.replace(',', '.')) > 0
+          ? { deposit: Number(deposit.replace(',', '.')) }
+          : {}),
       }),
     });
     setSubmitting(false);
@@ -1816,6 +1686,7 @@ function Orders({
     setNotes('');
     setPaymentMethod('Pix');
     setAlreadyPaid(false);
+    setDeposit('');
     setQuantities({});
   };
   const changeStatus = async (id: string, status: string) => {
@@ -1850,11 +1721,11 @@ function Orders({
       );
     }
   };
-  const markPaid = async (id: string, method: Order['paymentMethod']) => {
+  const receive = async (id: string, amount: number, method: Order['paymentMethod']) => {
     const response = await fetch(`/api/orders/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paymentStatus: 'Pago', paymentMethod: method }),
+      body: JSON.stringify({ receive: amount, paymentMethod: method }),
     });
     if (!response.ok) return;
     const data = (await response.json()) as {
@@ -1864,6 +1735,7 @@ function Orders({
     setOrders((old) => old.map((o) => (o.id === id ? data.order : o)));
     if (data.financeItem) setFinance((old) => [data.financeItem!, ...old]);
   };
+  const dayCount = deliveryDate ? orders.filter((o) => o.deliveryDate === deliveryDate).length : 0;
   return (
     <>
       <PageHeading
@@ -2004,6 +1876,14 @@ function Orders({
                 />
               </Field>
             </div>
+            {dayCount > 0 && (
+              <p
+                className={`-mt-1 text-xs ${dayIsFull(dayCount, ajustes.dailyLimit) ? 'font-semibold text-destructive' : 'text-muted-foreground'}`}
+              >
+                Esse dia já tem {dayCount} {dayCount === 1 ? 'pedido' : 'pedidos'}
+                {ajustes.dailyLimit ? ` (limite ${ajustes.dailyLimit})` : ''}.
+              </p>
+            )}
             <Field label="Observações (opcional)">
               <textarea
                 value={notes}
@@ -2038,6 +1918,17 @@ function Orders({
                 Já foi pago
               </label>
             </div>
+            {!alreadyPaid && (
+              <Field label="Sinal recebido agora (R$, opcional)">
+                <input
+                  inputMode="decimal"
+                  value={deposit}
+                  onChange={(e) => setDeposit(e.target.value)}
+                  className={inputClass}
+                  placeholder="0,00"
+                />
+              </Field>
+            )}
           </div>
           <div className="space-y-4">
             <div>
@@ -2134,7 +2025,9 @@ function Orders({
         <OrderTable
           orders={monthOrders}
           onStatus={changeStatus}
-          onMarkPaid={markPaid}
+          onReceive={receive}
+          ajustes={ajustes}
+          confeitaria={confeitaria}
           onDelete={(id) => {
             void fetch(`/api/orders/${encodeURIComponent(id)}`, {
               method: 'DELETE',
@@ -2157,6 +2050,7 @@ function StockSection({
   setStock,
   onAddToList,
   isInList,
+  onLoss,
 }: {
   category: 'Ingrediente' | 'Embalagem';
   title: string;
@@ -2165,6 +2059,7 @@ function StockSection({
   setStock: (v: StockItem[] | ((o: StockItem[]) => StockItem[])) => void;
   onAddToList: (item: StockItem) => void;
   isInList: (item: StockItem) => boolean;
+  onLoss: (item: StockItem, qty: number, reason: string) => void;
 }) {
   const items = stock.filter(
     (item) => (item.category ?? 'Ingrediente') === category,
@@ -2184,6 +2079,7 @@ function StockSection({
     const qty = Number(fieldValue(d, 'qty'));
     const purchaseValue = Number(fieldValue(d, 'purchaseValue'));
     const supplier = fieldValue(d, 'supplier').trim();
+    const expiry = fieldValue(d, 'expiry').trim();
     if (!name || !Number.isFinite(qty) || qty <= 0) return;
     const weightValue = Number(fieldValue(d, 'weightValue'));
     setStock((old) => {
@@ -2204,6 +2100,7 @@ function StockSection({
                 // A reposição mais recente é o fornecedor que vale — troca
                 // o registrado antes, em vez de ignorar a nova compra.
                 ...(supplier ? { supplier } : {}),
+                ...(expiry ? { expiry } : {}),
                 ...(weightValue > 0 && !x.weight
                   ? { weight: { value: weightValue, unit: weightUnit } }
                   : {}),
@@ -2222,6 +2119,7 @@ function StockSection({
           min: 0,
           cost: qty > 0 ? +(purchaseValue / qty).toFixed(4) : 0,
           ...(supplier ? { supplier } : {}),
+          ...(expiry ? { expiry } : {}),
           ...(weightValue > 0
             ? { weight: { value: weightValue, unit: weightUnit } }
             : {}),
@@ -2310,6 +2208,9 @@ function StockSection({
                     placeholder="Ex.: Atacadão, fornecedor X"
                   />
                 </Field>
+                <Field label="Validade (opcional)">
+                  <input name="expiry" type="date" className={inputClass} />
+                </Field>
                 <Button type="submit" className="w-full justify-self-end rounded-xl sm:w-auto">
                   Salvar
                 </Button>
@@ -2344,6 +2245,7 @@ function StockSection({
                       Comprado em: {item.supplier}
                     </p>
                   )}
+                  {item.expiry && <ExpiryNote expiry={item.expiry} />}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <Badge variant={low ? 'destructive' : 'secondary'}>
@@ -2363,6 +2265,7 @@ function StockSection({
                   >
                     {isInList(item) ? <Check /> : <ShoppingCart />}
                   </Button>
+                  <RegistrarPerda item={item} onConfirm={(qty, reason) => onLoss(item, qty, reason)} />
                   <Button
                     variant="ghost"
                     size="icon-sm"
@@ -2438,6 +2341,26 @@ function StockSection({
   );
 }
 
+function ExpiryNote({ expiry }: { expiry: string }) {
+  const status = expiryStatus(expiry, new Date());
+  const days = daysUntil(expiry, new Date());
+  const text =
+    status === 'vencido'
+      ? `Vencido há ${Math.abs(days ?? 0)} ${Math.abs(days ?? 0) === 1 ? 'dia' : 'dias'}`
+      : status === 'vence-logo'
+        ? days === 0
+          ? 'Vence hoje'
+          : `Vence em ${days} ${days === 1 ? 'dia' : 'dias'}`
+        : `Validade: ${formatFinanceDate(expiry)}`;
+  return (
+    <p
+      className={`text-xs ${status === 'vencido' ? 'font-semibold text-destructive' : status === 'vence-logo' ? 'font-semibold text-orange-700' : 'text-muted-foreground'}`}
+    >
+      {text}
+    </p>
+  );
+}
+
 type SetShopping = (v: ShoppingItem[] | ((o: ShoppingItem[]) => ShoppingItem[])) => void;
 
 const sameName = (a: string, b: string) =>
@@ -2453,10 +2376,18 @@ function ShoppingList({
   stock,
   shopping,
   setShopping,
+  orders,
+  menuItems,
+  products,
+  recipes,
 }: {
   stock: StockItem[];
   shopping: ShoppingItem[];
   setShopping: SetShopping;
+  orders: Order[];
+  menuItems: MenuItem[];
+  products: Product[];
+  recipes: ProductRecipe[];
 }) {
   const [copied, setCopied] = useState(false);
   const pending = shopping.filter((i) => !i.done);
@@ -2470,6 +2401,18 @@ function ShoppingList({
   const suggestions = stock.filter(
     (item) => (item.qty < item.min || item.qty <= 0) && !listed(item),
   );
+
+  // Pelo que os pedidos abertos dos próximos 7 dias vão consumir (fichas
+  // técnicas), além do mínimo de cada item.
+  const weekSuggestions = (() => {
+    const from = new Date();
+    const to = new Date(from.getFullYear(), from.getMonth(), from.getDate() + 7);
+    const iso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return suggestPurchases(orders, menuItems, products, recipes, stock, iso(from), iso(to)).filter(
+      (x) => !listed(x.stock),
+    );
+  })();
 
   const addItem = (name: string, qty: string, stockId?: number) => {
     const clean = name.trim();
@@ -2627,6 +2570,36 @@ function ShoppingList({
           </div>
         )}
 
+        {weekSuggestions.length > 0 && (
+          <div className="mt-5 rounded-xl bg-muted/60 p-4">
+            <p className="mb-1 text-sm font-semibold">
+              Faltam para os pedidos da semana{' '}
+              <span className="font-normal text-muted-foreground">({weekSuggestions.length})</span>
+            </p>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Conta o que as fichas técnicas dos pedidos abertos (próximos 7 dias) vão consumir, mais o mínimo.
+            </p>
+            <ul className="flex flex-wrap gap-2">
+              {weekSuggestions.map(({ stock: item, need, missing }) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => addItem(item.name, `${Math.ceil(missing)} ${item.unit}`, item.id)}
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-left text-xs font-medium transition hover:border-primary"
+                    aria-label={`Adicionar ${item.name} à lista (faltam ${missing}, pedidos usam ${need})`}
+                  >
+                    <Plus className="size-3.5 shrink-0" aria-hidden="true" />
+                    <span className="[overflow-wrap:anywhere]">{item.name}</span>
+                    <span className="shrink-0 text-muted-foreground">
+                      faltam {missing} (usa {need})
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {shopping.length === 0 ? (
           <p className="mt-5 text-center text-sm text-muted-foreground">
             A lista está vazia. Adicione itens acima ou pelo carrinho em cada item do estoque.
@@ -2702,12 +2675,40 @@ function Stock({
   setStock,
   shopping,
   setShopping,
+  orders,
+  menuItems,
+  products,
+  recipes,
+  setPerdas,
 }: {
   stock: StockItem[];
   setStock: (v: StockItem[] | ((o: StockItem[]) => StockItem[])) => void;
   shopping: ShoppingItem[];
   setShopping: SetShopping;
+  orders: Order[];
+  menuItems: MenuItem[];
+  products: Product[];
+  recipes: ProductRecipe[];
+  setPerdas: (v: Perda[] | ((o: Perda[]) => Perda[])) => void;
 }) {
+  const onLoss = (item: StockItem, qty: number, reason: string) => {
+    setStock((old) =>
+      old.map((x) => (x.id === item.id ? { ...x, qty: Math.max(0, +(x.qty - qty).toFixed(3)) } : x)),
+    );
+    setPerdas((old) => [
+      {
+        id: Date.now(),
+        date: new Date().toISOString().slice(0, 10),
+        stockId: item.id,
+        name: item.name,
+        qty,
+        unit: item.unit,
+        cost: +(qty * item.cost).toFixed(2),
+        reason,
+      },
+      ...old,
+    ]);
+  };
   const isInList = (item: StockItem) =>
     shopping.some((i) => !i.done && (i.stockId === item.id || sameName(i.name, item.name)));
   const onAddToList = (item: StockItem) => {
@@ -2726,7 +2727,15 @@ function Stock({
   };
   return (
     <div className="ficha-theme">
-      <ShoppingList stock={stock} shopping={shopping} setShopping={setShopping} />
+      <ShoppingList
+        stock={stock}
+        shopping={shopping}
+        setShopping={setShopping}
+        orders={orders}
+        menuItems={menuItems}
+        products={products}
+        recipes={recipes}
+      />
       <StockSection
         category="Ingrediente"
         title="Ingredientes"
@@ -2735,6 +2744,7 @@ function Stock({
         setStock={setStock}
         onAddToList={onAddToList}
         isInList={isInList}
+        onLoss={onLoss}
       />
       <StockSection
         category="Embalagem"
@@ -2744,96 +2754,16 @@ function Stock({
         setStock={setStock}
         onAddToList={onAddToList}
         isInList={isInList}
+        onLoss={onLoss}
       />
     </div>
   );
 }
 
-// Preço por grama de um item de estoque — usado quando uma linha de receita
-// mede em g/kg em vez de "un". Prioriza o peso do pacote cadastrado (novo
-// modelo: valor pago ÷ (quantidade × peso do pacote)); sem isso, cai para a
-// própria unidade de estoque do item quando ela já é de peso (kg/g) —
-// mantém funcionando o estoque cadastrado antes desse campo existir.
-function gramCostOf(item: StockItem): number | null {
-  if (item.weight?.value) {
-    const grams =
-      item.weight.unit === 'kg' ? item.weight.value * 1000 : item.weight.value;
-    return grams > 0 ? item.cost / grams : null;
-  }
-  if (item.unit === 'kg') return item.cost / 1000;
-  if (item.unit === 'g') return item.cost;
-  return null;
-}
 
-function lineCost(item: StockItem, quantity: number, unit: RecipeLine['unit']): number {
-  if (unit === 'un') return quantity * item.cost;
-  const grams = unit === 'kg' ? quantity * 1000 : quantity;
-  const gCost = gramCostOf(item);
-  return gCost != null ? grams * gCost : 0;
-}
 
-// Peso, em gramas, que essa linha contribui pro peso total da receita.
-// Uma linha em "un" só soma peso se o item tiver o peso do pacote
-// cadastrado (1 unidade = o pacote inteiro); embalagens nunca contam.
-function lineWeightGrams(item: StockItem, quantity: number, unit: RecipeLine['unit']): number {
-  if (unit === 'kg') return quantity * 1000;
-  if (unit === 'g') return quantity;
-  if (item.weight?.value) {
-    return quantity * (item.weight.unit === 'kg' ? item.weight.value * 1000 : item.weight.value);
-  }
-  return 0;
-}
 
-function computeRecipeCost(recipe: {
-  recipeItems: RecipeLine[];
-  overheadPercent: number;
-}, stock: StockItem[]) {
-  const enrichedItems = recipe.recipeItems
-    .map((item) => ({
-      ...item,
-      stockItem: stock.find((entry) => entry.id === item.stockId),
-    }))
-    .filter((item) => item.stockItem);
-  const ingredientLines = enrichedItems.filter(
-    (item) => (item.stockItem?.category ?? 'Ingrediente') === 'Ingrediente',
-  );
-  const packagingLines = enrichedItems.filter(
-    (item) => item.stockItem?.category === 'Embalagem',
-  );
-  const ingredientCost = ingredientLines.reduce(
-    (sum, item) => sum + lineCost(item.stockItem!, item.quantity, item.unit),
-    0,
-  );
-  const packagingCost = packagingLines.reduce(
-    (sum, item) => sum + lineCost(item.stockItem!, item.quantity, item.unit),
-    0,
-  );
-  // "Custo dos ingredientes" na tela de Custos junta ingredientes e
-  // embalagens da receita — são as mesmas linhas da tabela de itens.
-  const directCost = ingredientCost + packagingCost;
-  const overheadTotal = (directCost * (recipe.overheadPercent || 0)) / 100;
-  const baseCost = directCost + overheadTotal;
-  const recipeWeightGrams = ingredientLines.reduce(
-    (sum, item) => sum + lineWeightGrams(item.stockItem!, item.quantity, item.unit),
-    0,
-  );
-  return {
-    enrichedItems,
-    ingredientCost,
-    packagingCost,
-    directCost,
-    overheadTotal,
-    baseCost,
-    recipeWeightGrams,
-  };
-}
 
-// Identidade de uma receita: `id` quando existe, senão `productId` (toda
-// receita salva antes de `id` existir tinha, obrigatoriamente, um
-// productId — só dava pra criar já vinculada a um produto).
-function recipeKey(recipe: ProductRecipe): number {
-  return recipe.id ?? recipe.productId!;
-}
 
 function Pricing({
   stock,
@@ -5951,10 +5881,3 @@ function Team({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
-function Empty({ label }: { label: string }) {
-  return (
-    <div className="p-10 text-center text-sm text-muted-foreground">
-      {label}
-    </div>
-  );
-}

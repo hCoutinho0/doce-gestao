@@ -97,6 +97,31 @@ ficha técnica.
 - Migração de projeto Supabase: `scripts/migrar-supabase.mjs` (`docs/MIGRACAO_SAO_PAULO.md`).
   Segurança e revogação de chaves: `docs/SEGURANCA.md`.
 
+## Pedidos, estoque, agenda e celular (out/2026)
+
+- **Pedido** (`lib/orders.ts`): `paidAmount` = quanto já entrou (sinal/parcelas);
+  `PATCH /api/orders/[id]` com `{receive, paymentMethod}` lança cada recebimento no
+  Financeiro (`financeAmount`); `POST` aceita `deposit`. Concluir o pedido baixa o
+  estoque pela ficha técnica, uma vez só (`stockDeducted`; `lib/consumo.ts`: acha a
+  receita pelo cardápio/catálogo, converte g/kg/un para a unidade do estoque; receita
+  "vendida por peso" e item sem receita não baixam).
+- **Ajustes** (`doce-ajustes`, só admin): chave Pix e `dailyLimit` (limite de pedidos
+  por dia de entrega; o cardápio público recusa com 409 `day_full`, o painel só avisa).
+  **Perdas** do estoque em `doce-perdas`.
+- **Telas novas**: Agenda (semana), Relatórios (CSV para Excel, PDF por impressão),
+  Ajustes. Receber pagamento com Pix QR (`lib/pix.ts`, BR Code estático + CRC16),
+  mensagens de WhatsApp (`lib/whatsapp.ts`, só links wa.me), impressão de comanda/etiqueta
+  (`lib/imprimir.ts`, iframe escondido), aviso de pedido novo (som + faixa; compara os
+  pedidos a cada 30 s), validade e perda no Estoque, sugestão de compras pelos pedidos
+  da semana (`lib/compras.ts`).
+- **iPhone/PWA**: `public/sw.js` (cache de estáticos, nunca de /api), `offline.html`,
+  manifest com `start_url` /dashboard, meta de app para iOS; campos com 16px no toque
+  para o Safari não ampliar. Aviso com tela bloqueada precisaria de Web Push (não feito).
+  O site público (`CARDAPIO_ONLY=1`) **não** serve o painel: para usar no iPhone é
+  preciso um segundo deploy sem essa variável (ver `docs/ROADMAP.md`).
+- Código novo fica fora do `app/dashboard/page.tsx`: tipos em `lib/tipos.ts`, custos em
+  `lib/custos.ts`, componentes visuais comuns em `components/painel-ui.tsx`.
+
 ## Pendências conhecidas
 
 - Usuário: revogar as chaves antigas (Azure/Google/WhatsApp — já saíram do `.env.local`), trocar o `AUTH_SECRET` do Vercel e migrar o Supabase para São Paulo (`docs/SEGURANCA.md`, `docs/MIGRACAO_SAO_PAULO.md`).
