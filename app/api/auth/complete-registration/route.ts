@@ -17,6 +17,12 @@ import type { BakeryProfile } from '@/lib/bakery';
 // account record and the confeitaria's profile together, so an abandoned
 // wizard never leaves a half-created user with no bakery attached.
 export async function POST(request: Request) {
+  // Criar uma confeitaria nova fica fechado por padrão (o app é de uso
+  // privado); abra com ALLOW_SIGNUP=1. Entrar numa confeitaria existente
+  // por convite continua funcionando (/api/auth/join-bakery).
+  if (process.env.ALLOW_SIGNUP !== '1') {
+    return NextResponse.json({ error: 'signup_closed' }, { status: 403 });
+  }
   if (!isDbConfigured()) {
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
   }

@@ -16,7 +16,7 @@ if not exist node_modules (
     exit /b 1
   )
 )
-echo Modo desenvolvimento: os dados ficam na pasta "dados" deste projeto.
+echo Modo desenvolvimento: usa o banco do .env.local
 echo Abrindo o Confeitto em http://localhost:3000
 start "" http://localhost:3000
 call npm run dev

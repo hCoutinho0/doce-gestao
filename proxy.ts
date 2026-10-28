@@ -1,17 +1,14 @@
 import { auth } from '@/auth';
 import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server';
 
-// Dois jeitos de rodar o mesmo código:
+// O painel (/dashboard, /configurar) só abre com sessão válida — decidido
+// aqui, a partir do cookie assinado pelo NextAuth, nunca de algo editável no
+// navegador. Conta sem confeitaria vai para /cadastro. O cardápio público de
+// cada confeitaria fica em /{confeitaria}.
 //
-// 1. Aplicativo (padrão): o painel interno (/dashboard, /configurar) só abre
-//    com sessão válida — decidido aqui, a partir do cookie assinado pelo
-//    NextAuth, nunca de algo editável no navegador. Conta sem confeitaria
-//    vai para /cadastro.
-//
-// 2. Site do cardápio (CARDAPIO_ONLY=1, usado no Vercel em
-//    www.confeitto.com.br): só o cardápio público existe. /{confeitaria}
-//    abre direto o cardápio; login, cadastro, painel e as demais APIs dão
-//    404. Toda a gestão fica no aplicativo.
+// CARDAPIO_ONLY=1 desliga tudo isso e deixa só o cardápio no ar (login,
+// cadastro, painel e as demais APIs dão 404): é a proteção para um site que
+// ainda não deve expor o painel.
 
 const panelGuard = auth((req) => {
   const isLoggedIn = Boolean(req.auth);
@@ -43,6 +40,26 @@ function notFound() {
   });
 }
 
+// /{confeitaria} abre direto o cardápio (sem mudar o endereço na barra) e o
+// endereço antigo /{confeitaria}/cardapio vira o curto. Devolve null quando o
+// caminho não é de uma confeitaria.
+function cardapioRoute(req: NextRequest): NextResponse | null {
+  const parts = req.nextUrl.pathname.split('/').filter(Boolean);
+  const slug = parts[0]?.toLowerCase() ?? '';
+  if (RESERVED.has(slug) || !SLUG.test(slug)) return null;
+  if (parts.length === 1) {
+    const url = req.nextUrl.clone();
+    url.pathname = `/${slug}/cardapio`;
+    return NextResponse.rewrite(url);
+  }
+  if (parts.length === 2 && parts[1] === 'cardapio') {
+    const url = req.nextUrl.clone();
+    url.pathname = `/${slug}`;
+    return NextResponse.redirect(url, 308);
+  }
+  return null;
+}
+
 function cardapioOnly(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const method = req.method;
@@ -71,24 +88,7 @@ function cardapioOnly(req: NextRequest) {
     const fallback = process.env.CARDAPIO_PADRAO?.trim();
     return fallback ? NextResponse.redirect(new URL(`/${fallback}`, req.url)) : notFound();
   }
-
-  const parts = pathname.split('/').filter(Boolean);
-  const slug = parts[0]?.toLowerCase() ?? '';
-  if (RESERVED.has(slug) || !SLUG.test(slug)) return notFound();
-
-  // /{confeitaria} -> mostra o cardápio (sem mudar o endereço na barra).
-  if (parts.length === 1) {
-    const url = req.nextUrl.clone();
-    url.pathname = `/${slug}/cardapio`;
-    return NextResponse.rewrite(url);
-  }
-  // Endereço antigo /{confeitaria}/cardapio -> endereço curto.
-  if (parts.length === 2 && parts[1] === 'cardapio') {
-    const url = req.nextUrl.clone();
-    url.pathname = `/${slug}`;
-    return NextResponse.redirect(url, 308);
-  }
-  return notFound();
+  return cardapioRoute(req) ?? notFound();
 }
 
 export default function proxy(req: NextRequest, event: NextFetchEvent) {
@@ -97,7 +97,7 @@ export default function proxy(req: NextRequest, event: NextFetchEvent) {
   if (pathname.startsWith('/dashboard') || pathname.startsWith('/configurar')) {
     return (panelGuard as unknown as (r: NextRequest, e: NextFetchEvent) => Response)(req, event);
   }
-  return NextResponse.next();
+  return cardapioRoute(req) ?? NextResponse.next();
 }
 
 export const config = {

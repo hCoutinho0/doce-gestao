@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, clientIp } from '@/lib/rateLimit';
 import { getUserByEmail } from '@/lib/tenant';
 import type { UserRole, Gender } from '@/lib/tenant';
 
@@ -47,7 +47,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Credentials({
       credentials: { email: {}, password: {} },
-      async authorize(credentials) {
+      async authorize(credentials, request) {
         const email =
           typeof credentials?.email === 'string'
             ? credentials.email.trim().toLowerCase()
@@ -55,8 +55,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const password =
           typeof credentials?.password === 'string' ? credentials.password : '';
         if (!email || !password || email.length > 254 || password.length > 200) return null;
-        // Limite por email (não por IP): impede tentativas ilimitadas de
-        // senha contra uma conta, mesmo vindas de vários IPs.
+        // Limite por IP: segura quem testa muitas contas de um lugar só.
+        if (!(await checkRateLimit(`login-ip:${clientIp(request)}`, 60, 15 * 60 * 1000))) return null;
+        // Limite por email: impede tentativas ilimitadas de senha contra uma
+        // conta, mesmo vindas de vários IPs.
         if (!(await checkRateLimit(`login:${email}`, 10, 15 * 60 * 1000))) return null;
         const user = await getUserByEmail(email);
         const valid = await bcrypt.compare(password, user?.passwordHash ?? (await getDummyHash()));
@@ -68,8 +70,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   // 30 dias sem uso desconecta; cada uso renova.
   session: { strategy: 'jwt', maxAge: 30 * 24 * 60 * 60 },
   pages: { signIn: '/login' },
-  // O app de desktop escuta só em 127.0.0.1 e o site roda atrás do Vercel —
-  // nos dois casos o cabeçalho Host é confiável.
+  // O site roda atrás do Vercel (e o app de Windows só abre esse site): o
+  // cabeçalho Host é confiável.
   trustHost: true,
   callbacks: {
     async jwt({ token, user, trigger }) {

@@ -6,6 +6,7 @@ import {
   ChevronRight,
   ChevronsUpDown,
   CircleHelp,
+  DatabaseBackup,
   Info,
   KeyRound,
   LogOut,
@@ -152,6 +153,18 @@ export function MenuConta({ nome, email, papel, iniciais, admin, onAjuda, onSair
             <KeyRound className={icone} aria-hidden="true" />
             Alterar minha senha
           </button>
+
+          {admin && (
+            <a
+              href="/api/backup"
+              download={`confeitto-backup-${new Date().toISOString().slice(0, 10)}.json`}
+              className={item}
+              onClick={fechar}
+            >
+              <DatabaseBackup className={icone} aria-hidden="true" />
+              Baixar backup dos dados
+            </a>
+          )}
 
           <button
             type="button"

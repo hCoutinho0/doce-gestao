@@ -104,6 +104,7 @@ import { Lembretes } from '@/components/lembretes';
 import { Ajustes as AjustesPanel } from '@/components/ajustes';
 import { AcoesPedido } from '@/components/acoes-pedido';
 import { AvisoPedidos } from '@/components/aviso-pedidos';
+import { AvisoVersao } from '@/components/aviso-versao';
 import { Relatorios } from '@/components/relatorios';
 import { ReceberPagamento } from '@/components/receber-pagamento';
 import { RegistrarPerda } from '@/components/registrar-perda';
@@ -422,6 +423,7 @@ export default function Home() {
             </div>
           </header>
 
+          <AvisoVersao />
           <MobileNav view={view} setView={setView} items={visibleNavItems} />
           <div
             className={`p-4 transition-opacity sm:p-7 xl:p-9 ${panelLoading ? 'opacity-50' : ''}`}

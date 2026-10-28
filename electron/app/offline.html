@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Confeitto sem conexão</title>
+  <style>
+    html,body{margin:0;height:100%;background:#fff8f2;color:#2b1d33;font-family:'Segoe UI',sans-serif}
+    main{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px}
+    h1{margin:0;font-size:24px} p{margin:0;max-width:34ch;color:#5b4a63}
+    button{background:#6a3f7d;color:#fff;border:0;border-radius:12px;padding:12px 22px;font-size:16px;cursor:pointer}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Sem conexão</h1>
+    <p>O Confeitto precisa de internet para mostrar seus pedidos e estoque. Confira a conexão e tente de novo.</p>
+    <button type="button" id="tentar">Tentar de novo</button>
+  </main>
+  <script>
+    document.getElementById('tentar').addEventListener('click', () => window.confeittoDesktop.reconectar());
+  </script>
+</body>
+</html>

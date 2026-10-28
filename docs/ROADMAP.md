@@ -12,6 +12,9 @@ de uma ação sua fora do código.
 - **Backup em segundo lugar** (OneDrive) e **segurança básica** (trocar senha,
   `scripts/redefinir-senha.mjs`, `docs/SEGURANCA.md`).
 - **Migração para São Paulo** concluída (projeto "Confeitto SP").
+- **Arquitetura web**: painel no site (Vercel, região São Paulo); app de Windows
+  virou uma janela fina **sem chave**; atualização automática do painel com aviso
+  "Nova versão disponível" (`docs/ARQUITETURA.md`).
 - **Estoque baixa sozinho** quando o pedido é concluído (pela ficha técnica).
 - **Sinal e pagamento parcial**: cada recebimento entra no Financeiro; saldo a
   receber aparece no pedido.
@@ -32,19 +35,14 @@ de uma ação sua fora do código.
 
 ## O que falta fazer **(você)**
 
-1. Revogar as chaves antigas do Azure/Google/WhatsApp e trocar o `AUTH_SECRET`
-   do Vercel (`docs/SEGURANCA.md`).
-2. **Usar no iPhone**: o site `www.confeitto.com.br` só mostra o cardápio. Para
-   o painel no celular é preciso um segundo deploy do mesmo repositório no
-   Vercel, **sem** `CARDAPIO_ONLY`, num endereço próprio (ex.:
-   `app.confeitto.com.br`, com um CNAME no HostGator), com as mesmas
-   `SUPABASE_URL`/`SUPABASE_SERVICE_KEY`, um `AUTH_SECRET` novo e
-   `NEXTAUTH_URL` do endereço. Isso deixa a tela de login do painel pública na
-   internet (protegida por senha e limite de tentativas). Depois, no Safari:
-   Compartilhar → Adicionar à Tela de Início.
+1. **Hospedar o painel** (tirar `CARDAPIO_ONLY` do Vercel) e trocar `AUTH_SECRET` e a
+   chave secreta do Supabase — passo a passo em `docs/SEGURANCA.md`.
+2. Revogar as chaves antigas do Azure/Google/WhatsApp (`docs/SEGURANCA.md`).
 3. Preencher em **Ajustes** a chave Pix e o limite de pedidos por dia.
 4. Plano grátis do Supabase **pausa** após ~7 dias sem uso: abrir o app ao
    menos uma vez por semana. As fotos do cardápio não entram no backup.
+5. Antes de vender: Vercel Hobby é só para uso não comercial (plano Pro), e
+   `ALLOW_SIGNUP=1` abre o cadastro de confeitarias novas.
 
 ## Ideias que ainda não foram feitas
 

@@ -23,37 +23,15 @@ const CSP = [
   "form-action 'self'",
 ].join('; ');
 
-// No Vercel (site do cardápio) o próprio Vercel empacota o servidor; as
-// opções de servidor standalone abaixo valem só para o app de desktop e
-// quebram a etapa final do build de lá.
+// No Vercel o site roda em HTTPS: liga o HSTS.
 const onVercel = Boolean(process.env.VERCEL);
 
 const nextConfig: NextConfig = {
-  // Standalone gera um servidor enxuto com só as dependências usadas — é ele
-  // que vai dentro do instalador e o aplicativo (electron/app/main.cjs) liga.
-  ...(onVercel
-    ? {}
-    : {
-        output: 'standalone' as const,
-        // Nada disto é usado pelo servidor; fica fora do pacote standalone.
-        outputFileTracingExcludes: {
-          '*': [
-            '.git/**',
-            '.github/**',
-            'electron/**',
-            'instalador/**',
-            'desktop-server/**',
-            'dados/**',
-            'scripts/**',
-            'node_modules/electron/**',
-            'node_modules/electron-builder/**',
-            'node_modules/app-builder-bin/**',
-            'node_modules/typescript/**',
-          ],
-        },
-      }),
+  // O painel compara esta versão com a do ar (/api/versao) para avisar de
+  // atualização.
+  env: { NEXT_PUBLIC_BUILD: process.env.VERCEL_GIT_COMMIT_SHA ?? 'local' },
   // Sem otimização de imagem no servidor: evita depender do `sharp` (módulo
-  // nativo) dentro do instalador. As fotos vêm do Supabase e já são leves.
+  // nativo). As fotos vêm do Supabase e já são leves.
   images: { unoptimized: true },
   // Defense-in-depth headers the app never had: without frame-ancestors/
   // X-Frame-Options a malicious page could iframe the panel and trick a

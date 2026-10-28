@@ -1,58 +1,67 @@
-# Segurança básica — o que fazer e como
+# Segurança — o que está feito e o que só você faz
 
-O que já está resolvido no código:
+## Como o acesso é protegido
 
-- Senhas guardadas com `bcrypt`; limite de tentativas de login.
-- **Alterar minha senha** dentro do app (menu da conta, canto inferior
-  esquerdo). Depois da troca, as outras telas abertas dessa conta caem em até
-  5 minutos.
-- **Esqueceu a senha?** No computador do Confeitto, na pasta do projeto:
-  `node scripts/redefinir-senha.mjs email@exemplo.com` (pede a senha nova).
-- As chaves antigas do Azure/Google/WhatsApp/VAPID **foram apagadas do
-  `.env.local`** (o histórico do GitHub não tinha nenhuma chave real —
-  conferido).
+- **Nenhuma chave do banco fora do servidor.** A `SUPABASE_SERVICE_KEY` existe
+  só no Vercel e no `.env.local` de quem desenvolve. O instalador, o iPhone e o
+  navegador só falam com o site. O instalador pode circular sem risco.
+- **Login:** senhas com `bcrypt`; limite de tentativas **por e-mail** (10 em 15
+  min) e **por IP** (60 em 15 min); sessão assinada (JWT) que expira em 30 dias
+  sem uso e é reconferida a cada 5 minutos (conta removida, papel mudado ou
+  senha trocada derrubam a sessão).
+- **Cada confeitaria vê só o que é dela:** todo documento é
+  `{confeitaria}:{chave}` e as rotas usam a confeitaria da sessão, nunca algo
+  vindo do navegador. A conta "Produção" não lê nem grava Financeiro, Caixa,
+  Precificação, Produtos, Clientes, Fidelidade nem Ajustes (conferido no
+  servidor, não só na tela).
+- **Cadastro de confeitaria nova está fechado** (`ALLOW_SIGNUP`). Pessoas novas
+  entram por convite (código de uso único gerado por um administrador).
+- **Backup e lembretes** (`/api/backup`, `/api/reminders/daily`) exigem login e
+  devolvem só a própria confeitaria (o backup, só para administrador).
+- **Upload de fotos** só logado. Só PNG/JPEG/WebP, conferidos pela assinatura do
+  arquivo, até 4 MB (SVG é recusado de propósito).
+- **Cardápio público:** pedido entra sempre como "Novo/Pendente" com o preço
+  calculado no servidor; limites de uso por IP; só o cardápio e a vitrine da
+  confeitaria (nome, logo, cidade, redes) saem sem login.
+- **Banco:** a tabela `app_state` tem RLS ligado e nenhuma política (só a chave
+  secreta acessa). Cabeçalhos de segurança (CSP, HSTS, X-Frame-Options,
+  nosniff) em `next.config.ts`.
 
 ## O que só você consegue fazer
 
-### 1. Revogar as chaves antigas (elas ainda valem nos serviços de origem)
+### 1. Trocar o `AUTH_SECRET` do Vercel
 
-Mesmo apagadas do arquivo, as chaves continuam ativas lá. Encerre cada uma:
+O valor antigo apareceu numa conversa. Gere um novo e cole no Vercel
+(*Settings → Environment Variables → AUTH_SECRET → Edit*), depois **Redeploy**.
+Todo mundo precisa entrar de novo (esperado).
 
-- **Azure** (portal.azure.com): apague o recurso *Cosmos DB* e o *Storage
-  Account* antigos (ou, no mínimo, gere chaves novas em *Keys → Regenerate*) e
-  apague o *App Registration* do login Microsoft (*Microsoft Entra ID → App
-  registrations*).
-- **Google** (console.cloud.google.com → *APIs e serviços → Credenciais*):
-  apague o *OAuth client* usado no login com Google.
-- **WhatsApp/Meta** (developers.facebook.com): revogue o token de acesso do app
-  (*WhatsApp → API Setup* / *System users*) ou apague o app.
-- **Web Push (VAPID)**: não precisa de ação; só existia nas chaves apagadas.
+```powershell
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
 
-### 2. Trocar o `AUTH_SECRET` do Vercel
+### 2. Trocar a chave secreta do Supabase
 
-O valor de exemplo apareceu numa conversa, então troque:
+Instaladores e versões antigas do app (1.x e 2.x) levaram a chave dentro deles.
+Para garantir que nenhum desses arquivos abra o banco:
 
-1. Gere um novo, no PowerShell:
-   `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
-2. Vercel → seu projeto → *Settings → Environment Variables* → edite
-   `AUTH_SECRET` (e `NEXTAUTH_SECRET`, se existir) com o valor novo →
-   *Redeploy*.
+1. Supabase → *Project Settings → API Keys → Secret keys → New secret key*.
+2. Coloque a nova em `SUPABASE_SERVICE_KEY` no **Vercel** (Redeploy) e no
+   `.env.local`.
+3. **Apague a chave antiga** (menu ⋮ da chave "default").
 
-(O app de desktop gera o próprio segredo sozinho, guardado no seu computador.)
+### 3. Revogar o que sobrou da versão antiga
 
-### 3. O instalador (`Confeitto-Setup.exe`)
+- **Azure** (portal.azure.com): apague o Cosmos DB, o Storage Account e o App
+  Registration do login Microsoft.
+- **Google** (console.cloud.google.com → Credenciais): apague o OAuth client.
+- **WhatsApp/Meta** (developers.facebook.com): revogue o token ou apague o app.
+- O projeto Supabase **antigo** (EUA): apague uns 7 dias depois de tudo estável.
 
-Ele leva a chave do Supabase dentro. **Nunca** envie por e-mail, WhatsApp ou
-nuvem pública. Para instalar no computador da namorada, copie por pendrive ou
-pelo seu próprio computador e depois apague a cópia.
+### 4. Hábitos
 
-### 4. Depois da migração para São Paulo
-
-Apagar o projeto Supabase antigo também aposenta a chave antiga (veja
-`docs/MIGRACAO_SAO_PAULO.md`).
-
-### 5. Conferir no Vercel
-
-`CARDAPIO_ONLY=1` precisa estar definido (senão o painel inteiro ficaria
-acessível no site público). Se for ativar o cartão: `MERCADOPAGO_ACCESS_TOKEN`
-e `MERCADOPAGO_WEBHOOK_SECRET`.
+- Senhas fortes e diferentes por pessoa; remova a conta de quem sai da equipe
+  (Equipe) — a sessão dela cai em até 5 minutos.
+- Nunca cole chave, senha ou código de convite em conversas, e-mails ou no
+  GitHub (o repositório é público).
+- Esqueceu a senha: `node scripts/redefinir-senha.mjs email@exemplo.com`
+  (no computador de quem desenvolve; pede a senha nova na hora).

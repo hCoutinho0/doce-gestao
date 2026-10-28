@@ -1,6 +1,6 @@
 // Define uma senha nova para uma conta (para quando esquecerem a senha).
-// Roda no computador que tem o Confeitto instalado: usa a conexão com o
-// banco guardada em %APPDATA%\Confeitto\config.json.
+// Roda no computador de quem desenvolve: usa a conexão com o banco do
+// .env.local (SUPABASE_URL e SUPABASE_SERVICE_KEY).
 //
 // Uso (PowerShell, na pasta do projeto):
 //   node scripts/redefinir-senha.mjs email@exemplo.com
@@ -19,9 +19,8 @@ if (!email.includes('@')) {
   process.exit(1);
 }
 
-const config = JSON.parse(fs.readFileSync(path.join(process.env.APPDATA || '', 'Confeitto', 'config.json'), 'utf8'));
-const url = String(config.supabaseUrl).trim().replace(/\/+$/, '').replace(/\/rest\/v1$/i, '');
-const key = String(config.supabaseKey).trim();
+import { key, url } from './conexao-env.mjs';
+
 const cab = { apikey: key, 'Content-Type': 'application/json' };
 if (!key.startsWith('sb_')) cab.Authorization = `Bearer ${key}`;
 

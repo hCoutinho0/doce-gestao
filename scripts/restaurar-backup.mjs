@@ -1,9 +1,9 @@
-// Restaura um backup (.json da pasta de backups) no banco que o aplicativo usa.
+// Restaura um backup (.json da pasta de backups) no banco do .env.local.
 // Serve para recuperar dados apagados ou para repor tudo num projeto novo.
 // Não apaga nada: só grava (ou sobrescreve) os documentos que estão no arquivo.
 // As fotos ficam no Storage do Supabase e NÃO fazem parte do backup.
 //
-// Uso (PowerShell, na pasta do projeto) — feche o Confeitto antes:
+// Uso (PowerShell, na pasta do projeto) 
 //   node scripts/restaurar-backup.mjs "C:\caminho\2026-10-27.json"
 //   node scripts/restaurar-backup.mjs "C:\caminho\2026-10-27.json" --sim   (confirma sem perguntar)
 
@@ -17,9 +17,8 @@ if (!arquivo || arquivo.startsWith('--')) {
   process.exit(1);
 }
 
-const config = JSON.parse(fs.readFileSync(path.join(process.env.APPDATA || '', 'Confeitto', 'config.json'), 'utf8'));
-const url = String(config.supabaseUrl).trim().replace(/\/+$/, '').replace(/\/rest\/v1$/i, '');
-const key = String(config.supabaseKey).trim();
+import { key, url } from './conexao-env.mjs';
+
 const cab = { apikey: key, 'Content-Type': 'application/json' };
 if (!key.startsWith('sb_')) cab.Authorization = `Bearer ${key}`;
 

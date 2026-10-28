@@ -293,7 +293,9 @@ export default function CadastroPage() {
           return;
         }
         setSubmitError(
-          data.error === 'email_already_registered'
+          data.error === 'signup_closed'
+            ? 'O cadastro de novas confeitarias está fechado. Para entrar numa confeitaria existente, peça um convite a quem administra.'
+            : data.error === 'email_already_registered'
             ? 'Esse email já tem uma conta cadastrada — faça login em vez de criar outra.'
             : data.error === 'invite_already_used'
               ? 'Esse convite já foi usado por outra pessoa.'

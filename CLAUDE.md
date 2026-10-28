@@ -18,30 +18,29 @@ linguagem simples (o usuário não é programador).
 - **Login:** NextAuth v5, só email+senha (`auth.ts`), sessão JWT reconferida a
   cada 5 min. Papéis `admin` e `production`. Funcionária entra com **código de
   convite** (`/cadastro` → "Entrar numa confeitaria").
-- **App de desktop (Windows):** Electron 39 (`electron/`). O Next roda em modo
-  standalone em `127.0.0.1:41730`. `electron/bootstrap.cjs` escolhe a versão
-  mais nova (instalada ou baixada em `%APPDATA%\Confeitto\atualizacoes`).
-  Ponte com a página em `electron/app/main-preload.cjs` (versão + procurar
-  atualizações). Barra de menu do Windows escondida; tudo fica no **menu da
-  conta** (canto inferior esquerdo, `components/menu-conta.tsx`).
-- **Site do cardápio:** mesmo código no **Vercel** com `CARDAPIO_ONLY=1`
-  (`proxy.ts`): só `www.confeitto.com.br/{slug}` (Lavily = `lavilyconfeitaria`)
-  e as APIs públicas. Deploy automático a cada push na `main`
-  (GitHub `hCoutinho0/doce-gestao`).
+- **Hospedagem única (Vercel, região gru1):** o mesmo código serve o painel
+  (`/dashboard`), o cardápio público (`/{slug}`, p.ex. `lavilyconfeitaria`) e as APIs;
+  só ele tem `SUPABASE_SERVICE_KEY`. Deploy automático a cada push na `main`
+  (GitHub `hCoutinho0/doce-gestao`). `CARDAPIO_ONLY=1` desliga o painel (404).
+  Cadastro de confeitaria nova fechado (`ALLOW_SIGNUP`); gente nova entra por convite.
+  Painel avisa "Nova versão disponível" (`/api/versao`, `components/aviso-versao.tsx`).
+- **App de desktop (Windows) = casca fina** (`electron/`): janela que abre o site, **sem
+  servidor, banco ou chave**. Faz backup diário (`/api/backup` com a sessão da janela →
+  `%APPDATA%\Confeitto\backups` + OneDrive), lembrete de tarefas (`/api/reminders/daily`)
+  e se atualiza sozinha (`electron/bootstrap.cjs` + bucket público `atualizacoes`).
+  Ponte com a página: `electron/app/main-preload.cjs`. Menu da conta no canto inferior
+  esquerdo (`components/menu-conta.tsx`). Detalhes: `docs/ARQUITETURA.md`.
 
 ## Como publicar
 
-- **Código:** commit + push na `main` → Vercel publica o site sozinho.
-- **App instalado:** rodar `publicar-atualizacao.bat` na pasta do PC
-  (`C:\Users\hcout\Documents\Codex\confeitaria-app`). Ele limpa arquivos
-  antigos, roda `npm install` se as dependências mudaram, sobe a versão
-  (patch) no `package.json`, faz o build e envia para o bucket privado
-  `atualizacoes` do Supabase. Os apps baixam sozinhos (ao abrir e a cada hora)
-  ou pelo menu da conta → **Procurar atualizações**.
-- Depois de publicar, **acerte a versão do `package.json` no repositório** para a
-  mesma do PC (o .bat incrementa só lá). Versão atual: **1.3.6**.
-- Instalador (`gerar-instalador.bat`) só é preciso quando muda a versão do
-  Electron. **Nunca publique o .exe**: ele leva a chave do Supabase embutida.
+- **Painel/site/cardápio/iPhone:** commit + push na `main`. Nada mais.
+- **Janela do Windows** (raro: só se mudar `electron/app`): `npm run publicar:casca`
+  (sobe a versão, envia o pacote ao bucket `atualizacoes`; os apps baixam sozinhos).
+  Instalador novo (`gerar-instalador.bat`) só se mudar a versão do Electron. O
+  instalador **não tem segredo** (pode circular).
+- A versão do app é a do `package.json` (a mesma em `electron/package.json`).
+- Chaves/segredos (Supabase, AUTH_SECRET) só no Vercel e no `.env.local` — nunca no
+  repositório, instalador ou conversa.
 - Verificação de tipos: `node node_modules/typescript/bin/tsc --noEmit -p .`
 - Testes: `npm test` (Node `node:test`, pasta `tests/`; só lógica pura de `lib/`: preço do pedido, pagamento/selos, permissões, validações). O CI (`.github/workflows/ci.yml`) roda tipos + testes + build a cada push. Sugestões e pendências: `docs/ROADMAP.md`.
 
@@ -90,41 +89,12 @@ ficha técnica.
   `/api/data/bulk` (valores + versões); a cada 30 s e ao voltar para a janela o painel
   busca as versões novas. Gravação sem `version` (só a tela `/configurar`) é cega, mas
   também sobe a versão (`writeDoc` passa por `updateAtomic`).
-- Backup diário: `%APPDATA%\Confeitto\backups` + cópia em `OneDrive\Confeitto\backups`
-  (`pastaBackupExtra` no config.json troca a pasta). Repor: `scripts/restaurar-backup.mjs`.
-- Conta: "Alterar minha senha" no menu da conta (`/api/auth/change-password`);
-  esqueceu: `scripts/redefinir-senha.mjs`. `passwordChangedAt` derruba sessões antigas.
-- Migração de projeto Supabase: `scripts/migrar-supabase.mjs` (`docs/MIGRACAO_SAO_PAULO.md`).
-  Segurança e revogação de chaves: `docs/SEGURANCA.md`.
-
-## Pedidos, estoque, agenda e celular (out/2026)
-
-- **Pedido** (`lib/orders.ts`): `paidAmount` = quanto já entrou (sinal/parcelas);
-  `PATCH /api/orders/[id]` com `{receive, paymentMethod}` lança cada recebimento no
-  Financeiro (`financeAmount`); `POST` aceita `deposit`. Concluir o pedido baixa o
-  estoque pela ficha técnica, uma vez só (`stockDeducted`; `lib/consumo.ts`: acha a
-  receita pelo cardápio/catálogo, converte g/kg/un para a unidade do estoque; receita
-  "vendida por peso" e item sem receita não baixam).
-- **Ajustes** (`doce-ajustes`, só admin): chave Pix e `dailyLimit` (limite de pedidos
-  por dia de entrega; o cardápio público recusa com 409 `day_full`, o painel só avisa).
-  **Perdas** do estoque em `doce-perdas`.
-- **Telas novas**: Agenda (semana), Relatórios (CSV para Excel, PDF por impressão),
-  Ajustes. Receber pagamento com Pix QR (`lib/pix.ts`, BR Code estático + CRC16),
-  mensagens de WhatsApp (`lib/whatsapp.ts`, só links wa.me), impressão de comanda/etiqueta
-  (`lib/imprimir.ts`, iframe escondido), aviso de pedido novo (som + faixa; compara os
-  pedidos a cada 30 s), validade e perda no Estoque, sugestão de compras pelos pedidos
-  da semana (`lib/compras.ts`).
-- **iPhone/PWA**: `public/sw.js` (cache de estáticos, nunca de /api), `offline.html`,
-  manifest com `start_url` /dashboard, meta de app para iOS; campos com 16px no toque
-  para o Safari não ampliar. Aviso com tela bloqueada precisaria de Web Push (não feito).
-  O site público (`CARDAPIO_ONLY=1`) **não** serve o painel: para usar no iPhone é
-  preciso um segundo deploy sem essa variável (ver `docs/ROADMAP.md`).
-- Código novo fica fora do `app/dashboard/page.tsx`: tipos em `lib/tipos.ts`, custos em
-  `lib/custos.ts`, componentes visuais comuns em `components/painel-ui.tsx`.
+- Backup diário: feito pela casca de Windows (`%APPDATA%\Confeitto\backups` + `OneDrive\Confeitto\backups`, `pastaBackupExtra` no config.json troca a pasta); qualquer admin baixa pelo menu da conta ("Baixar backup dos dados" → `/api/backup`, só da própria confeitaria). Repor: `scripts/restaurar-backup.mjs` (usa o `.env.local`).
+- Conta: "Alterar minha senha" no menu da conta (`/api/auth/change-password`); esqueceu: `scripts/redefinir-senha.mjs`. `passwordChangedAt` derruba sessões antigas.
+- Segurança e revogação de chaves: `docs/SEGURANCA.md`.
 
 ## Pendências conhecidas
 
-- Usuário: revogar as chaves antigas (Azure/Google/WhatsApp — já saíram do `.env.local`), trocar o `AUTH_SECRET` do Vercel e migrar o Supabase para São Paulo (`docs/SEGURANCA.md`, `docs/MIGRACAO_SAO_PAULO.md`).
-- Preencher WhatsApp/Instagram em Configurações para os botões aparecerem no
-  site.
+- Usuário: revogar as chaves antigas (Azure/Google/WhatsApp), trocar `AUTH_SECRET` e a chave secreta do Supabase no Vercel (`docs/SEGURANCA.md`).
+- Preencher WhatsApp/Instagram em Configurações para os botões aparecerem no site.
 - Ativar o cartão (Mercado Pago) quando o usuário quiser.

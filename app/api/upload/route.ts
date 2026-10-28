@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { checkRateLimit, clientIp } from '@/lib/rateLimit';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { isStorageConfigured, uploadImage } from '@/lib/storage';
 
 const MAX_SIZE = 4 * 1024 * 1024; // 4 MB
@@ -26,12 +26,13 @@ function matchesSignature(data: Buffer, extension: string): boolean {
 }
 
 export async function POST(request: Request) {
-  // Com login: painel. Sem login: só o logotipo durante o /cadastro (a conta
-  // ainda não existe), com limite por IP. No site do cardápio (Vercel) esta
-  // rota nem existe — o proxy bloqueia.
+  // Só com login (fotos do cardápio e logotipo): o site é público e o espaço
+  // de fotos não pode virar hospedagem de imagens para qualquer pessoa.
   const session = await auth();
-  const limit = session ? 60 : 5;
-  if (!(await checkRateLimit(`upload:${session?.user.email ?? clientIp(request)}`, limit, 60 * 60 * 1000))) {
+  if (!session?.user.email) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+  if (!(await checkRateLimit(`upload:${session.user.email}`, 60, 60 * 60 * 1000))) {
     return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
   }
   if (!isStorageConfigured()) {
