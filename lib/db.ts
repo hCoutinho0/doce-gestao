@@ -221,6 +221,25 @@ export function writeGlobal<T>(id: string, value: T): Promise<void> {
   return writeDoc(id, value);
 }
 
+// Vários documentos da mesma confeitaria numa única consulta.
+export async function readStates(
+  bakeryId: string,
+  keys: string[],
+): Promise<Record<string, unknown>> {
+  if (keys.length === 0) return {};
+  const ids = keys.map((key) => `${bakeryId}:${key}`);
+  const response = await rest(
+    'GET',
+    `?id=in.(${ids.map(enc).join(',')})&select=id,value,expires_at`,
+  );
+  const rows = (await response.json()) as Row<unknown>[];
+  const found: Record<string, unknown> = {};
+  for (const row of rows) {
+    if (!isExpired(row)) found[row.id.slice(bakeryId.length + 1)] = row.value;
+  }
+  return found;
+}
+
 export async function readState<T>(
   bakeryId: string,
   key: string,

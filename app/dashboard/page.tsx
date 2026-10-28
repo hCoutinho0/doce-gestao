@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps } from 'react';
 import {
   Bar,
   BarChart,
@@ -407,16 +407,17 @@ export default function Home() {
   const { session, isLoading: sessionLoading } = useUserSession();
   const isBrowserReady = !sessionLoading;
 
+  const panelLoading = usePanelLoading();
+
   useEffect(() => {
-    if (!session) return;
-    void fetch(`/api/data/${BAKERY_KEY}`, {
-      headers: { 'X-Panel-Request': '1' },
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { value: BakeryProfile } | null) => {
-        if (data?.value) setBakery(data.value);
-      });
-  }, [session]);
+    let cancelled = false;
+    void fetchPanelKey<BakeryProfile>(BAKERY_KEY).then((data) => {
+      if (!cancelled && data?.value) setBakery(data.value);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (isBrowserReady && !session) window.location.replace('/login');
@@ -535,7 +536,10 @@ export default function Home() {
           </header>
 
           <MobileNav view={view} setView={setView} items={visibleNavItems} />
-          <div className="p-4 sm:p-7 xl:p-9">
+          <div
+            className={`p-4 transition-opacity sm:p-7 xl:p-9 ${panelLoading ? 'opacity-50' : ''}`}
+            aria-busy={panelLoading}
+          >
             {view === 'dashboard' && (
               <Dashboard
                 orders={orders}
@@ -631,6 +635,55 @@ export default function Home() {
   );
 }
 
+// Todas as leituras iniciais do painel saem juntas: cada hook pede sua chave
+// e, no mesmo instante, uma única chamada a /api/data/bulk traz tudo (uma ida
+// ao banco em vez de ~13). Resposta ausente/erro vira null, como antes.
+type PanelRead = { value: unknown } | null;
+const waitingKeys = new Map<string, ((result: PanelRead) => void)[]>();
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let firstBatchDone = false;
+const panelListeners = new Set<() => void>();
+
+async function flushPanelKeys() {
+  flushTimer = null;
+  const batch = [...waitingKeys];
+  waitingKeys.clear();
+  let values: Record<string, unknown> | null = null;
+  try {
+    const res = await fetch(`/api/data/bulk?keys=${batch.map(([key]) => key).join(',')}`);
+    values = res.ok ? ((await res.json()) as { values: Record<string, unknown> }).values : null;
+  } catch {
+    values = null;
+  }
+  for (const [key, resolvers] of batch) {
+    const value = values?.[key];
+    for (const resolve of resolvers) resolve(value === undefined ? null : { value });
+  }
+  firstBatchDone = true;
+  panelListeners.forEach((notify) => notify());
+}
+
+function fetchPanelKey<T>(key: string): Promise<{ value: T } | null> {
+  return new Promise((resolve) => {
+    const resolvers = waitingKeys.get(key) ?? [];
+    resolvers.push(resolve as (result: PanelRead) => void);
+    waitingKeys.set(key, resolvers);
+    flushTimer ??= setTimeout(() => void flushPanelKeys(), 0);
+  });
+}
+
+// true até a primeira leva de dados do painel chegar.
+function usePanelLoading(): boolean {
+  return useSyncExternalStore(
+    (notify) => {
+      panelListeners.add(notify);
+      return () => void panelListeners.delete(notify);
+    },
+    () => !firstBatchDone,
+    () => true,
+  );
+}
+
 // Same shape as the old localStorage-backed hook it replaces, so every
 // call site below stays untouched — only the storage moved, from the
 // browser to a Cosmos DB document shared by every device signed in to this
@@ -676,18 +729,13 @@ function useStoredState<T>(
     // profile) the public cardápio also reads anonymously and expects
     // pinned to one fixed confeitaria regardless of whose session cookie
     // happens to be in the browser.
-    void fetch(`/api/data/${key}`, { headers: { 'X-Panel-Request': '1' } })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { value: T } | null) => {
-        if (cancelled) return;
-        if (data?.value !== null && data?.value !== undefined) {
-          setState(data.value);
-        }
-        setLoaded(true);
-      })
-      .catch(() => {
-        if (!cancelled) setLoaded(true);
-      });
+    void fetchPanelKey<T>(key).then((data) => {
+      if (cancelled) return;
+      if (data?.value !== null && data?.value !== undefined) {
+        setState(data.value);
+      }
+      setLoaded(true);
+    });
     return () => {
       cancelled = true;
     };
@@ -720,14 +768,12 @@ function useServerFetchedState<T>(key: string, initial: T): [T, (value: T | ((ol
 
   useEffect(() => {
     let cancelled = false;
-    void fetch(`/api/data/${key}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { value: T } | null) => {
-        if (cancelled) return;
-        if (data?.value !== null && data?.value !== undefined) {
-          setState(data.value);
-        }
-      });
+    void fetchPanelKey<T>(key).then((data) => {
+      if (cancelled) return;
+      if (data?.value !== null && data?.value !== undefined) {
+        setState(data.value);
+      }
+    });
     return () => {
       cancelled = true;
     };

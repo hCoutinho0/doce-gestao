@@ -337,7 +337,7 @@ async function waitForServer(url, timeoutMs = 90000) {
   while (Date.now() - started < timeoutMs) {
     if (serverProcess && serverProcess.exitCode !== null) return false;
     if (await ping(url)) return true;
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, 100));
   }
   return false;
 }
