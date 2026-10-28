@@ -499,7 +499,7 @@ export default function CadastroPage() {
 
               <p className="mt-6 text-center text-sm text-muted-foreground">
                 Já tem conta?{' '}
-                <Link href="/login" className="font-semibold text-primary">
+                <Link href="/login" className="inline-block py-3 font-semibold text-primary">
                   Entrar
                 </Link>
               </p>

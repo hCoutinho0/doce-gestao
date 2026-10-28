@@ -410,3 +410,19 @@ html.dark {
     font-size: 16px;
   }
 }
+
+/* Toque (iPhone): alvos de pelo menos 44 px, como pede a Apple. Fora de @layer para vencer as classes de tamanho dos botões. */
+@media (pointer: coarse) {
+  button:not([role='checkbox']):not([role='switch']):not([role='radio']),
+  summary,
+  a.inline-flex,
+  select,
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  textarea {
+    min-height: 44px;
+  }
+  button:where(.size-6, .size-7, .size-8, .size-9),
+  summary {
+    min-width: 44px;
+  }
+}

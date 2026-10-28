@@ -6,7 +6,7 @@ import { MODELOS, mensagemPedido, waLink } from '@/lib/whatsapp';
 import type { Order } from '@/lib/tipos';
 
 const item =
-  'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none';
+  'flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none';
 
 // Menu "mais ações" de um pedido: mensagens prontas de WhatsApp e impressão.
 export function AcoesPedido({ order, confeitaria }: { order: Order; confeitaria: string }) {
@@ -14,7 +14,7 @@ export function AcoesPedido({ order, confeitaria }: { order: Order; confeitaria:
     <details className="relative">
       <summary
         aria-label={`Mais ações do pedido ${order.id}`}
-        className="inline-flex size-8 cursor-pointer list-none items-center justify-center rounded-lg border bg-background hover:bg-muted [&::-webkit-details-marker]:hidden"
+        className="inline-flex size-8 shrink-0 cursor-pointer list-none items-center justify-center rounded-lg border bg-background hover:bg-muted [&::-webkit-details-marker]:hidden"
       >
         <MoreHorizontal className="size-4" />
       </summary>

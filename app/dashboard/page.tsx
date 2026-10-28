@@ -761,7 +761,7 @@ function MobileNav({
         <button
           key={target}
           onClick={() => setView(target)}
-          className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${view === target ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
+          className={`shrink-0 rounded-full px-4 py-3 text-xs font-semibold ${view === target ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
         >
           {label}
         </button>
@@ -868,8 +868,8 @@ function Dashboard({
       </section>
       <Lembretes stock={stock} customers={customers} confeitaria={confeitaria} />
       <TasksPanel tasks={tasks} setTasks={setTasks} />
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.75fr)]">
-        <Panel className="overflow-hidden">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.75fr)]">
+        <Panel className="min-w-0 overflow-hidden">
           <PanelTitle
             title="Pedidos recentes"
             subtitle="Novos e em produção agora"
@@ -1415,119 +1415,146 @@ function OrderTable({
   ajustes?: Ajustes;
   confeitaria?: string;
 }) {
+  const delivery = (order: Order) => (
+    <span
+      className={
+        isDeliverySoon(order)
+          ? 'inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-destructive'
+          : ''
+      }
+    >
+      {isDeliverySoon(order) && <Clock3 className="size-3" />}
+      {order.date}
+    </span>
+  );
+  const payment = (order: Order) =>
+    compact || !onReceive ? (
+      <PaymentBadge order={order} />
+    ) : order.paymentStatus === 'Pago' ? (
+      <div className="space-y-0.5">
+        <PaymentBadge order={order} />
+        {order.paymentMethod && (
+          <p className="text-[11px] text-muted-foreground">{order.paymentMethod}</p>
+        )}
+      </div>
+    ) : (
+      <div className="space-y-1">
+        <PaymentBadge order={order} />
+        {paidSoFar(order) > 0 && (
+          <p className="text-[11px] text-muted-foreground">
+            recebido {money(paidSoFar(order))} · falta {money(balanceDue(order))}
+          </p>
+        )}
+        <ReceberPagamento
+          order={order}
+          ajustes={ajustes ?? {}}
+          confeitaria={confeitaria}
+          onReceive={(amount, method) => onReceive(order.id, amount, method)}
+        />
+      </div>
+    );
+  const status = (order: Order) =>
+    compact || !onStatus ? (
+      <StatusBadge status={order.status} />
+    ) : (
+      <select
+        value={order.status}
+        aria-label={`Status do pedido ${order.id}`}
+        onChange={(e) => onStatus(order.id, e.target.value)}
+        className="h-8 rounded-lg border bg-background px-2 text-xs font-semibold outline-none focus:border-primary"
+      >
+        {ORDER_STATUSES.map((st) => (
+          <option key={st} value={st}>
+            {st}
+          </option>
+        ))}
+      </select>
+    );
+  const actions = (order: Order) => (
+    <div className="flex items-center gap-1.5">
+      <AcoesPedido order={order} confeitaria={confeitaria} />
+      <Button
+        onClick={() => onDelete?.(order.id)}
+        size="icon-sm"
+        variant="destructive"
+        aria-label="Excluir pedido"
+      >
+        <Trash2 />
+      </Button>
+    </div>
+  );
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[720px] text-left text-sm">
-        <thead className="bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
-          <tr>
-            <th className="px-5 py-3">Pedido</th>
-            <th className="px-3 py-3">Cliente</th>
-            <th className="px-3 py-3">Entrega</th>
-            <th className="px-3 py-3">Valor</th>
-            <th className="px-3 py-3">Pagamento</th>
-            <th className="px-3 py-3">Status</th>
-            {!compact && <th className="px-3 py-3">Ações</th>}
-          </tr>
-        </thead>
-        <tbody className="divide-y">
-          {orders.map((order) => (
-            <tr key={order.id} className="hover:bg-muted/30">
-              <td className="px-5 py-3.5">
-                <p className="font-semibold">{order.id}</p>
-                {order.orderDate && (
-                  <p className="text-[11px] text-muted-foreground">
-                    {formatIsoDate(order.orderDate)}
-                  </p>
-                )}
-              </td>
-              <td className="px-3 py-3.5">
-                <p className="font-medium">{order.customer}</p>
-                <p className="text-xs text-muted-foreground">{order.item}</p>
+    <div>
+      {/* Celular: um cartão por pedido (a tabela não cabe na tela). */}
+      <ul className="divide-y md:hidden">
+        {orders.map((order) => (
+          <li key={order.id} className="space-y-3 px-4 py-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-semibold">
+                  {order.id} · <span className="[overflow-wrap:anywhere]">{order.customer}</span>
+                </p>
+                <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{order.item}</p>
                 {order.notes && (
-                  <p className="mt-0.5 text-xs italic text-muted-foreground">
+                  <p className="mt-0.5 text-xs italic text-muted-foreground [overflow-wrap:anywhere]">
                     {order.notes}
                   </p>
                 )}
-              </td>
-              <td className="px-3 py-3.5">
-                <span
-                  className={
-                    isDeliverySoon(order)
-                      ? 'inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-destructive'
-                      : ''
-                  }
-                >
-                  {isDeliverySoon(order) && <Clock3 className="size-3" />}
-                  {order.date}
-                </span>
-              </td>
-              <td className="px-3 py-3.5 font-medium">{money(order.value)}</td>
-              <td className="px-3 py-3.5">
-                {compact || !onReceive ? (
-                  <PaymentBadge order={order} />
-                ) : order.paymentStatus === 'Pago' ? (
-                  <div className="space-y-0.5">
-                    <PaymentBadge order={order} />
-                    {order.paymentMethod && (
-                      <p className="text-[11px] text-muted-foreground">
-                        {order.paymentMethod}
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    <PaymentBadge order={order} />
-                    {paidSoFar(order) > 0 && (
-                      <p className="text-[11px] text-muted-foreground">
-                        recebido {money(paidSoFar(order))} · falta {money(balanceDue(order))}
-                      </p>
-                    )}
-                    <ReceberPagamento
-                      order={order}
-                      ajustes={ajustes ?? {}}
-                      confeitaria={confeitaria}
-                      onReceive={(amount, method) => onReceive(order.id, amount, method)}
-                    />
-                  </div>
-                )}
-              </td>
-              <td className="px-3 py-3.5">
-                {compact || !onStatus ? (
-                  <StatusBadge status={order.status} />
-                ) : (
-                  <select
-                    value={order.status}
-                    aria-label={`Status do pedido ${order.id}`}
-                    onChange={(e) => onStatus(order.id, e.target.value)}
-                    className="h-8 rounded-lg border bg-background px-2 text-xs font-semibold outline-none focus:border-primary"
-                  >
-                    {ORDER_STATUSES.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </td>
-              {!compact && (
-                <td className="px-3 py-3.5">
-                  <div className="flex items-center gap-1.5">
-                    <AcoesPedido order={order} confeitaria={confeitaria} />
-                    <Button
-                      onClick={() => onDelete?.(order.id)}
-                      size="icon-sm"
-                      variant="destructive"
-                      aria-label="Excluir pedido"
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-                </td>
-              )}
+              </div>
+              <p className="font-nums shrink-0 font-semibold">{money(order.value)}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+              {delivery(order)}
+              {status(order)}
+            </div>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              {payment(order)}
+              {!compact && actions(order)}
+            </div>
+          </li>
+        ))}
+      </ul>
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full min-w-[720px] text-left text-sm">
+          <thead className="bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="px-5 py-3">Pedido</th>
+              <th className="px-3 py-3">Cliente</th>
+              <th className="px-3 py-3">Entrega</th>
+              <th className="px-3 py-3">Valor</th>
+              <th className="px-3 py-3">Pagamento</th>
+              <th className="px-3 py-3">Status</th>
+              {!compact && <th className="px-3 py-3">Ações</th>}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y">
+            {orders.map((order) => (
+              <tr key={order.id} className="hover:bg-muted/30">
+                <td className="px-5 py-3.5">
+                  <p className="font-semibold">{order.id}</p>
+                  {order.orderDate && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {formatIsoDate(order.orderDate)}
+                    </p>
+                  )}
+                </td>
+                <td className="px-3 py-3.5">
+                  <p className="font-medium">{order.customer}</p>
+                  <p className="text-xs text-muted-foreground">{order.item}</p>
+                  {order.notes && (
+                    <p className="mt-0.5 text-xs italic text-muted-foreground">{order.notes}</p>
+                  )}
+                </td>
+                <td className="px-3 py-3.5">{delivery(order)}</td>
+                <td className="px-3 py-3.5 font-medium">{money(order.value)}</td>
+                <td className="px-3 py-3.5">{payment(order)}</td>
+                <td className="px-3 py-3.5">{status(order)}</td>
+                {!compact && <td className="px-3 py-3.5">{actions(order)}</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {orders.length === 0 && <Empty label="Nenhum pedido cadastrado." />}
     </div>
   );
@@ -1796,7 +1823,7 @@ function Orders({
       </div>
       <Panel className="mb-5 p-5">
         <div className="grid gap-5 lg:grid-cols-2">
-          <div className="space-y-3">
+          <div className="min-w-0 space-y-3">
             <Field label="Cliente">
               <select
                 value={customerChoice}
@@ -1930,7 +1957,7 @@ function Orders({
               </Field>
             )}
           </div>
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <div>
               <p className="mb-2 text-xs font-semibold text-muted-foreground">
                 Produtos do cardápio
@@ -1946,7 +1973,7 @@ function Orders({
                       key={item.id}
                       className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-muted/40"
                     >
-                      <span className="flex-1 truncate text-sm">
+                      <span className="min-w-0 flex-1 text-sm [overflow-wrap:anywhere]">
                         {menuLabel(item)}{' '}
                         <span className="text-xs text-muted-foreground">
                           {money(item.price)}
@@ -5048,7 +5075,7 @@ function ProductsCatalog({
               (m) => m.sourceProductId === product.id,
             );
             return (
-              <div key={product.id} className="flex items-center gap-4 px-5 py-4">
+              <div key={product.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4">
                 {product.photoUrl ? (
                   <Image
                     src={product.photoUrl}
@@ -5063,8 +5090,8 @@ function ProductsCatalog({
                     🧁
                   </span>
                 )}
-                <div className="flex-1">
-                  <p className="font-semibold">{product.name}</p>
+                <div className="min-w-0 flex-1 basis-40">
+                  <p className="font-semibold [overflow-wrap:anywhere]">{product.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {product.flavor}
                     {product.price ? ` • ${money(product.price)}` : ''}

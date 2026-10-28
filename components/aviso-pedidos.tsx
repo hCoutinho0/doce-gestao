@@ -7,25 +7,34 @@ import type { Order } from '@/lib/tipos';
 
 const KEY = 'confeitto-aviso-pedidos';
 
-function beep() {
+// O Safari do iPhone só libera o som depois de um toque: o contexto de áudio
+// é criado/retomado no primeiro toque na tela e reaproveitado nos avisos.
+let audio: AudioContext | null = null;
+function liberarAudio() {
   try {
     const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new Ctx();
-    [660, 880].forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.0001, ctx.currentTime + i * 0.18);
-      gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + i * 0.18 + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + i * 0.18 + 0.16);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(ctx.currentTime + i * 0.18);
-      osc.stop(ctx.currentTime + i * 0.18 + 0.17);
-    });
-    setTimeout(() => void ctx.close(), 800);
+    audio ??= new Ctx();
+    if (audio.state === 'suspended') void audio.resume();
   } catch {
-    // Sem áudio liberado pelo navegador: o aviso visual continua.
+    // sem áudio neste navegador: o aviso visual continua
   }
+}
+
+function beep() {
+  const ctx = audio;
+  if (!ctx || ctx.state !== 'running') return;
+  [660, 880].forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = freq;
+    const t = ctx.currentTime + i * 0.18;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.17);
+  });
 }
 
 // Avisa (faixa, som e notificação do sistema) quando chega um pedido novo
@@ -41,6 +50,11 @@ export function AvisoPedidos({
   onOpen: () => void;
 }) {
   const seen = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    window.addEventListener('pointerdown', liberarAudio, { once: true });
+    return () => window.removeEventListener('pointerdown', liberarAudio);
+  }, []);
   const [alerta, setAlerta] = useState<Order[]>([]);
   const [ligado, setLigado] = useState(() => {
     try {
