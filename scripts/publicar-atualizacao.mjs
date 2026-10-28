@@ -53,7 +53,6 @@ function headers(extra = {}) {
 // Arquivos que saíram do projeto (Azure, componentes sem uso, versões
 // antigas do app de desktop). Se ainda estiverem na pasta, atrapalham o build.
 const OBSOLETOS = [
-  '.github',
   'AUDITORIA.md',
   'app/api/push',
   'app/cardapio',
@@ -118,7 +117,6 @@ const OBSOLETOS = [
   'hooks',
   'lib/cosmos.ts',
   'public/assets/cardapio-doces.png',
-  'public/sw.js',
   'renomear-link-lavily.bat',
   'scripts/migrar-do-azure.mjs',
 ];
