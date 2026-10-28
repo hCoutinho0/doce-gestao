@@ -1,7 +1,7 @@
 {
   "name": "confeitto",
   "productName": "Confeitto",
-  "version": "3.0.0",
+  "version": "2.1.0",
   "description": "Confeitto - Gestão que adoça seu negócio",
   "author": "Confeitto",
   "main": "bootstrap.cjs",
@@ -13,7 +13,17 @@
     "files": [
       "bootstrap.cjs",
       "app/**/*",
-      "package.json"
+      "package.json",
+      "conexao.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../desktop-server",
+        "to": "server",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "npmRebuild": false,
     "win": {

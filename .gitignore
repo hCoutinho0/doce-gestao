@@ -38,11 +38,13 @@ next-env.d.ts
 /work/
 
 # aplicativo de desktop
+/desktop-server/
 /instalador/
+/dados/
+# conexão com o Supabase gerada no build (contém a chave secreta)
+/electron/conexao.json
 /electron/app/versao.json
 /backups-renomear/
-/desktop-server/
-/dados/
 
 # cache do TypeScript
 *.tsbuildinfo

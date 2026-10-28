@@ -37,6 +37,7 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
+    "desktop-server",
     "node_modules",
     "instalador",
     "electron",

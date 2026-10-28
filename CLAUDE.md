@@ -18,29 +18,31 @@ linguagem simples (o usuário não é programador).
 - **Login:** NextAuth v5, só email+senha (`auth.ts`), sessão JWT reconferida a
   cada 5 min. Papéis `admin` e `production`. Funcionária entra com **código de
   convite** (`/cadastro` → "Entrar numa confeitaria").
-- **Hospedagem única (Vercel, região gru1):** o mesmo código serve o painel
-  (`/dashboard`), o cardápio público (`/{slug}`, p.ex. `lavilyconfeitaria`) e as APIs;
-  só ele tem `SUPABASE_SERVICE_KEY`. Deploy automático a cada push na `main`
-  (GitHub `hCoutinho0/doce-gestao`). `CARDAPIO_ONLY=1` desliga o painel (404).
-  Cadastro de confeitaria nova fechado (`ALLOW_SIGNUP`); gente nova entra por convite.
-  Painel avisa "Nova versão disponível" (`/api/versao`, `components/aviso-versao.tsx`).
-- **App de desktop (Windows) = casca fina** (`electron/`): janela que abre o site, **sem
-  servidor, banco ou chave**. Faz backup diário (`/api/backup` com a sessão da janela →
-  `%APPDATA%\Confeitto\backups` + OneDrive), lembrete de tarefas (`/api/reminders/daily`)
-  e se atualiza sozinha (`electron/bootstrap.cjs` + bucket público `atualizacoes`).
-  Ponte com a página: `electron/app/main-preload.cjs`. Menu da conta no canto inferior
-  esquerdo (`components/menu-conta.tsx`). Detalhes: `docs/ARQUITETURA.md`.
+- **App de desktop (Windows) = programa completo:** Electron 39 (`electron/`) com o Next
+  em modo standalone em `127.0.0.1:41730`; a conexão com o Supabase (URL + chave) vai
+  **embutida no instalador** (`electron/conexao.json`, gerado do `.env.local` no build).
+  `electron/bootstrap.cjs` escolhe a versão mais nova (instalada ou baixada em
+  `%APPDATA%\Confeitto\atualizacoes`). Backup diário (`/api/backup` com a sessão da janela →
+  `%APPDATA%\Confeitto\backups` + OneDrive) e lembrete de tarefas (`/api/reminders/daily`).
+  Ponte com a página: `electron/app/main-preload.cjs`. Tudo fica no **menu da conta**
+  (canto inferior esquerdo, `components/menu-conta.tsx`).
+- **Site no Vercel (região gru1):** mesmo código. `www.confeitto.com.br/{slug}` abre o cardápio
+  (Lavily = `lavilyconfeitaria`); sem `CARDAPIO_ONLY` também serve o painel (iPhone/PWA).
+  Deploy automático a cada push na `main` (GitHub `hCoutinho0/doce-gestao`). Painel avisa
+  "Nova versão disponível" (`/api/versao`). Cadastro de confeitaria nova fechado
+  (`ALLOW_SIGNUP`); gente nova entra por convite. Visão geral: `docs/ARQUITETURA.md`.
 
 ## Como publicar
 
-- **Painel/site/cardápio/iPhone:** commit + push na `main`. Nada mais.
-- **Janela do Windows** (raro: só se mudar `electron/app`): `npm run publicar:casca`
-  (sobe a versão, envia o pacote ao bucket `atualizacoes`; os apps baixam sozinhos).
-  Instalador novo (`gerar-instalador.bat`) só se mudar a versão do Electron. O
-  instalador **não tem segredo** (pode circular).
-- A versão do app é a do `package.json` (a mesma em `electron/package.json`).
-- Chaves/segredos (Supabase, AUTH_SECRET) só no Vercel e no `.env.local` — nunca no
-  repositório, instalador ou conversa.
+- **Site/cardápio/iPhone:** commit + push na `main`.
+- **App de Windows:** `publicar-atualizacao.bat` (`npm run publicar`; `-- --mesma-versao` para não
+  somar +1). Sobe a versão, faz o build e envia ao bucket privado `atualizacoes`; os apps baixam
+  sozinhos (ao abrir e a cada hora) ou em menu da conta → **Procurar atualizações**. Depois de
+  publicar, confirme o commit de `package.json`/`electron/package.json` com a versão nova.
+- Instalador (`gerar-instalador.bat`) só se mudar a versão do Electron. **O instalador leva a chave
+  do Supabase: nunca o publique nem o envie por canal público.**
+- Segredos (Supabase, AUTH_SECRET) só no Vercel, no `.env.local` e no instalador — nunca no
+  repositório (público) nem em conversa.
 - Verificação de tipos: `node node_modules/typescript/bin/tsc --noEmit -p .`
 - Testes: `npm test` (Node `node:test`, pasta `tests/`; só lógica pura de `lib/`: preço do pedido, pagamento/selos, permissões, validações). O CI (`.github/workflows/ci.yml`) roda tipos + testes + build a cada push. Sugestões e pendências: `docs/ROADMAP.md`.
 
@@ -89,12 +91,12 @@ ficha técnica.
   `/api/data/bulk` (valores + versões); a cada 30 s e ao voltar para a janela o painel
   busca as versões novas. Gravação sem `version` (só a tela `/configurar`) é cega, mas
   também sobe a versão (`writeDoc` passa por `updateAtomic`).
-- Backup diário: feito pela casca de Windows (`%APPDATA%\Confeitto\backups` + `OneDrive\Confeitto\backups`, `pastaBackupExtra` no config.json troca a pasta); qualquer admin baixa pelo menu da conta ("Baixar backup dos dados" → `/api/backup`, só da própria confeitaria). Repor: `scripts/restaurar-backup.mjs` (usa o `.env.local`).
+- Backup diário: feito pelo app de Windows (`%APPDATA%\Confeitto\backups` + `OneDrive\Confeitto\backups`, `pastaBackupExtra` no config.json troca a pasta); qualquer admin baixa pelo menu da conta ("Baixar backup dos dados" → `/api/backup`, só da própria confeitaria). Repor: `scripts/restaurar-backup.mjs` (usa o `.env.local`).
 - Conta: "Alterar minha senha" no menu da conta (`/api/auth/change-password`); esqueceu: `scripts/redefinir-senha.mjs`. `passwordChangedAt` derruba sessões antigas.
 - Segurança e revogação de chaves: `docs/SEGURANCA.md`.
 
 ## Pendências conhecidas
 
-- Usuário: revogar as chaves antigas (Azure/Google/WhatsApp), trocar `AUTH_SECRET` e a chave secreta do Supabase no Vercel (`docs/SEGURANCA.md`).
+- Usuário: revogar as chaves antigas (Azure/Google/WhatsApp), trocar o `AUTH_SECRET` do Vercel (`docs/SEGURANCA.md`).
 - Preencher WhatsApp/Instagram em Configurações para os botões aparecerem no site.
 - Ativar o cartão (Mercado Pago) quando o usuário quiser.

@@ -2,9 +2,9 @@
 
 ## Como o acesso é protegido
 
-- **Nenhuma chave do banco fora do servidor.** A `SUPABASE_SERVICE_KEY` existe
-  só no Vercel e no `.env.local` de quem desenvolve. O instalador, o iPhone e o
-  navegador só falam com o site. O instalador pode circular sem risco.
+- **A chave do banco** (`SUPABASE_SERVICE_KEY`) está no Vercel, no `.env.local` e **dentro do
+  instalador do app de Windows**. O iPhone e o navegador usam o site e não a levam.
+  Por isso o instalador só vai para quem usa o app, por canal privado.
 - **Login:** senhas com `bcrypt`; limite de tentativas **por e-mail** (10 em 15
   min) e **por IP** (60 em 15 min); sessão assinada (JWT) que expira em 30 dias
   sem uso e é reconferida a cada 5 minutos (conta removida, papel mudado ou
@@ -39,15 +39,16 @@ Todo mundo precisa entrar de novo (esperado).
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 ```
 
-### 2. Trocar a chave secreta do Supabase
+### 2. Chave secreta do Supabase — quando trocar
 
-Instaladores e versões antigas do app (1.x e 2.x) levaram a chave dentro deles.
-Para garantir que nenhum desses arquivos abra o banco:
+Não precisa trocar agora (ela só está no seu PC, no Vercel e no instalador 2.x que
+você gerou). Troque se o `.exe`, o `.env.local` ou o `config.json` saírem do seu controle (PC
+perdido, instalador enviado por canal público, repositório com a chave):
 
 1. Supabase → *Project Settings → API Keys → Secret keys → New secret key*.
-2. Coloque a nova em `SUPABASE_SERVICE_KEY` no **Vercel** (Redeploy) e no
-   `.env.local`.
-3. **Apague a chave antiga** (menu ⋮ da chave "default").
+2. Coloque a nova em `SUPABASE_SERVICE_KEY` no **Vercel** (Redeploy) e no `.env.local`.
+3. **Apague a chave antiga** e gere/publique o app de Windows de novo
+   (`publicar-atualizacao.bat`; instalador novo só para PCs novos).
 
 ### 3. Revogar o que sobrou da versão antiga
 

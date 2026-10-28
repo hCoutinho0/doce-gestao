@@ -2,12 +2,9 @@
 //
 // O electron-builder trabalha numa pasta temporária nova a cada vez (o
 // Windows às vezes trava arquivos de builds anteriores, como app.asar) e só
-// o .exe final é copiado para a pasta "instalador".
-//
-// O instalador é só a janela do Confeitto (sem servidor, banco ou chave): o
-// painel roda no site. Gere um novo só quando mudar a versão do Electron; para
-// mudanças da janela use `npm run publicar:casca`, e para o painel basta o
-// `git push` (veja docs/ARQUITETURA.md).
+// o .exe final é copiado para a pasta "instalador". Para mudanças do dia a
+// dia não é preciso gerar instalador: use publicar-atualizacao.bat (os apps
+// se atualizam sozinhos).
 
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -27,10 +24,7 @@ function tryRemove(target) {
   }
 }
 
-// A versão da casca vai junto, para o app saber qual é.
-const shellVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
-fs.writeFileSync(path.join(root, 'electron', 'app', 'versao.json'), `${JSON.stringify({ version: shellVersion })}
-`);
+execSync('npm run desktop:preparar', { stdio: 'inherit', cwd: root });
 execSync(
   `npx electron-builder --projectDir electron --win nsis --x64 --config.directories.output="${buildDir}"`,
   { stdio: 'inherit', cwd: root },

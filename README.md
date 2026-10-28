@@ -1,58 +1,96 @@
 # Confeitto
 
-Gestão para confeitaria — pedidos, agenda, estoque, ficha técnica, financeiro,
-relatórios, cardápio online e cartão fidelidade. Roda como **site** (Vercel),
-com os dados num projeto do **Supabase** em São Paulo, e se usa por:
-
-- **iPhone**: Safari → Compartilhar → Adicionar à Tela de Início;
-- **Windows**: aplicativo `Confeitto-Setup.exe` (uma janela do site, com backup
-  diário e lembretes);
-- **navegador**, em qualquer computador.
-
-O painel e o cardápio público (`www.confeitto.com.br/{confeitaria}`) são o
-mesmo código. **Nenhuma chave do banco vai para o instalador nem para o
-celular** — só o site as guarda. Como tudo funciona: [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
-
-## Publicar uma alteração
-
-```powershell
-git push origin main        # a Vercel publica o site em ~1 minuto
-```
-
-Quem está com o painel aberto vê **"Nova versão disponível"** e atualiza com um
-toque — sem instalar nada. O aplicativo de Windows só precisa de publicação
-própria quando a *janela* muda (`npm run publicar:casca`); o instalador novo só
-quando o Electron muda.
+Gestão para confeitaria — pedidos, estoque, ficha técnica, financeiro,
+cardápio e cartão fidelidade — instalado no Windows, com os dados
+compartilhados num projeto gratuito do **Supabase** (vários computadores
+veem as mesmas informações). O mesmo código roda também como **site** no Vercel
+(cardápio para os clientes e painel para o iPhone). Visão geral: [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
 
 ## Preparar o Supabase (uma vez só)
 
-1. No projeto do Supabase, **SQL Editor** → cole `supabase/setup.sql` → **Run**
-   (cria a tabela `app_state` e o espaço de fotos `fotos`).
-2. Anote a **URL** (*Project Settings → Data API*) e a **chave secreta**
-   (*API Keys → secret key*).
-3. No Vercel (*Settings → Environment Variables*) e no `.env.local` de quem
-   desenvolve: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `AUTH_SECRET`
-   (veja a tabela completa em `docs/ARQUITETURA.md`).
+1. No projeto do Supabase, abra **SQL Editor**, cole o conteúdo de
+   `supabase/setup.sql` e clique em **Run**. Isso cria a tabela `app_state`
+   e o espaço de fotos `fotos`.
+2. Anote a **URL** (*Project Settings → Data API → Project URL*) e a
+   **chave secreta** (*Project Settings → API Keys → secret key*, ou a
+   *service_role* nas chaves antigas).
+3. Coloque no `.env.local` do projeto:
+   ```
+   SUPABASE_URL=https://xxxxxxxx.supabase.co
+   SUPABASE_SERVICE_KEY=sb_secret_...
+   ```
+   O `gerar-instalador.bat` embute essa conexão no instalador
+   (`electron/conexao.json`), então quem instala já abre direto no login.
+   Sem essas linhas, o app pede a URL e a chave na primeira abertura. Para
+   trocar depois, gere e instale um instalador novo.
 
-A chave secreta lê e altera tudo: nunca a coloque em código, instalador,
-mensagem ou GitHub. Se vazar, crie uma nova em *API Keys*, apague a antiga e
-atualize o Vercel e o `.env.local`. A chave pública (*publishable/anon*) não
-funciona no Confeitto, de propósito.
+Não publique o instalador nem compartilhe a chave secreta: com ela dá para
+ler e alterar tudo. Se o instalador vazar, crie uma secret key nova no
+Supabase, apague a antiga, atualize o `.env.local` e gere o instalador de
+novo. A chave
+pública (*publishable/anon*) não funciona no Confeitto, de propósito.
 
-## Instalador de Windows (raramente)
+O plano gratuito pausa o projeto depois de 7 dias sem uso. Se acontecer, o
+Confeitto avisa que não conseguiu conectar: entre em supabase.com e clique
+em **Restore** no projeto.
+
+## Instalar (uma vez só)
 
 Pré-requisito: [Node.js LTS](https://nodejs.org/) no computador que gera o
-instalador. Dois cliques em **`gerar-instalador.bat`** → a pasta `instalador`
-abre com **`Confeitto-Setup.exe`** (sem chave, sem servidor, ~100 MB). O Windows
-pode mostrar "O Windows protegeu o computador" (sem assinatura digital paga):
-**Mais informações → Executar assim mesmo**. Quem instala entra com e-mail e senha.
+instalador (quem só instala o Confeitto não precisa).
 
-## Cardápio online
+1. Dê dois cliques em **`gerar-instalador.bat`**.
+2. A pasta **`instalador`** abre com um único arquivo,
+   **`Confeitto-Setup.exe`**. Instale com ele (e mande para quem mais for
+   usar, por um canal privado — ele leva a chave do Supabase).
 
-`www.confeitto.com.br/{confeitaria}` abre direto o cardápio; o pedido cai no
-Supabase e aparece no painel. O botão **Cardápio → Abrir cardápio do cliente /
-Copiar link** usa `NEXT_PUBLIC_CARDAPIO_URL` (padrão `https://www.confeitto.com.br`).
-`CARDAPIO_ONLY=1` no Vercel deixa **só** o cardápio no ar (sem painel).
+O Windows pode mostrar "O Windows protegeu o computador" (o instalador não
+tem assinatura digital paga): **Mais informações → Executar assim mesmo**.
+
+## Publicar alterações (sem reinstalar)
+
+Depois de mudar o app, dê dois cliques em **`publicar-atualizacao.bat`**.
+Ele aumenta a versão (ex.: 1.3.0 → 1.3.1), gera o app e envia a versão nova
+para o Supabase (bucket privado `atualizacoes`).
+
+Os Confeittos instalados conferem ao abrir e a cada hora: baixam a versão
+nova sozinhos e perguntam se querem reiniciar. Se escolher "Depois", ela
+entra na próxima abertura. Para conferir na hora: menu da conta (canto inferior
+esquerdo, no seu nome) → **Procurar atualizações**.
+
+Se uma versão nova não abrir, o app volta sozinho para a anterior.
+
+Só é preciso gerar e instalar o `Confeitto-Setup.exe` de novo quando a
+versão do Electron mudar — nesse caso o próprio app avisa.
+
+## Site: cardápio e iPhone (www.confeitto.com.br)
+
+O mesmo código roda no Vercel (região São Paulo). O endereço
+`www.confeitto.com.br/{sua-confeitaria}` abre direto o cardápio para o cliente
+montar o pedido, que cai no Supabase e aparece no aplicativo. Sem
+`CARDAPIO_ONLY`, o site também serve o painel (`/login` → `/dashboard`): é o
+que o **iPhone** usa (Safari → Compartilhar → Adicionar à Tela de Início). Com
+`CARDAPIO_ONLY=1` só o cardápio fica no ar (login e painel dão 404).
+
+O site se atualiza a cada `git push` na `main`; quem está com o painel aberto
+vê "Nova versão disponível". Criar confeitarias novas fica fechado
+(`ALLOW_SIGNUP`); funcionárias entram por **código de convite** (Equipe).
+
+Variáveis de ambiente no projeto do Vercel (*Settings → Environment
+Variables*):
+
+| Nome | Valor |
+| --- | --- |
+| `SUPABASE_URL` | a mesma do `.env.local` |
+| `SUPABASE_SERVICE_KEY` | a mesma do `.env.local` (fica só no servidor) |
+| `AUTH_SECRET` | um texto aleatório longo |
+| `CARDAPIO_ONLY` | `1` só para esconder o painel; não definir = painel no ar |
+| `ELECTRON_SKIP_BINARY_DOWNLOAD` | `1` (evita baixar o Electron no build) |
+| `CARDAPIO_PADRAO` | opcional: a confeitaria para a raiz do domínio redirecionar |
+
+O botão **Cardápio digital → Abrir cardápio do cliente / Copiar link** do
+aplicativo usa `NEXT_PUBLIC_CARDAPIO_URL` (padrão
+`https://www.confeitto.com.br`).
 
 ## Onde ficam os dados
 
@@ -60,46 +98,93 @@ Copiar link** usa `NEXT_PUBLIC_CARDAPIO_URL` (padrão `https://www.confeitto.com
 | --- | --- |
 | Dados (pedidos, estoque, financeiro, contas…) | Supabase, tabela `app_state` |
 | Fotos do cardápio e logotipos | Supabase Storage, bucket `fotos` |
-| Backup (1 por dia, últimos 14) | `%APPDATA%\Confeitto\backups` + `OneDrive\Confeitto\backups` (feito pelo app de Windows) |
-| Atualizações da janela do Windows | Supabase Storage, bucket público `atualizacoes` (sem segredo) |
+| Backups automáticos (1 por dia, últimos 14) | `%APPDATA%\Confeitto\backups` + cópia em `OneDrive\Confeitto\backups` |
+| URL/chave do Supabase e log do servidor | `%APPDATA%\Confeitto` |
 
-Backup manual: menu da conta → **Baixar backup**, ou Arquivo → *Fazer backup
-agora* no app de Windows. Restaurar: `node scripts/restaurar-backup.mjs "arquivo.json"`.
+O backup é automático (um por dia, quando o administrador abre o painel) e só
+traz os dados da própria confeitaria. Manual: menu da conta → **Baixar backup
+dos dados**. Restaurar: `node scripts/restaurar-backup.mjs "arquivo.json"`
+(usa o `.env.local`).
 
-## Segurança
+## O que mudou em relação à versão na nuvem
 
-- `.env.local` e o instalador não vão para o GitHub; o instalador **não tem
-  segredo nenhum**.
-- A tabela `app_state` tem RLS ligado e nenhuma política: só a chave secreta
-  (no servidor) lê e grava. Pelo site público só saem o cardápio e os dados
-  básicos da confeitaria (nome, logo, cidade, redes sociais).
-- Pedidos feitos pelo site entram como "Novo / Pendente", com o preço calculado
-  no servidor. Cadastro de confeitarias novas fechado (`ALLOW_SIGNUP`).
-- Detalhes, chaves a revogar e o que fazer se algo vazar: [`docs/SEGURANCA.md`](docs/SEGURANCA.md).
+- **Banco de dados**: o Azure Cosmos DB virou uma tabela no Supabase
+  (`lib/db.ts`, pela API REST, sem biblioteca extra), com controle de
+  versão por documento para dois computadores gravarem ao mesmo tempo sem
+  um apagar a alteração do outro — a mesma API de antes (`readState`,
+  `writeState`, `updateStateAtomic`…).
+- **Fotos**: o Azure Blob Storage virou o Supabase Storage (bucket `fotos`).
+- **Login**: só email e senha. Google e Microsoft Entra ID foram removidos
+  (precisavam de endereço público e de conta no Azure).
+- **Lembrete de tarefas**: em vez de Web Push + GitHub Actions, o próprio
+  aplicativo mostra uma notificação do Windows uma vez por dia, a partir das
+  8h, se houver tarefas pendentes.
+- **Aplicativo**: o Next.js roda como servidor interno (modo standalone)
+  dentro de uma janela Electron (`electron/app/main.cjs`), só em
+  `127.0.0.1` — nada fica acessível pela rede.
+- Removidos: `@azure/cosmos`, `@azure/storage-blob`, `web-push` e os
+  workflows de deploy do GitHub Actions.
 
 ## Acessibilidade
 
-O botão **Aa** (topo do painel, cardápio, login e cadastro) abre tema (claro,
-escuro, automático) e tamanho do texto (A− a A++). Há link "Pular para o
-conteúdo", foco visível, campos com rótulo para leitores de tela e animações
-desligadas quando o sistema pede menos movimento.
+O botão **Aa** (no topo do painel, do cardápio, do login e do cadastro)
+abre as preferências de leitura:
+
+- **Tema**: claro, escuro ou automático (segue o Windows/celular).
+- **Tamanho do texto**: A−, A, A+ e A++ (aumenta texto e espaçamentos).
+
+As escolhas ficam salvas no próprio computador/celular. Também há link
+"Pular para o conteúdo" (aparece ao apertar Tab), foco visível em todos os
+controles, campos com rótulo para leitores de tela e animações desligadas
+quando o sistema pede menos movimento.
 
 ## Pagamento com cartão (Mercado Pago) — a fazer
 
-A integração com o Checkout Pro está no código, mas a opção "Cartão" do
-cardápio aparece como "Em breve". Para ligar: crie as credenciais de produção
-no Mercado Pago; no Vercel adicione `MERCADOPAGO_ACCESS_TOKEN` e
-`MERCADOPAGO_WEBHOOK_SECRET` (webhook para
-`https://www.confeitto.com.br/api/checkout/webhook`). O preço é lido do pedido
-salvo no banco, nunca do navegador.
+A integração com o Checkout Pro já está no código, mas a opção "Cartão" do
+cardápio ainda aparece como "Em breve". Para ligar:
+
+1. Crie as credenciais de produção no Mercado Pago (Suas integrações).
+2. No Vercel, adicione `MERCADOPAGO_ACCESS_TOKEN` e
+   `MERCADOPAGO_WEBHOOK_SECRET` (a assinatura secreta do webhook, apontado
+   para `https://www.confeitto.com.br/api/checkout/webhook`).
+3. No cardápio, o pedido é gravado primeiro e depois o site chama
+   `POST /api/checkout/preference` com `{ bakeryId, orderId }`. O preço é
+   lido do pedido salvo no banco, nunca do navegador. Quando o Mercado Pago
+   confirma, o webhook marca o pedido como **Pago**.
+
+O token do Mercado Pago fica só no servidor do Vercel — nunca no
+aplicativo instalado nem no código.
+
+## Segurança
+
+- `.env.local`, `electron/conexao.json` e o instalador **não** vão para o
+  GitHub (estão no `.gitignore`).
+- O instalador leva a chave do Supabase embutida: entregue só para quem
+  usa o app (não publique o `.exe` na internet).
+- A tabela `app_state` tem RLS ligado e nenhuma política — só a chave
+  secreta (servidor) lê e grava. Pelo site público só saem o cardápio e os
+  dados básicos da confeitaria (nome, logo, cidade, redes sociais).
+- Pedidos feitos pelo site entram sempre como "Novo / Pendente", com o
+  preço calculado pelo servidor a partir do cardápio.
+
+## Testar alterações antes de publicar
+
+`iniciar.bat` abre o app no navegador (`http://localhost:3000`) e recarrega
+sozinho a cada arquivo salvo. Ele usa o Supabase do `.env.local` — se for o
+mesmo projeto do app instalado, mexe nos dados reais. Quando estiver bom,
+rode `publicar-atualizacao.bat`.
 
 ## Desenvolvimento
 
 ```powershell
 npm install
-copy .env.example .env.local   # SUPABASE_URL, SUPABASE_SERVICE_KEY, AUTH_SECRET, ALLOW_SIGNUP=1
-npm run dev                    # ou iniciar.bat — usa o banco do .env.local!
-npm test; npx tsc --noEmit     # o CI (.github/workflows/ci.yml) também roda o build
-npm run desktop:abrir          # janela do Windows apontando para o site
-npm run publicar:casca         # publica uma versão nova da janela do Windows
+copy .env.example .env.local   # defina AUTH_SECRET e o Supabase
+npm run dev                    # ou iniciar.bat
 ```
+
+Outros comandos:
+
+- `npm run desktop:abrir` — gera o servidor e abre a janela do Electron sem
+  criar instalador (bom para testar).
+- `npm run desktop:instalador` — o mesmo que o `gerar-instalador.bat`.
+- `npm run publicar` — o mesmo que o `publicar-atualizacao.bat`.

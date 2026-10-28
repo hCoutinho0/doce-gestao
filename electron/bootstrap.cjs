@@ -1,12 +1,13 @@
 // Confeitto — inicializador.
 //
 // Esta é a única parte fixa do aplicativo instalado. Ela escolhe qual versão
-// da janela do Confeitto rodar: a que veio no instalador ou uma mais nova que
-// o próprio app baixou (em %APPDATA%\Confeitto\atualizacoes). O painel em si
-// roda no site e se atualiza sozinho; isto só muda quando a casca muda.
+// do Confeitto rodar: a que veio no instalador ou uma versão mais nova que o
+// próprio app baixou do Supabase (em %APPDATA%\Confeitto\atualizacoes).
+// Assim, publicar uma alteração não exige reinstalar: na próxima abertura
+// (ou ao clicar em "Reiniciar agora") a versão nova já entra.
 //
 // A versão escolhida fica em global.CONFEITTO, que app/main.cjs usa para
-// saber onde estão os arquivos e a pasta de atualizações.
+// saber onde estão o servidor, a conexão embutida e a pasta de atualizações.
 
 const { app } = require('electron');
 const fs = require('node:fs');
@@ -37,6 +38,9 @@ function compareVersions(a, b) {
 
 const bundled = {
   appDir: path.join(bundleDir, 'app'),
+  serverDir: app.isPackaged
+    ? path.join(process.resourcesPath, 'server')
+    : path.join(bundleDir, '..', 'desktop-server'),
   version: readVersion(path.join(bundleDir, 'app')) || app.getVersion(),
   source: 'instalador',
 };
@@ -53,11 +57,13 @@ function downloadedVersions() {
   for (const name of names) {
     const dir = path.join(updatesDir, name);
     const appDir = path.join(dir, 'app');
+    const serverDir = path.join(dir, 'server');
     const version = readVersion(appDir);
     if (!version || version !== name) continue;
     if (fs.existsSync(path.join(dir, 'QUEBRADA'))) continue;
     if (!fs.existsSync(path.join(appDir, 'main.cjs'))) continue;
-    result.push({ appDir, version, source: 'atualizacao', dir });
+    if (!fs.existsSync(path.join(serverDir, 'server.js'))) continue;
+    result.push({ appDir, serverDir, version, source: 'atualizacao', dir });
   }
   return result;
 }

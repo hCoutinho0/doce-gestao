@@ -1,45 +1,55 @@
 # Como o Confeitto funciona hoje
 
 ```
- iPhone (Safari / tela de início) ─┐
- Windows (app Confeitto, "casca")  ├──►  Site no Vercel (gru1, São Paulo)  ──►  Supabase (São Paulo)
- Navegador de qualquer lugar      ─┘     painel + cardápio + APIs              dados + fotos
-                                          (guarda as chaves)
+ App de Windows (programa completo)  ──┐
+   servidor interno 127.0.0.1          │
+   + chave do banco no PC              ├──►  Supabase (São Paulo): dados + fotos
+                                       │
+ Site no Vercel (gru1, São Paulo)    ──┘
+   cardápio público + painel (iPhone/navegador)
+   + chave do banco só no Vercel
 ```
 
-**Ninguém leva chave do banco.** Só o site (Vercel) conhece a
-`SUPABASE_SERVICE_KEY`; o aplicativo de Windows, o iPhone e o navegador falam
-com o site, e o site fala com o banco. Quem usa precisa apenas de **e-mail e
-senha**.
+Os dois lados leem e gravam **o mesmo banco**: o que se faz no app de Windows
+aparece no site/iPhone e vice-versa.
 
-## Três peças
+## Peças
 
 | Peça | O que é | Como atualiza |
 | --- | --- | --- |
-| **Site / painel** | O mesmo código Next.js: painel (`/dashboard`), cardápio público (`/{confeitaria}`) e as APIs. | `git push` na `main` → a Vercel publica sozinha em ~1 min. Quem está com o painel aberto vê o aviso **"Nova versão disponível"** (`components/aviso-versao.tsx`, compara o commit via `/api/versao`) e atualiza com um toque. |
-| **App de Windows** | Uma janela (Electron) que abre `https://www.confeitto.com.br/dashboard`. Sem servidor, sem banco, sem chave. Faz o **backup diário** (`%APPDATA%\Confeitto\backups` + OneDrive), o **lembrete de tarefas** e a atualização da própria janela. | Quase nunca precisa: o painel é o site. Se a janela mudar: `npm run publicar:casca` (os apps se atualizam sozinhos). O instalador só muda se o Electron mudar. |
-| **iPhone** | O mesmo site, instalado pelo Safari (Compartilhar → Adicionar à Tela de Início), em tela cheia (PWA). | Igual ao site. |
+| **App de Windows** | Electron com o servidor Next.js dentro (`electron/`). Leva a conexão com o Supabase embutida (URL + chave), então abre direto no login. Faz backup diário, lembrete de tarefas e se atualiza sozinho. | `publicar-atualizacao.bat` (ou `npm run publicar`): sobe a versão, faz o build e envia ao bucket privado `atualizacoes`. Os apps baixam ao abrir e a cada hora e perguntam se querem reiniciar. Instalador novo só se o Electron mudar. |
+| **Site (Vercel)** | O mesmo código: cardápio público (`/{confeitaria}`) e, se `CARDAPIO_ONLY` não estiver definido, o painel (`/dashboard`) — é o que o iPhone usa (Safari → Adicionar à Tela de Início). | `git push` na `main`: a Vercel publica sozinha. O painel avisa "Nova versão disponível". |
 
 ## Quem entra na confeitaria
 
 - A Lavily já existe no banco. Pessoas novas entram por **código de convite**
   (Equipe → gerar convite → a pessoa usa em `/cadastro` → "Entrar numa
-  confeitaria"): a conta nova já nasce ligada à Lavily e só adiciona dados nela.
+  confeitaria"): a conta nova já nasce ligada à Lavily.
 - Criar uma confeitaria **nova** fica fechado por padrão (`ALLOW_SIGNUP` não
-  definido). Para abrir (por exemplo, no dia em que o sistema for vendido):
-  `ALLOW_SIGNUP=1` no Vercel.
-- Cada confeitaria enxerga só os próprios dados: todo documento é
-  `{confeitaria}:{chave}` e as rotas usam a confeitaria da sessão.
+  definido). Para abrir: `ALLOW_SIGNUP=1`.
+- Cada confeitaria enxerga só os próprios dados (`{confeitaria}:{chave}`).
+
+## Chaves e onde ficam
+
+| Chave | Onde fica |
+| --- | --- |
+| `SUPABASE_SERVICE_KEY` | `.env.local` (quem desenvolve), **embutida no instalador/app de Windows** e no Vercel |
+| `AUTH_SECRET` | Vercel (o app de Windows gera o próprio, em `%APPDATA%\Confeitto\config.json`) |
+
+Como o instalador leva a chave do banco: **entregue-o só a quem usa o app, por
+canal privado, e nunca o publique**. Se um instalador vazar (ou um PC for
+perdido), crie uma chave nova no Supabase, apague a antiga, atualize o Vercel e
+o `.env.local` e gere/publique de novo. (Para vender o sistema no futuro, esse
+modelo não serve: cada cliente teria a chave do banco. Aí o caminho é o site.)
 
 ## Variáveis do Vercel
 
 | Nome | Para quê |
 | --- | --- |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` | Banco (só no servidor) |
-| `AUTH_SECRET` | Assina as sessões (texto aleatório longo; troque para derrubar todas) |
-| `NEXTAUTH_URL` | Opcional (o site já confia no Host da Vercel) |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` | Banco |
+| `AUTH_SECRET` | Assina as sessões do site (texto aleatório longo) |
 | `ALLOW_SIGNUP` | `1` abre o cadastro de confeitarias novas (padrão: fechado) |
-| `CARDAPIO_ONLY` | `1` deixa **só o cardápio** no ar (painel e login dão 404). Não definir = painel no ar |
+| `CARDAPIO_ONLY` | `1` deixa **só o cardápio** no ar (painel e login dão 404) |
 | `MERCADOPAGO_*` | Cartão (ainda desligado) |
 | `CARDAPIO_PADRAO` | Opcional: confeitaria para a raiz do domínio |
 
@@ -47,11 +57,8 @@ senha**.
 
 ## Limites a lembrar
 
-- **Vercel Hobby** é gratuito só para uso **não comercial**. Para vender o
-  sistema, é preciso o plano Pro.
+- **Vercel Hobby** é gratuito só para uso **não comercial**.
 - **Supabase gratuito** pausa depois de ~7 dias sem uso.
-- Sem internet, o painel não abre (o app de Windows e o iPhone mostram "sem
-  conexão"). O backup diário fica no computador.
 
 ## Para quem desenvolve
 
@@ -59,10 +66,9 @@ senha**.
 npm install
 copy .env.example .env.local   # SUPABASE_URL, SUPABASE_SERVICE_KEY, AUTH_SECRET, ALLOW_SIGNUP=1
 npm run dev                    # http://localhost:3000  (cuidado: usa o banco do .env.local)
-npm test && npx tsc --noEmit   # o CI também roda o build
-npm run desktop:abrir          # abre a janela do Windows apontando para o site
+npm test; npx tsc --noEmit     # o CI também roda o build
+npm run desktop:abrir          # build + abre o app de Windows sem criar instalador
 ```
 
-Scripts de manutenção (usam a chave do `.env.local`, só neste computador):
-`scripts/redefinir-senha.mjs`, `scripts/restaurar-backup.mjs`,
-`scripts/renomear-confeitaria.mjs`.
+Scripts de manutenção (usam a chave do `.env.local`): `scripts/redefinir-senha.mjs`,
+`scripts/restaurar-backup.mjs`, `scripts/renomear-confeitaria.mjs`.

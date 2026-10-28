@@ -12,9 +12,8 @@ de uma ação sua fora do código.
 - **Backup em segundo lugar** (OneDrive) e **segurança básica** (trocar senha,
   `scripts/redefinir-senha.mjs`, `docs/SEGURANCA.md`).
 - **Migração para São Paulo** concluída (projeto "Confeitto SP").
-- **Arquitetura web**: painel no site (Vercel, região São Paulo); app de Windows
-  virou uma janela fina **sem chave**; atualização automática do painel com aviso
-  "Nova versão disponível" (`docs/ARQUITETURA.md`).
+- **Painel também no site** (Vercel, região São Paulo) para o iPhone; o app de
+  Windows continua completo (`docs/ARQUITETURA.md`).
 - **Estoque baixa sozinho** quando o pedido é concluído (pela ficha técnica).
 - **Sinal e pagamento parcial**: cada recebimento entra no Financeiro; saldo a
   receber aparece no pedido.
@@ -35,8 +34,8 @@ de uma ação sua fora do código.
 
 ## O que falta fazer **(você)**
 
-1. **Hospedar o painel** (tirar `CARDAPIO_ONLY` do Vercel) e trocar `AUTH_SECRET` e a
-   chave secreta do Supabase — passo a passo em `docs/SEGURANCA.md`.
+1. **Trocar o `AUTH_SECRET` do Vercel** e, para usar o painel no iPhone, apagar a
+   variável `CARDAPIO_ONLY` (passo a passo em `docs/SEGURANCA.md`).
 2. Revogar as chaves antigas do Azure/Google/WhatsApp (`docs/SEGURANCA.md`).
 3. Preencher em **Ajustes** a chave Pix e o limite de pedidos por dia.
 4. Plano grátis do Supabase **pausa** após ~7 dias sem uso: abrir o app ao

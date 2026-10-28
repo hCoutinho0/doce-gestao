@@ -1,6 +1,6 @@
 {
   "name": "confeitto",
-  "version": "3.0.0",
+  "version": "2.1.0",
   "private": true,
   "engines": {
     "node": ">=20.9"
@@ -12,9 +12,10 @@
     "lint": "oxlint",
     "test": "node --test \"tests/**/*.test.ts\"",
     "format": "oxfmt",
-    "desktop:abrir": "electron electron",
+    "desktop:abrir": "npm run desktop:preparar && electron electron",
     "desktop:instalador": "node scripts/gerar-instalador.mjs",
-    "publicar:casca": "node scripts/publicar-casca.mjs"
+    "desktop:preparar": "next build && node scripts/preparar-desktop.mjs",
+    "publicar": "node scripts/publicar-atualizacao.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
